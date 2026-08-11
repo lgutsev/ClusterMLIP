@@ -92,6 +92,17 @@ class PipelineTests(unittest.TestCase):
             self.assertTrue((root / "analysis" / "report.md").exists())
             self.assertTrue((root / "analysis" / "records.csv").exists())
 
+    def test_analyze_record_filter(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "analysis"
+            summary = write_analysis(
+                FIXTURES / "minimum.log",
+                output,
+                record_filter=lambda record: "N" in {atom.symbol for atom in record.atoms},
+            )
+            self.assertEqual(summary["files"]["by_status"]["parsed"], 1)
+            self.assertEqual(summary["structures"]["records"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

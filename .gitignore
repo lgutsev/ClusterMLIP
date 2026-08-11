@@ -8,6 +8,7 @@ dist/
 
 # Generated corpora, calculations, and model weights do not belong in Git.
 analysis/
+private_audits/
 extracted*/
 gaussian_jobs/
 dataset*/
@@ -18,6 +19,7 @@ results/
 *.model
 *.pt
 *.pth
+*.zip
 
 # OS archive metadata
 ._*

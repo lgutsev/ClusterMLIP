@@ -83,7 +83,14 @@ def command_extract(args: argparse.Namespace) -> int:
 def command_analyze(args: argparse.Namespace) -> int:
     source = Path(args.source).resolve()
     output = Path(args.output).resolve()
-    summary = write_analysis(source, output)
+    summary = write_analysis(
+        source,
+        output,
+        record_filter=lambda record: (
+            _record_allowed(record, args)
+            and (not args.types or record.config_type in args.types)
+        ),
+    )
     structures = summary["structures"]
     files = summary["files"]
     print(
@@ -160,6 +167,11 @@ def build_parser() -> argparse.ArgumentParser:
     analyze = sub.add_parser("analyze", help="inventory and summarize an archive/database")
     analyze.add_argument("source", help="archive ZIP, document, or directory")
     analyze.add_argument("-o", "--output", default="analysis")
+    analyze.add_argument("--elements", help="keep only systems composed of these comma-separated elements")
+    analyze.add_argument("--require-elements", help="require all of these comma-separated elements")
+    analyze.add_argument("--min-atoms", type=int)
+    analyze.add_argument("--max-atoms", type=int)
+    analyze.add_argument("--types", nargs="+", help="keep selected config_type values")
     analyze.set_defaults(func=command_analyze)
 
     extract = sub.add_parser("extract", help="extract stationary points and explicit IRC points")

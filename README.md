@@ -63,6 +63,18 @@ IRC classes, and legacy Gaussian routes. Unsupported files remain visible in
 the inventory. Binary `.chk` files are reported as errors if `formchk` is not
 available.
 
+For a private LONI audit with both a complete inventory and the initial Fe/N/O
+pilot selection:
+
+```bash
+bash scripts/generate_private_audit.sh /path/to/Oct9.zip
+```
+
+This writes under `private_audits/`, which is git-ignored. The generated report,
+record tables, source paths, checksums, and warehouse-specific conclusions must
+remain on LONI or another controlled storage system; they are not repository
+documentation.
+
 ## 2. Extract structures
 
 ```bash

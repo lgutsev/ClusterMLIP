@@ -7,7 +7,7 @@ import json
 import statistics
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 from .gaussian import extract_document_records
 from .io import SUPPORTED_SUFFIXES, read_document, source_tree
@@ -38,7 +38,10 @@ def geometry_key(record: Record) -> str:
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
-def scan_source(source: Path) -> tuple[list[FileResult], list[Record]]:
+def scan_source(
+    source: Path,
+    record_filter: Callable[[Record], bool] | None = None,
+) -> tuple[list[FileResult], list[Record]]:
     files: list[FileResult] = []
     records: list[Record] = []
     with source_tree(source) as root:
@@ -69,7 +72,10 @@ def scan_source(source: Path) -> tuple[list[FileResult], list[Record]]:
                 continue
             try:
                 parsed = extract_document_records(read_document(document), relative)
-                records.extend(parsed)
+                records.extend(
+                    record for record in parsed
+                    if record_filter is None or record_filter(record)
+                )
                 files.append(
                     FileResult(
                         relative,
@@ -147,9 +153,13 @@ def _markdown_table(counts: dict[str, int], limit: int = 30) -> str:
     return "\n".join(rows)
 
 
-def write_analysis(source: Path, output: Path) -> dict[str, object]:
+def write_analysis(
+    source: Path,
+    output: Path,
+    record_filter: Callable[[Record], bool] | None = None,
+) -> dict[str, object]:
     output.mkdir(parents=True, exist_ok=True)
-    files, records = scan_source(source)
+    files, records = scan_source(source, record_filter=record_filter)
     summary = summarize(files, records)
     (output / "summary.json").write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
