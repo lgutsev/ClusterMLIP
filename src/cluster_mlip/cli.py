@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from .analysis import write_analysis
+from .audit import run_private_audit
 from .dataset import grouped_split, read_jobs_manifest, write_labeled_extxyz
 from .gaussian import extract_document_records, parse_final_force_frame
 from .io import iter_documents, read_document, read_extxyz, source_tree, write_extxyz, write_manifest
@@ -105,6 +106,37 @@ def command_analyze(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_audit(args: argparse.Namespace) -> int:
+    source = Path(args.source).resolve()
+    output = (
+        Path(args.output).resolve()
+        if args.output
+        else (Path.cwd() / "private_audits" / source.stem).resolve()
+    )
+    result = run_private_audit(
+        source,
+        output,
+        elements=_elements(args.elements),
+        required_elements=_elements(args.require_elements),
+        min_atoms=args.min_atoms,
+        max_atoms=args.max_atoms,
+        types=set(args.types) if args.types else None,
+    )
+    full = result["full"]["structures"]
+    print(
+        f"Full audit: {full['records']} records, "
+        f"{full['unique_geometry_state']} unique geometry/state entries"
+    )
+    if result["selection"] is not None:
+        selected = result["selection"]["structures"]
+        print(
+            f"Selection: {selected['records']} records, "
+            f"{selected['unique_geometry_state']} unique geometry/state entries"
+        )
+    print(f"Private audit: {output}")
+    return 0
+
+
 def command_prepare(args: argparse.Namespace) -> int:
     records = read_extxyz(Path(args.seeds))
     records = [r for r in records if _record_allowed(r, args)]
@@ -173,6 +205,22 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("--max-atoms", type=int)
     analyze.add_argument("--types", nargs="+", help="keep selected config_type values")
     analyze.set_defaults(func=command_analyze)
+
+    audit = sub.add_parser(
+        "audit",
+        help="generate a private full audit plus an optional filtered selection",
+    )
+    audit.add_argument("source", help="archive ZIP, document, or directory")
+    audit.add_argument(
+        "-o", "--output",
+        help="output directory (default: private_audits/<source-name>)",
+    )
+    audit.add_argument("--elements", help="selection element allow-list")
+    audit.add_argument("--require-elements", help="elements required in the selection")
+    audit.add_argument("--min-atoms", type=int)
+    audit.add_argument("--max-atoms", type=int)
+    audit.add_argument("--types", nargs="+", help="configuration types for the selection")
+    audit.set_defaults(func=command_audit)
 
     extract = sub.add_parser("extract", help="extract stationary points and explicit IRC points")
     extract.add_argument("source", help="archive ZIP, document, or directory")

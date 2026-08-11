@@ -4,6 +4,7 @@ import unittest
 import zipfile
 
 from cluster_mlip.analysis import write_analysis
+from cluster_mlip.audit import run_private_audit
 from cluster_mlip.gaussian import extract_document_records, extract_records, parse_final_force_frame
 from cluster_mlip.io import read_extxyz, write_extxyz
 from cluster_mlip.jobs import expanded_records, write_gaussian_jobs
@@ -102,6 +103,22 @@ class PipelineTests(unittest.TestCase):
             )
             self.assertEqual(summary["files"]["by_status"]["parsed"], 1)
             self.assertEqual(summary["structures"]["records"], 0)
+
+    def test_private_audit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "private_audits" / "fixture"
+            result = run_private_audit(
+                FIXTURES / "minimum.log",
+                output,
+                elements={"Fe", "O"},
+                required_elements={"Fe"},
+                max_atoms=20,
+            )
+            self.assertEqual(result["full"]["structures"]["records"], 1)
+            self.assertEqual(result["selection"]["structures"]["records"], 1)
+            self.assertTrue((output / "full" / "report.md").exists())
+            self.assertTrue((output / "selection" / "records.csv").exists())
+            self.assertTrue((output / "provenance.json").exists())
 
 
 if __name__ == "__main__":

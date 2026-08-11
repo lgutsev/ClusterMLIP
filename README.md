@@ -64,16 +64,22 @@ the inventory. Binary `.chk` files are reported as errors if `formchk` is not
 available.
 
 For a private LONI audit with both a complete inventory and the initial Fe/N/O
-pilot selection:
+pilot selection, use the first-class audit command:
 
 ```bash
-bash scripts/generate_private_audit.sh /path/to/Oct9.zip
+cluster-mlip audit /path/to/Oct9.zip \
+  --elements Fe,N,O \
+  --require-elements Fe \
+  --max-atoms 20
 ```
 
-This writes under `private_audits/`, which is git-ignored. The generated report,
-record tables, source paths, checksums, and warehouse-specific conclusions must
-remain on LONI or another controlled storage system; they are not repository
-documentation.
+This writes `full/`, optional `selection/`, and `provenance.json` under
+`private_audits/Oct9/`, which is git-ignored. Provenance includes the LONI host,
+timestamp, source path, byte size, SHA-256 checksum, and applied filters. The
+generated report, record tables, and warehouse-specific conclusions must remain
+on LONI or another controlled storage system; they are not repository
+documentation. `scripts/generate_private_audit.sh` remains as a thin wrapper
+using the same Fe/N/O defaults.
 
 ## 2. Extract structures
 
