@@ -1,0 +1,12 @@
+Example formatted checkpoint
+SP        RWB97M-V
+Number of atoms                            I              2
+Charge                                     I              0
+Multiplicity                               I              3
+Atomic numbers                             I   N=          2
+          26           8
+Current cartesian coordinates              R   N=          6
+ 0.000000000000000E+00 0.000000000000000E+00 0.000000000000000E+00
+ 3.000000000000000E+00 0.000000000000000E+00 0.000000000000000E+00
+Total Energy                               R     -1.337123456700000E+03
+

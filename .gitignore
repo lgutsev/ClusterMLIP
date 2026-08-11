@@ -1,0 +1,24 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+build/
+dist/
+
+# Generated corpora, calculations, and model weights do not belong in Git.
+analysis/
+extracted*/
+gaussian_jobs/
+dataset*/
+checkpoints/
+results/
+*.chk
+*.fchk
+*.model
+*.pt
+*.pth
+
+# OS archive metadata
+._*
+.DS_Store

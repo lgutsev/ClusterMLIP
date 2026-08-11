@@ -1,0 +1,10 @@
+%chk=ts.chk
+#p ubpw91/6-311+G* opt=(ts,calcfc,noeigentest) freq nosymm
+
+FeNO transition state
+
+0 4
+Fe  0.000000  0.000000  0.000000
+N   1.700000  0.000000  0.000000
+O   2.850000  0.000000  0.000000
+
