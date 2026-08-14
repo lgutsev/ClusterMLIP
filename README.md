@@ -119,6 +119,11 @@ Gaussian runner to adapt to the local scheduler.
 
 ## Spin-safe Fe-cluster preparation
 
+> **Experimental status:** this workflow is code-tested but has not yet been
+> human-tested on a real Gaussian campaign. It still requires a one-case
+> Gaussian smoke test, scientific review of the fragment definitions, and
+> likely convergence/restart tuning before production use.
+
 Do not optimize a legacy low-spin Fe-cluster entry directly from a generic
 orbital guess. Its multiplicity may be numerically valid while its intended
 broken-symmetry/AFM root is absent. The spin workflow keeps requested state,
@@ -157,7 +162,16 @@ The independent fragment pathway follows Gaussian's
 [fragment molecule-specification](https://gaussian.com/molspec/) conventions.
 Atom membership, fragment charge, fragment multiplicity, and alpha/beta
 orientation must be supplied explicitly; ClusterMLIP never guesses a magnetic
-partition from geometry. For example:
+partition from geometry. The generated molecule-specification line is ordered
+exactly as `total charge, total multiplicity, fragment 1 charge, fragment 1
+multiplicity, ...`. A negative local multiplicity requests β-spin unpaired
+orbitals for that fragment; it is not a negative total spin.
+
+The preparer rejects fragment inputs unless all atoms are assigned exactly
+once, fragment charges sum to the molecular charge, every local multiplicity
+has valid electron parity, and
+`sum[orientation * (local multiplicity - 1)] == total multiplicity - 1`.
+For example:
 
 ```json
 {
