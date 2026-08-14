@@ -214,6 +214,11 @@ def command_spin_extract(args: argparse.Namespace) -> int:
 
 
 def command_prepare_spins(args: argparse.Namespace) -> int:
+    print(
+        "WARNING: prepare-spins is experimental and has not been human-tested on a production "
+        "Gaussian campaign; inspect generated inputs before submission.",
+        file=sys.stderr,
+    )
     records = read_extxyz(Path(args.seeds))
     records = [record for record in records if _record_allowed(record, args)]
     specifications = None
