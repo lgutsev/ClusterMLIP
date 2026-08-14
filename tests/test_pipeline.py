@@ -153,6 +153,19 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("Fe(Fragment=2)", text)
         self.assertEqual(row["pathway"], "fragment_guess")
 
+    def test_fragment_spins_must_reproduce_total_multiplicity(self):
+        record = Record("fe2", "legacy", [Atom("Fe", 0, 0, 0), Atom("Fe", 2, 0, 0)], 0, 9, "minimum")
+        inconsistent = {
+            "name": "bad-afm",
+            "target_multiplicity": 1,
+            "fragments": [
+                {"atoms": [1], "charge": 0, "multiplicity": 5, "orientation": "alpha"},
+                {"atoms": [2], "charge": 0, "multiplicity": 5, "orientation": "alpha"},
+            ],
+        }
+        with self.assertRaisesRegex(ValueError, "inconsistent with the total multiplicity"):
+            render_fragment_input(record, inconsistent)
+
     def test_spin_diagnostics_distinguish_afm_root(self):
         text = """
  Charge = 0 Multiplicity = 1
