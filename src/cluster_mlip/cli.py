@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import json
 import sys
 from pathlib import Path
 
@@ -12,6 +13,12 @@ from .gaussian import extract_document_records, parse_final_force_frame
 from .io import iter_documents, read_document, read_extxyz, source_tree, write_extxyz, write_manifest
 from .jobs import DEFAULT_ROUTE, expanded_records, write_gaussian_jobs
 from .models import Record, composition_allowed
+from .spin import (
+    DEFAULT_SPIN_ROUTE,
+    validate_spin_campaign,
+    write_spin_inventory,
+    write_spin_jobs,
+)
 
 
 def _elements(value: str | None) -> set[str] | None:
@@ -192,6 +199,67 @@ def command_collect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _multiplicities(value: str) -> list[int]:
+    try:
+        return [int(item.strip()) for item in value.split(",") if item.strip()]
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("multiplicities must be comma-separated integers") from exc
+
+
+def command_spin_extract(args: argparse.Namespace) -> int:
+    count = write_spin_inventory(Path(args.source).resolve(), Path(args.output).resolve())
+    print(f"Extracted {count} spin-state records")
+    print(f"Inventory: {Path(args.output).resolve() / 'spin_inventory.csv'}")
+    return 0
+
+
+def command_prepare_spins(args: argparse.Namespace) -> int:
+    records = read_extxyz(Path(args.seeds))
+    records = [record for record in records if _record_allowed(record, args)]
+    specifications = None
+    if args.fragment_spec:
+        payload = json.loads(Path(args.fragment_spec).read_text(encoding="utf-8"))
+        specifications = payload.get("guesses", payload) if isinstance(payload, dict) else payload
+        if not isinstance(specifications, list):
+            raise ValueError("fragment specification must be a list or an object containing 'guesses'")
+    stages = write_spin_jobs(
+        records,
+        Path(args.output),
+        args.high_spin,
+        args.targets,
+        args.route,
+        args.memory,
+        args.nproc,
+        specifications,
+    )
+    print(f"Prepared {stages} traceable spin stages")
+    print(f"Manifest: {Path(args.output).resolve() / 'spin_jobs.csv'}")
+    return 0
+
+
+def command_validate_spins(args: argparse.Namespace) -> int:
+    summary = validate_spin_campaign(
+        Path(args.original).resolve(),
+        Path(args.new_outputs).resolve(),
+        Path(args.output).resolve(),
+        args.geometry_tolerance,
+        args.spin_tolerance,
+        args.s2_tolerance,
+    )
+    print(
+        f"Validated {summary['legacy_records']} legacy states against {summary['new_records']} new states: "
+        f"missing={summary['missing']}, alternative_roots={summary['alternative_root']}"
+    )
+    print(f"Report: {Path(args.output).resolve() / 'report.md'}")
+    strict_failures = (
+        summary["missing"]
+        + summary["alternative_root"]
+        + summary["new_calculation_incomplete"]
+        + summary["planned_stages_missing"]
+    )
+    return 2 if args.strict and strict_failures else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="cluster-mlip", description="Legacy Gaussian cluster-to-MACE pipeline")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -232,6 +300,14 @@ def build_parser() -> argparse.ArgumentParser:
     extract.add_argument("--types", nargs="+", help="keep selected config_type values")
     extract.set_defaults(func=command_extract)
 
+    spin_extract = sub.add_parser(
+        "spin-extract",
+        help="extract geometries plus multiplicity, <S^2>, local-spin, and convergence evidence",
+    )
+    spin_extract.add_argument("source", help="legacy archive, Gaussian output, or directory")
+    spin_extract.add_argument("-o", "--output", default="spin_inventory")
+    spin_extract.set_defaults(func=command_spin_extract)
+
     prepare = sub.add_parser("prepare", help="generate Gaussian energy+force jobs")
     prepare.add_argument("seeds", help="seeds.extxyz from extract")
     prepare.add_argument("-o", "--output", default="gaussian_jobs")
@@ -249,6 +325,30 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--nproc", type=int, default=16)
     prepare.set_defaults(func=command_prepare)
 
+    prepare_spins = sub.add_parser(
+        "prepare-spins",
+        help="prepare high-spin-to-low-spin Link1 ladders and optional fragment AFM guesses",
+    )
+    prepare_spins.add_argument("seeds", help="seeds.extxyz from spin-extract or extract")
+    prepare_spins.add_argument("-o", "--output", default="gaussian_spin_jobs")
+    prepare_spins.add_argument("--high-spin", type=int, required=True, help="trusted high-spin multiplicity")
+    prepare_spins.add_argument(
+        "--targets", type=_multiplicities, required=True,
+        help="comma-separated low-spin multiplicities; skipped intermediate values are inserted",
+    )
+    prepare_spins.add_argument(
+        "--fragment-spec",
+        help="JSON file with explicit atom-to-fragment maps and fragment charge/spin orientations",
+    )
+    prepare_spins.add_argument("--elements", help="comma-separated element allow-list")
+    prepare_spins.add_argument("--require-elements", help="require all listed elements")
+    prepare_spins.add_argument("--min-atoms", type=int)
+    prepare_spins.add_argument("--max-atoms", type=int)
+    prepare_spins.add_argument("--route", default=DEFAULT_SPIN_ROUTE)
+    prepare_spins.add_argument("--memory", default="16GB")
+    prepare_spins.add_argument("--nproc", type=int, default=16)
+    prepare_spins.set_defaults(func=command_prepare_spins)
+
     collect = sub.add_parser("collect", help="collect completed Gaussian force outputs into MACE extxyz")
     collect.add_argument("outputs", help="directory containing .log/.out files and optional jobs.csv")
     collect.add_argument("-o", "--output", default="dataset")
@@ -256,6 +356,22 @@ def build_parser() -> argparse.ArgumentParser:
     collect.add_argument("--test-fraction", type=float, default=0.10)
     collect.add_argument("--seed", type=int, default=20260811)
     collect.set_defaults(func=command_collect)
+
+    validate_spins = sub.add_parser(
+        "validate-spins",
+        help="check legacy-state coverage and preserve alternative newly converged SCF roots",
+    )
+    validate_spins.add_argument("original", help="legacy archive/directory or extracted extxyz")
+    validate_spins.add_argument("new_outputs", help="directory containing new Gaussian outputs")
+    validate_spins.add_argument("-o", "--output", default="spin_validation")
+    validate_spins.add_argument("--geometry-tolerance", type=float, default=0.05)
+    validate_spins.add_argument("--spin-tolerance", type=float, default=0.25)
+    validate_spins.add_argument("--s2-tolerance", type=float, default=0.25)
+    validate_spins.add_argument(
+        "--strict", action="store_true",
+        help="exit nonzero when a legacy state is missing or converges to an alternative root",
+    )
+    validate_spins.set_defaults(func=command_validate_spins)
     return parser
 
 
