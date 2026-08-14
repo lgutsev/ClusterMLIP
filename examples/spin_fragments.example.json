@@ -1,0 +1,23 @@
+{
+  "guesses": [
+    {
+      "record_id": "REPLACE_WITH_HIGH_SPIN_RECORD_ID",
+      "name": "two-sublattice-afm",
+      "target_multiplicity": 1,
+      "fragments": [
+        {
+          "atoms": [1, 2],
+          "charge": 0,
+          "multiplicity": 5,
+          "orientation": "alpha"
+        },
+        {
+          "atoms": [3, 4],
+          "charge": 0,
+          "multiplicity": 5,
+          "orientation": "beta"
+        }
+      ]
+    }
+  ]
+}

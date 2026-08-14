@@ -117,6 +117,116 @@ energies or forces from different electronic-structure methods in one target
 head. `jobs.csv` preserves each job's parent structure; `run_one.sh` is a small
 Gaussian runner to adapt to the local scheduler.
 
+## Spin-safe Fe-cluster preparation
+
+> **Experimental status:** this workflow is code-tested but has not yet been
+> human-tested on a real Gaussian campaign. It still requires a one-case
+> Gaussian smoke test, scientific review of the fragment definitions, and
+> likely convergence/restart tuning before production use.
+
+Do not optimize a legacy low-spin Fe-cluster entry directly from a generic
+orbital guess. Its multiplicity may be numerically valid while its intended
+broken-symmetry/AFM root is absent. The spin workflow keeps requested state,
+converged SCF root, and local-spin pattern separate.
+
+First extract a state inventory from the original warehouse. This records
+electron-count parity, multiplicity, `<S^2>`, Mulliken atomic spin densities,
+normal termination, optimization status, stability-test evidence, and a local-
+spin root signature when the source contains them:
+
+```bash
+cluster-mlip spin-extract Warehouse2.zip -o spin_inventory
+```
+
+Then prepare a trusted high-spin reference and a one-spin-flip-at-a-time
+multiplicity ladder. Missing intermediate multiplicities are inserted
+automatically, so the following produces 29 -> 27 -> 25 -> 23 -> 21 even if
+only 21 is requested:
+
+```bash
+cluster-mlip prepare-spins spin_inventory/seeds.extxyz \
+  -o gaussian_spin_jobs \
+  --high-spin 29 \
+  --targets 21 \
+  --memory 32GB \
+  --nproc 16
+```
+
+Each Link1 stage reads the immediately preceding checkpoint with
+`Geom=Checkpoint Guess=(Read,Always)`, writes a new checkpoint, and preserves
+the previous root. This is a multiplicity ladder, not proof of AFM coupling;
+the output must still be characterized from local spins and `<S^2>`.
+
+The independent fragment pathway follows Gaussian's
+[`Guess=Fragment`](https://gaussian.com/guess/) and
+[fragment molecule-specification](https://gaussian.com/molspec/) conventions.
+Atom membership, fragment charge, fragment multiplicity, and alpha/beta
+orientation must be supplied explicitly; ClusterMLIP never guesses a magnetic
+partition from geometry. The generated molecule-specification line is ordered
+exactly as `total charge, total multiplicity, fragment 1 charge, fragment 1
+multiplicity, ...`. A negative local multiplicity requests β-spin unpaired
+orbitals for that fragment; it is not a negative total spin.
+
+The preparer rejects fragment inputs unless all atoms are assigned exactly
+once, fragment charges sum to the molecular charge, every local multiplicity
+has valid electron parity, and
+`sum[orientation * (local multiplicity - 1)] == total multiplicity - 1`.
+For example:
+
+```json
+{
+  "guesses": [
+    {
+      "record_id": "REPLACE_WITH_HIGH_SPIN_RECORD_ID",
+      "name": "two-sublattice-afm",
+      "target_multiplicity": 1,
+      "fragments": [
+        {"atoms": [1, 2], "charge": 0, "multiplicity": 5, "orientation": "alpha"},
+        {"atoms": [3, 4], "charge": 0, "multiplicity": 5, "orientation": "beta"}
+      ]
+    }
+  ]
+}
+```
+
+Pass it alongside the ladder:
+
+```bash
+cluster-mlip prepare-spins spin_inventory/seeds.extxyz \
+  -o gaussian_spin_jobs \
+  --high-spin 29 \
+  --targets 27,25,23,21 \
+  --fragment-spec examples/spin_fragments.example.json
+```
+
+`spin_jobs.csv` records the pathway, parent state, predecessor multiplicity,
+stage index, checkpoint, intended charge/multiplicity, and output file. Fragment
+candidates are separate jobs, so convergence to a new root cannot overwrite a
+ladder solution.
+
+Finally compare the original warehouse against all new outputs:
+
+```bash
+cluster-mlip validate-spins Warehouse2.zip gaussian_spin_jobs \
+  -o spin_validation --strict
+```
+
+The validator writes:
+
+- `legacy_coverage.csv` — matched root, uncharacterized match, alternative root,
+  incomplete calculation, or missing legacy state;
+- `new_states.csv` — every new root, including novel/unmatched candidates;
+- `planned_state_coverage.csv` — every requested ladder/fragment stage and
+  whether it appeared in an output;
+- `report.md`, `summary.json`, and `errors.tsv`.
+
+Geometry matching uses a translation-, rotation-, and atom-order-invariant
+element-pair distance fingerprint. Electronic-root comparison uses element-
+resolved local-spin distributions when both old and new outputs contain them.
+An `alternative_root` is retained as potentially useful training data rather
+than silently discarded. `--strict` returns nonzero for missing states,
+incomplete calculations, alternative roots, or planned stages without output.
+
 ## 4. Collect labels and split by parent
 
 Put completed `.log`/`.out` files beside `jobs.csv`, then run:

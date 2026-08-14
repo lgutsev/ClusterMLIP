@@ -8,6 +8,14 @@ from cluster_mlip.audit import run_private_audit
 from cluster_mlip.gaussian import extract_document_records, extract_records, parse_final_force_frame
 from cluster_mlip.io import read_extxyz, write_extxyz
 from cluster_mlip.jobs import expanded_records, write_gaussian_jobs
+from cluster_mlip.models import Atom, Record
+from cluster_mlip.spin import (
+    geometry_distance,
+    parse_spin_diagnostics,
+    render_fragment_input,
+    render_ladder_input,
+    validate_spin_campaign,
+)
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -119,6 +127,102 @@ class PipelineTests(unittest.TestCase):
             self.assertTrue((output / "full" / "report.md").exists())
             self.assertTrue((output / "selection" / "records.csv").exists())
             self.assertTrue((output / "provenance.json").exists())
+
+    def test_spin_ladder_inserts_every_single_flip(self):
+        record = Record("fe2", "legacy", [Atom("Fe", 0, 0, 0), Atom("Fe", 2, 0, 0)], 0, 9, "minimum")
+        text, rows = render_ladder_input(record, 9, [5, 1])
+        self.assertEqual([int(row["intended_multiplicity"]) for row in rows], [9, 7, 5, 3, 1])
+        self.assertEqual(text.count("--Link1--"), 4)
+        self.assertIn("Geom=Checkpoint Guess=(Read,Always)", text)
+        self.assertIn("%oldchk=fe2-ladder-m9-m1-s00-m9.chk", text)
+
+    def test_fragment_afm_input_is_explicit_and_partitioned(self):
+        record = Record("fe2", "legacy", [Atom("Fe", 0, 0, 0), Atom("Fe", 2, 0, 0)], 0, 9, "minimum")
+        specification = {
+            "name": "afm-opposed",
+            "target_multiplicity": 1,
+            "fragments": [
+                {"atoms": [1], "charge": 0, "multiplicity": 5, "orientation": "alpha"},
+                {"atoms": [2], "charge": 0, "multiplicity": 5, "orientation": "beta"},
+            ],
+        }
+        text, row = render_fragment_input(record, specification)
+        self.assertIn("Guess=(Fragment=2,Always)", text)
+        self.assertIn("0 1 0 5 0 -5", text)
+        self.assertIn("Fe(Fragment=1)", text)
+        self.assertIn("Fe(Fragment=2)", text)
+        self.assertEqual(row["pathway"], "fragment_guess")
+
+    def test_fragment_spins_must_reproduce_total_multiplicity(self):
+        record = Record("fe2", "legacy", [Atom("Fe", 0, 0, 0), Atom("Fe", 2, 0, 0)], 0, 9, "minimum")
+        inconsistent = {
+            "name": "bad-afm",
+            "target_multiplicity": 1,
+            "fragments": [
+                {"atoms": [1], "charge": 0, "multiplicity": 5, "orientation": "alpha"},
+                {"atoms": [2], "charge": 0, "multiplicity": 5, "orientation": "alpha"},
+            ],
+        }
+        with self.assertRaisesRegex(ValueError, "inconsistent with the total multiplicity"):
+            render_fragment_input(record, inconsistent)
+
+    def test_spin_diagnostics_distinguish_afm_root(self):
+        text = """
+ Charge = 0 Multiplicity = 1
+ SCF Done:  E(UHF) =  -100.250000 A.U. after 10 cycles
+ S**2 before annihilation  4.1000, after  3.9500
+ Mulliken charges and spin densities:
+              1          2
+     1  Fe   0.100000   3.800000
+     2  Fe  -0.100000  -3.800000
+ Sum of Mulliken charges = 0.00000 Sum of Mulliken spin densities = 0.00000
+ Stationary point found.
+ The wavefunction is stable under the perturbations considered.
+ Normal termination of Gaussian 16
+ """
+        diagnostic = parse_spin_diagnostics(text)[0]
+        self.assertEqual(diagnostic.spin_pattern, "compensated_afm_like")
+        self.assertEqual(diagnostic.root_signature != "", True)
+        self.assertAlmostEqual(diagnostic.expected_s2, 0.0)
+        self.assertTrue(diagnostic.optimized)
+        self.assertEqual(diagnostic.stability, "stable")
+
+    def test_geometry_fingerprint_is_translation_and_order_invariant(self):
+        left = Record("a", "", [Atom("Fe", 0, 0, 0), Atom("O", 2, 0, 0)], 0, 1, "minimum")
+        right = Record("b", "", [Atom("O", 7, 4, 3), Atom("Fe", 5, 4, 3)], 0, 1, "minimum")
+        self.assertAlmostEqual(geometry_distance(left, right), 0.0)
+
+    def test_validator_retains_alternative_root(self):
+        def output(spin_a: float, spin_b: float) -> str:
+            return f"""
+ Charge = 0 Multiplicity = 1
+ Standard orientation:
+ ---------------------------------------------------------------------
+ Center     Atomic      Atomic             Coordinates (Angstroms)
+ Number     Number       Type             X           Y           Z
+ ---------------------------------------------------------------------
+ 1 26 0 0.000000 0.000000 0.000000
+ 2 26 0 2.000000 0.000000 0.000000
+ ---------------------------------------------------------------------
+ SCF Done:  E(UHF) =  -100.250000 A.U. after 10 cycles
+ Mulliken charges and spin densities:
+              1          2
+ 1 Fe 0.0 {spin_a}
+ 2 Fe 0.0 {spin_b}
+ Sum of Mulliken charges = 0.0 Sum of Mulliken spin densities = 0.0
+ Stationary point found.
+ Normal termination of Gaussian 16
+ """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            legacy = root / "legacy.log"
+            legacy.write_text(output(3.8, -3.8))
+            new = root / "new"
+            new.mkdir()
+            (new / "candidate.log").write_text(output(1.2, -1.2))
+            summary = validate_spin_campaign(legacy, new, root / "validation", spin_tolerance=0.25)
+            self.assertEqual(summary["alternative_root"], 1)
+            self.assertTrue((root / "validation" / "new_states.csv").exists())
 
 
 if __name__ == "__main__":
