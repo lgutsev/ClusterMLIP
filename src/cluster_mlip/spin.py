@@ -209,6 +209,8 @@ def _validated_fragments(record: Record, specification: dict) -> tuple[dict[int,
         raise ValueError("a fragment guess requires at least two fragments")
     atom_map: dict[int, int] = {}
     states: list[tuple[int, int]] = []
+    symbol_to_z = {symbol: number for number, symbol in ATOMIC_SYMBOLS.items()}
+    signed_unpaired_electrons = 0
     for fragment_index, fragment in enumerate(fragments, start=1):
         atoms = fragment.get("atoms", [])
         if not atoms:
@@ -218,19 +220,37 @@ def _validated_fragments(record: Record, specification: dict) -> tuple[dict[int,
         orientation = _orientation_sign(fragment.get("orientation", "alpha"))
         if multiplicity < 1:
             raise ValueError("fragment multiplicity must be positive; orientation carries the sign")
-        states.append((charge, orientation * multiplicity))
-        for raw_index in atoms:
-            atom_index = int(raw_index)
+        atom_indices = [int(index) for index in atoms]
+        for atom_index in atom_indices:
             if atom_index < 1 or atom_index > len(record.atoms):
                 raise ValueError(f"atom index {atom_index} is outside 1..{len(record.atoms)}")
             if atom_index in atom_map:
                 raise ValueError(f"atom {atom_index} occurs in more than one fragment")
             atom_map[atom_index] = fragment_index
+        states.append((charge, orientation * multiplicity))
+        fragment_electrons = sum(symbol_to_z[record.atoms[index - 1].symbol] for index in atom_indices) - charge
+        if multiplicity > fragment_electrons + 1:
+            raise ValueError(
+                f"fragment {fragment_index} multiplicity {multiplicity} exceeds its electron-count limit"
+            )
+        if (fragment_electrons + multiplicity - 1) % 2:
+            raise ValueError(
+                f"fragment {fragment_index} multiplicity {multiplicity} has the wrong parity "
+                f"for {fragment_electrons} electrons"
+            )
+        signed_unpaired_electrons += orientation * (multiplicity - 1)
     missing = sorted(set(range(1, len(record.atoms) + 1)) - set(atom_map))
     if missing:
         raise ValueError(f"fragment map does not cover atoms: {missing}")
     if sum(charge for charge, _ in states) != record.charge:
         raise ValueError("fragment charges do not sum to the molecular charge")
+    target = int(specification["target_multiplicity"])
+    if signed_unpaired_electrons != target - 1:
+        raise ValueError(
+            "signed fragment spins are inconsistent with the total multiplicity: "
+            f"sum[orientation * (fragment_multiplicity - 1)]={signed_unpaired_electrons}, "
+            f"but total_multiplicity - 1={target - 1}"
+        )
     return atom_map, states
 
 
