@@ -133,14 +133,25 @@ cluster-mlip prepare extracted/seeds.extxyz \
 ```
 
 Every seed is retained and receives reproducible Cartesian perturbations so the
-force set is not dominated by near-zero stationary-point forces. The default
-route is:
+force set is not dominated by near-zero stationary-point forces. Defaults match
+the Gaussian 09-era unrestricted BPW91 protocol used for the legacy database.
+An unperturbed seed first runs:
 
 ```text
-#p wB97M-V/def2TZVPP Force SCF=(XQC,Tight,MaxCycle=512) Integral=UltraFine NoSymm
+#p UBPW91/6-311G* SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc) NoSymm Opt Freq IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine
 ```
 
-Use `--route` to select the single reference method for a campaign. Do not mix
+Rattled structures instead use the same method as a non-optimizing SP so their
+off-equilibrium displacements are not erased. Both paths then use `--Link1--`
+and the existing checkpoint for the final diffuse-basis force label:
+
+```text
+#p UBPW91/6-311++G* Force SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc) NoSymm Guess=Read Geom=Checkpoint IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine
+```
+
+This is a single-point gradient calculation rather than a strict energy-only
+SP because MACE training requires forces. Override the three stages with
+`--route`, `--rattle-route`, and `--link1-route`, respectively. Do not mix
 energies or forces from different electronic-structure methods in one target
 head. `jobs.csv` preserves each job's parent structure; `run_one.sh` is a small
 Gaussian runner to adapt to the local scheduler.
@@ -209,7 +220,7 @@ cluster-mlip prepare-slurm gaussian_jobs \
 
 Its conda initialization path, environment name, and wrapper directory can be
 overridden with `CLUSTER_MLIP_CONDA_SH`, `CLUSTER_MLIP_XTB_ENV`, and
-`CLUSTER_MLIP_XTB_WRAPPER_DIR`. Ordinary wB97M-V Gaussian labeling does not
+`CLUSTER_MLIP_XTB_WRAPPER_DIR`. Ordinary BPW91 Gaussian labeling does not
 need this hook.
 
 ## Spin-safe Fe-cluster preparation

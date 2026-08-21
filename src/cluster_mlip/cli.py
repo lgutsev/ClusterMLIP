@@ -14,7 +14,13 @@ from .doctor import MISSING_REQUIRED, format_report, run_checks
 from .evaluate import predict_with_mace, write_evaluation_report
 from .gaussian import extract_document_records, parse_final_force_frame
 from .io import iter_documents, read_document, read_extxyz, source_tree, write_extxyz, write_manifest
-from .jobs import DEFAULT_ROUTE, expanded_records, write_gaussian_jobs
+from .jobs import (
+    DEFAULT_LINK1_ROUTE,
+    DEFAULT_RATTLE_ROUTE,
+    DEFAULT_ROUTE,
+    expanded_records,
+    write_gaussian_jobs,
+)
 from .label_report import write_label_report
 from .mace_glue import MaceUnavailable
 from .manifest import write_experiment_manifest
@@ -164,9 +170,19 @@ def command_prepare(args: argparse.Namespace) -> int:
     if args.max_seeds is not None:
         records = records[:args.max_seeds]
     jobs = expanded_records(records, args.rattles_per_seed, args.rattle_sigma, args.seed)
-    write_gaussian_jobs(jobs, Path(args.output), args.route, args.memory, args.nproc)
+    write_gaussian_jobs(
+        jobs,
+        Path(args.output),
+        args.route,
+        args.memory,
+        args.nproc,
+        args.rattle_route,
+        args.link1_route,
+    )
     print(f"Prepared {len(jobs)} Gaussian force jobs from {len(records)} seeds")
-    print(f"Route: {args.route}")
+    print(f"Seed route: {args.route}")
+    print(f"Rattled route: {args.rattle_route}")
+    print(f"Link1 force route: {args.link1_route}")
     return 0
 
 
@@ -473,7 +489,21 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--rattles-per-seed", type=int, default=4)
     prepare.add_argument("--rattle-sigma", type=float, default=0.05, help="Cartesian Gaussian sigma in Angstrom")
     prepare.add_argument("--seed", type=int, default=20260811)
-    prepare.add_argument("--route", default=DEFAULT_ROUTE)
+    prepare.add_argument(
+        "--route",
+        default=DEFAULT_ROUTE,
+        help="first-stage route for unperturbed seeds (default: legacy BPW91 optimization/frequency)",
+    )
+    prepare.add_argument(
+        "--rattle-route",
+        default=DEFAULT_RATTLE_ROUTE,
+        help="first-stage route for rattled structures; must not optimize away the displacement",
+    )
+    prepare.add_argument(
+        "--link1-route",
+        default=DEFAULT_LINK1_ROUTE,
+        help="checkpoint-linked diffuse-basis force route used for final labels",
+    )
     prepare.add_argument("--memory", default="16GB")
     prepare.add_argument("--nproc", type=int, default=16)
     prepare.set_defaults(func=command_prepare)

@@ -8,7 +8,23 @@ from pathlib import Path
 from .models import Atom, Record
 
 
-DEFAULT_ROUTE = "#p wB97M-V/def2TZVPP Force SCF=(XQC,Tight,MaxCycle=512) Integral=UltraFine NoSymm"
+_LEGACY_SCF = "SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc)"
+_LEGACY_IOP = "IOP(5/13=1,5/36=1,8/11=1)"
+
+# Keep the historical Gaussian 09-era BPW91 protocol used for the source
+# calculations.  The unperturbed records may be reoptimized and checked by a
+# frequency calculation, whereas rattled records must retain their displaced
+# geometry so that they contribute useful nonzero forces.
+DEFAULT_ROUTE = (
+    f"#p UBPW91/6-311G* {_LEGACY_SCF} NoSymm Opt Freq {_LEGACY_IOP} Int=UltraFine"
+)
+DEFAULT_RATTLE_ROUTE = (
+    f"#p UBPW91/6-311G* SP {_LEGACY_SCF} NoSymm {_LEGACY_IOP} Int=UltraFine"
+)
+DEFAULT_LINK1_ROUTE = (
+    f"#p UBPW91/6-311++G* Force {_LEGACY_SCF} NoSymm "
+    f"Guess=Read Geom=Checkpoint {_LEGACY_IOP} Int=UltraFine"
+)
 
 
 def _rattle(record: Record, sigma: float, rng: random.Random, variant: int) -> Record:
@@ -49,6 +65,8 @@ def write_gaussian_jobs(
     route: str = DEFAULT_ROUTE,
     memory: str = "16GB",
     nproc: int = 16,
+    rattle_route: str = DEFAULT_RATTLE_ROUTE,
+    link1_route: str = DEFAULT_LINK1_ROUTE,
 ) -> None:
     output.mkdir(parents=True, exist_ok=True)
     manifest = output / "jobs.csv"
@@ -60,18 +78,33 @@ def write_gaussian_jobs(
             filename = f"{record.record_id}.gjf"
             path = output / filename
             parent = record.metadata.get("parent_record_id", record.record_id)
+            first_route = rattle_route if "parent_record_id" in record.metadata else route
             lines = [
                 f"%chk={record.record_id}.chk",
                 f"%mem={memory}",
                 f"%nprocshared={nproc}",
-                route,
+                first_route,
                 "",
                 f"MLIP label {record.record_id}; parent={parent}; type={record.config_type}",
                 "",
                 f"{record.charge} {record.multiplicity}",
             ]
             lines.extend(f"{a.symbol:3s} {a.x: .12f} {a.y: .12f} {a.z: .12f}" for a in record.atoms)
-            lines.extend(["", ""])
+            lines.extend(
+                [
+                    "",
+                    "--Link1--",
+                    f"%chk={record.record_id}.chk",
+                    f"%mem={memory}",
+                    f"%nprocshared={nproc}",
+                    link1_route,
+                    "",
+                    f"MLIP diffuse-basis force label {record.record_id}",
+                    "",
+                    f"{record.charge} {record.multiplicity}",
+                    "",
+                ]
+            )
             path.write_text("\n".join(lines), encoding="utf-8")
             writer.writerow({
                 "job_id": record.record_id,

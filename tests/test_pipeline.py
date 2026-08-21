@@ -12,7 +12,13 @@ from cluster_mlip.gaussian import (
     parse_final_force_frame,
 )
 from cluster_mlip.io import read_document, read_extxyz, write_extxyz
-from cluster_mlip.jobs import expanded_records, write_gaussian_jobs
+from cluster_mlip.jobs import (
+    DEFAULT_LINK1_ROUTE,
+    DEFAULT_RATTLE_ROUTE,
+    DEFAULT_ROUTE,
+    expanded_records,
+    write_gaussian_jobs,
+)
 from cluster_mlip.models import Atom, Record
 from cluster_mlip.spin import (
     geometry_distance,
@@ -59,6 +65,17 @@ class PipelineTests(unittest.TestCase):
             jobs = expanded_records(loaded, 2, 0.05, 7)
             write_gaussian_jobs(jobs, tmp_path / "jobs")
             self.assertEqual(len(list((tmp_path / "jobs").glob("*.gjf"))), 3)
+            seed_input = (tmp_path / "jobs" / f"{jobs[0].record_id}.gjf").read_text()
+            rattle_input = (tmp_path / "jobs" / f"{jobs[1].record_id}.gjf").read_text()
+            self.assertIn(DEFAULT_ROUTE, seed_input)
+            self.assertIn(DEFAULT_RATTLE_ROUTE, rattle_input)
+            self.assertNotIn(" Opt Freq ", rattle_input.split("--Link1--", 1)[0])
+            for text in (seed_input, rattle_input):
+                self.assertEqual(text.count("--Link1--"), 1)
+                self.assertIn(DEFAULT_LINK1_ROUTE, text)
+                self.assertIn("UBPW91/6-311++G* Force", text)
+                self.assertIn("Guess=Read Geom=Checkpoint", text)
+                self.assertNotIn("wB97M-V", text)
 
     def test_native_warehouse(self):
         text = (FIXTURES / "warehouse.txt").read_text()
