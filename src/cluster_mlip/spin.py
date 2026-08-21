@@ -185,20 +185,33 @@ def infer_automatic_fe_spin_plans(
     for (formula, charge), members in sorted(grouped.items()):
         group_key = f"{formula}|q{charge:+d}"
         observed = tuple(sorted({record.multiplicity for record in members}, reverse=True))
+        multiplicity_errors: dict[str, str] = {}
+        for record in members:
+            try:
+                validate_multiplicity(record, record.multiplicity)
+            except ValueError as exc:
+                multiplicity_errors[record.record_id] = str(exc)
         parallel = [record for record in members if _metadata_true(record, "fe_all_resolved_parallel")]
         reliable = [
             record for record in members
             if record.metadata.get("state_inference", "") not in unreliable_inferences
+            and record.record_id not in multiplicity_errors
         ]
         reliable_multiplicities = sorted(
             {record.multiplicity for record in reliable}, reverse=True
         )
         if not reliable_multiplicities:
             for record in members:
+                reason = (
+                    "target_multiplicity_not_physically_valid:"
+                    f"{multiplicity_errors[record.record_id]}"
+                    if record.record_id in multiplicity_errors
+                    else "insufficient_real_data_no_parallel_reference"
+                )
                 skipped.append(SkippedAutomaticSpinPlan(
                     record,
                     group_key,
-                    "insufficient_real_data_no_parallel_reference",
+                    reason,
                     observed,
                     sum(atom.symbol == "Fe" for atom in record.atoms),
                 ))
@@ -226,6 +239,16 @@ def infer_automatic_fe_spin_plans(
 
         for record in members:
             fe_count = sum(atom.symbol == "Fe" for atom in record.atoms)
+            if record.record_id in multiplicity_errors:
+                skipped.append(SkippedAutomaticSpinPlan(
+                    record,
+                    group_key,
+                    "target_multiplicity_not_physically_valid:"
+                    f"{multiplicity_errors[record.record_id]}",
+                    observed,
+                    fe_count,
+                ))
+                continue
             if record.metadata.get("state_inference", "") in unreliable_inferences:
                 skipped.append(SkippedAutomaticSpinPlan(
                     record, group_key, "target_multiplicity_not_reliably_observed", observed, fe_count
@@ -1046,9 +1069,17 @@ def write_spin_inventory(source: Path, output: Path) -> int:
     output.mkdir(parents=True, exist_ok=True)
     observations, errors = _load_observations(source)
     for observation in observations:
-        observation.record.metadata.update(
-            fe_spin_summary(observation.record, observation.diagnostics)
-        )
+        record = observation.record
+        try:
+            validate_multiplicity(record, record.multiplicity)
+            parity_valid = True
+        except ValueError:
+            parity_valid = False
+        record.metadata.update({
+            **fe_spin_summary(record, observation.diagnostics),
+            "electron_count": str(electron_count(record)),
+            "multiplicity_parity_valid": str(parity_valid).lower(),
+        })
     write_extxyz([observation.record for observation in observations], output / "seeds.extxyz")
     columns = [
         "record_id", "source", "formula", "n_atoms", "charge", "multiplicity", "electron_count",
@@ -1063,15 +1094,11 @@ def write_spin_inventory(source: Path, output: Path) -> int:
         writer.writeheader()
         for observation in observations:
             record, diagnostic = observation.record, observation.diagnostics
-            try:
-                validate_multiplicity(record, record.multiplicity)
-                parity_valid = True
-            except ValueError:
-                parity_valid = False
             writer.writerow({
                 "record_id": record.record_id, "source": record.source, "formula": record.formula,
                 "n_atoms": len(record.atoms), "charge": record.charge, "multiplicity": record.multiplicity,
-                "electron_count": electron_count(record), "multiplicity_parity_valid": parity_valid,
+                "electron_count": electron_count(record),
+                "multiplicity_parity_valid": record.metadata["multiplicity_parity_valid"] == "true",
                 "config_type": record.config_type,
                 "state_inference": record.metadata.get("state_inference", ""),
                 "energy_hartree": diagnostic.energy_hartree,
