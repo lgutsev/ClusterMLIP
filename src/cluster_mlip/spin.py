@@ -11,13 +11,24 @@ from typing import Iterable
 
 from .gaussian import ATOMIC_SYMBOLS, _CM_RE, _SCF_RE, _float, extract_document_records
 from .io import iter_documents, read_document, read_extxyz, source_tree, write_extxyz
+from .jobs import human_job_stem
 from .models import Atom, Record
 
 
 DEFAULT_SPIN_ROUTE = (
-    "#p uwB97M-V/def2TZVPP Opt SCF=(XQC,Tight,MaxCycle=512) "
-    "Integral=UltraFine NoSymm Pop=(Full,SpinDensity)"
+    "#p UBPW91/6-311G* SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc) "
+    "NoSymm Opt Freq IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine "
+    "Stable=Opt Pop=(Full,SpinDensity)"
 )
+
+SPIN_MANIFEST_COLUMNS = [
+    "job_id", "chain_id", "stage_index", "pathway", "initialization", "audit_classification",
+    "parent_record_id", "source", "formula", "source_geometry_sha256", "high_spin_multiplicity",
+    "final_target_multiplicity", "intended_charge", "intended_multiplicity", "spin_flip_index",
+    "predecessor_job_id", "predecessor_multiplicity", "predecessor_checkpoint", "checkpoint",
+    "checkpoint_lineage", "fragment_label", "fragment_count", "fragment_spec_sha256", "input",
+    "input_sha256", "output",
+]
 
 _S2_RE = re.compile(
     r"S\*\*2\s+before\s+annihilation\s+([+-]?[\d.]+).*?after\s+([+-]?[\d.]+)",
@@ -145,6 +156,25 @@ def _coordinates(atoms: list[Atom], fragments: dict[int, int] | None = None) -> 
     return lines
 
 
+def _canonical_sha256(value: object) -> str:
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _source_geometry_sha256(record: Record) -> str:
+    return _canonical_sha256([
+        [atom.symbol, f"{atom.x:.12f}", f"{atom.y:.12f}", f"{atom.z:.12f}"]
+        for atom in record.atoms
+    ])
+
+
+def _manifest_int(value: object, default: int = 0) -> int:
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return default
+
+
 def render_ladder_input(
     record: Record,
     high_spin: int,
@@ -161,8 +191,11 @@ def render_ladder_input(
     parts: list[str] = []
     rows: list[dict[str, str]] = []
     previous_checkpoint: str | None = None
+    previous_job_id = ""
+    lineage: list[str] = []
     for stage, multiplicity in enumerate(sequence):
         checkpoint = f"{chain}-s{stage:02d}-m{multiplicity}.chk"
+        job_id = f"{chain}-s{stage:02d}"
         if stage:
             parts.extend(["", "--Link1--"])
         parts.extend(_link_header(checkpoint, memory, nproc, previous_checkpoint))
@@ -170,28 +203,45 @@ def render_ladder_input(
         parts.extend([
             stage_route,
             "",
-            f"ClusterMLIP multiplicity ladder; record={record.record_id}; stage={stage}; multiplicity={multiplicity}",
+            "ClusterMLIP spin pathway; "
+            f"strategy=sequential_spin_flip; record={record.record_id}; stage={stage}; "
+            f"multiplicity={multiplicity}; predecessor={previous_job_id or 'none'}",
             "",
             f"{record.charge} {multiplicity}",
         ])
         if stage == 0:
             parts.extend(_coordinates(record.atoms))
         parts.append("")
+        lineage.append(f"m{multiplicity}:{checkpoint}")
         rows.append({
-            "job_id": f"{chain}-s{stage:02d}",
+            "job_id": job_id,
             "chain_id": chain,
             "stage_index": str(stage),
             "pathway": "multiplicity_ladder",
+            "initialization": "trusted_high_spin_direct" if stage == 0 else "checkpoint_spin_flip",
+            "audit_classification": (
+                "trusted_high_spin_reference" if stage == 0 else "sequential_checkpoint_spin_flip"
+            ),
             "parent_record_id": record.record_id,
             "source": record.source,
             "formula": record.formula,
+            "source_geometry_sha256": _source_geometry_sha256(record),
+            "high_spin_multiplicity": str(high_spin),
+            "final_target_multiplicity": str(sequence[-1]),
             "intended_charge": str(record.charge),
             "intended_multiplicity": str(multiplicity),
+            "spin_flip_index": str(stage),
+            "predecessor_job_id": previous_job_id,
             "predecessor_multiplicity": "" if stage == 0 else str(sequence[stage - 1]),
+            "predecessor_checkpoint": previous_checkpoint or "",
             "checkpoint": checkpoint,
+            "checkpoint_lineage": ">".join(lineage),
             "fragment_label": "",
+            "fragment_count": "",
+            "fragment_spec_sha256": "",
         })
         previous_checkpoint = checkpoint
+        previous_job_id = job_id
     return "\n".join(parts) + "\n", rows
 
 
@@ -330,7 +380,8 @@ def render_fragment_input(
     lines.extend([
         _route_with(route, f"Guess=(Fragment={len(states)},Always)"),
         "",
-        f"ClusterMLIP fragment AFM candidate; record={record.record_id}; label={label}; multiplicity={target}",
+        "ClusterMLIP spin pathway; strategy=manual_fragment_guess; "
+        f"record={record.record_id}; label={label}; multiplicity={target}",
         "",
         f"{record.charge} {target} {fragment_state}",
     ])
@@ -341,14 +392,25 @@ def render_fragment_input(
         "chain_id": job_id,
         "stage_index": "0",
         "pathway": "fragment_guess",
+        "initialization": "explicit_manual_fragment_map",
+        "audit_classification": "manual_fragment_preparation",
         "parent_record_id": record.record_id,
         "source": record.source,
         "formula": record.formula,
+        "source_geometry_sha256": _source_geometry_sha256(record),
+        "high_spin_multiplicity": str(record.multiplicity),
+        "final_target_multiplicity": str(target),
         "intended_charge": str(record.charge),
         "intended_multiplicity": str(target),
+        "spin_flip_index": "",
+        "predecessor_job_id": "",
         "predecessor_multiplicity": "",
+        "predecessor_checkpoint": "",
         "checkpoint": checkpoint,
+        "checkpoint_lineage": f"fragment:{label}:m{target}:{checkpoint}",
         "fragment_label": label,
+        "fragment_count": str(len(states)),
+        "fragment_spec_sha256": _canonical_sha256(specification),
     }
     return "\n".join(lines), row
 
@@ -362,8 +424,17 @@ def write_spin_jobs(
     memory: str = "16GB",
     nproc: int = 16,
     fragment_specifications: list[dict] | None = None,
+    strategy: str = "auto",
 ) -> int:
+    if strategy not in {"auto", "ladder", "fragment", "both"}:
+        raise ValueError("spin preparation strategy must be auto, ladder, fragment, or both")
+    if strategy == "auto":
+        strategy = "both" if fragment_specifications else "ladder"
+    requested_targets = set(targets)
+    if not requested_targets:
+        raise ValueError("at least one low-spin target multiplicity is required")
     high_spin_records = [record for record in records if record.multiplicity == high_spin]
+    skipped_records = [record for record in records if record.multiplicity != high_spin]
     if not high_spin_records:
         raise ValueError(f"no seed has the requested high-spin multiplicity {high_spin}")
     specs_by_record: dict[str, list[dict]] = {}
@@ -372,6 +443,30 @@ def write_spin_jobs(
     unknown = sorted(set(specs_by_record) - {record.record_id for record in high_spin_records})
     if unknown:
         raise ValueError(f"fragment specifications reference unselected records: {unknown}")
+    if strategy in {"fragment", "both"} and not fragment_specifications:
+        raise ValueError(f"--strategy {strategy} requires --fragment-spec")
+    if strategy == "fragment":
+        missing_specs: list[str] = []
+        for record in high_spin_records:
+            defined = {
+                int(specification["target_multiplicity"])
+                for specification in specs_by_record.get(record.record_id, [])
+            }
+            for target in sorted(requested_targets - defined, reverse=True):
+                missing_specs.append(f"{record.record_id}:m{target}")
+        if missing_specs:
+            raise ValueError(
+                "fragment-only preparation requires an explicit fragment guess for every requested state; "
+                f"missing {missing_specs}"
+            )
+    if output.exists():
+        existing = sorted(path.name for path in output.iterdir())
+        if existing:
+            preview = ", ".join(existing[:5])
+            raise RuntimeError(
+                "refusing to overwrite an existing spin campaign; use a fresh output directory "
+                f"so checkpoint and audit lineage remain immutable: {preview}"
+            )
 
     # Render every ladder/fragment job in memory first. render_ladder_input
     # and render_fragment_input validate as they go (multiplicity parity,
@@ -382,33 +477,87 @@ def write_spin_jobs(
     files: list[tuple[str, str]] = []
     rows: list[dict[str, str]] = []
     for record in high_spin_records:
-        text, chain_rows = render_ladder_input(record, high_spin, targets, route, memory, nproc)
-        filename = f"{chain_rows[0]['chain_id']}.gjf"
-        files.append((filename, text))
-        for row in chain_rows:
-            row["input"] = filename
-            row["output"] = f"{Path(filename).stem}.log"
-        rows.extend(chain_rows)
-        for specification in specs_by_record.get(record.record_id, []):
-            text, row = render_fragment_input(record, specification, route, memory, nproc)
-            filename = f"{row['job_id']}.gjf"
+        readable = human_job_stem(record)
+        if strategy in {"ladder", "both"}:
+            text, chain_rows = render_ladder_input(record, high_spin, requested_targets, route, memory, nproc)
+            filename = f"{readable}__spin-ladder-m{high_spin}-to-m{min(requested_targets)}.gjf"
             files.append((filename, text))
-            row["input"] = filename
-            row["output"] = f"{Path(filename).stem}.log"
-            rows.append(row)
+            for row in chain_rows:
+                row["input"] = filename
+                row["input_sha256"] = hashlib.sha256(text.encode()).hexdigest()
+                row["output"] = f"{Path(filename).stem}.log"
+            rows.extend(chain_rows)
+        if strategy in {"fragment", "both"}:
+            for specification in specs_by_record.get(record.record_id, []):
+                text, row = render_fragment_input(record, specification, route, memory, nproc)
+                filename = (
+                    f"{readable}__spin-fragment-{row['fragment_label']}"
+                    f"-m{row['intended_multiplicity']}.gjf"
+                )
+                files.append((filename, text))
+                row["input"] = filename
+                row["input_sha256"] = hashlib.sha256(text.encode()).hexdigest()
+                row["output"] = f"{Path(filename).stem}.log"
+                rows.append(row)
+
+    filenames = [filename for filename, _ in files]
+    if len(set(filenames)) != len(filenames):
+        duplicates = sorted({name for name in filenames if filenames.count(name) > 1})
+        raise ValueError(f"spin specifications produce duplicate input filenames: {duplicates}")
+    job_ids = [row["job_id"] for row in rows]
+    if len(set(job_ids)) != len(job_ids):
+        duplicates = sorted({name for name in job_ids if job_ids.count(name) > 1})
+        raise ValueError(f"spin specifications produce duplicate job IDs: {duplicates}")
 
     output.mkdir(parents=True, exist_ok=True)
     for filename, text in files:
         (output / filename).write_text(text, encoding="utf-8")
-    columns = [
-        "job_id", "chain_id", "stage_index", "pathway", "parent_record_id", "source", "formula",
-        "intended_charge", "intended_multiplicity", "predecessor_multiplicity", "checkpoint",
-        "fragment_label", "input", "output",
-    ]
     with (output / "spin_jobs.csv").open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer = csv.DictWriter(handle, fieldnames=SPIN_MANIFEST_COLUMNS)
         writer.writeheader()
         writer.writerows(rows)
+    with (output / "skipped_spin_seeds.csv").open("w", newline="", encoding="utf-8") as handle:
+        columns = ["record_id", "source", "formula", "charge", "multiplicity", "reason"]
+        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer.writeheader()
+        for record in skipped_records:
+            writer.writerow({
+                "record_id": record.record_id,
+                "source": record.source,
+                "formula": record.formula,
+                "charge": record.charge,
+                "multiplicity": record.multiplicity,
+                "reason": "direct_low_spin_initialization_prohibited",
+            })
+    if fragment_specifications:
+        locked = {"guesses": fragment_specifications}
+        (output / "fragment_specifications.lock.json").write_text(
+            json.dumps(locked, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+    spin_manifest_sha256 = hashlib.sha256((output / "spin_jobs.csv").read_bytes()).hexdigest()
+    campaign = {
+        "schema_version": 1,
+        "strategy": strategy,
+        "trusted_high_spin_multiplicity": high_spin,
+        "requested_target_multiplicities": sorted(requested_targets, reverse=True),
+        "trusted_high_spin_seed_count": len(high_spin_records),
+        "skipped_non_high_spin_seed_count": len(skipped_records),
+        "route": route,
+        "memory": memory,
+        "nproc": nproc,
+        "manifest": "spin_jobs.csv",
+        "manifest_sha256": spin_manifest_sha256,
+        "fragment_specifications": (
+            "fragment_specifications.lock.json" if fragment_specifications else None
+        ),
+        "fragment_specifications_sha256": (
+            _canonical_sha256({"guesses": fragment_specifications})
+            if fragment_specifications else None
+        ),
+    }
+    (output / "spin_campaign.json").write_text(
+        json.dumps(campaign, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     (output / "run_one.sh").write_text(
         "#!/usr/bin/env bash\nset -euo pipefail\ninput=$1\noutput=${input%.gjf}.log\ng16 \"$input\" > \"$output\"\n",
         encoding="utf-8",
@@ -581,6 +730,175 @@ def write_spin_inventory(source: Path, output: Path) -> int:
     return len(observations)
 
 
+def _spin_manifest_audit(
+    manifest: Path,
+) -> tuple[list[dict[str, str]], dict[str, str], list[str]]:
+    """Validate preparation provenance without trusting filenames or outputs."""
+    errors: list[str] = []
+    if not manifest.is_file():
+        return [], {}, [f"missing spin manifest: {manifest}"]
+    campaign_path = manifest.parent / "spin_campaign.json"
+    if not campaign_path.is_file():
+        errors.append(f"missing spin campaign metadata: {campaign_path}")
+    else:
+        try:
+            campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+            actual_manifest_hash = hashlib.sha256(manifest.read_bytes()).hexdigest()
+            if campaign.get("manifest_sha256") != actual_manifest_hash:
+                errors.append("spin_jobs.csv SHA-256 does not match spin_campaign.json")
+        except (OSError, json.JSONDecodeError) as exc:
+            errors.append(f"cannot read spin campaign metadata {campaign_path}: {exc}")
+    with manifest.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        fields = set(reader.fieldnames or [])
+        missing = sorted(set(SPIN_MANIFEST_COLUMNS) - fields)
+        if missing:
+            errors.append(f"spin manifest is missing audit columns: {missing}")
+        rows = list(reader)
+
+    by_job = {row.get("job_id", ""): row for row in rows}
+    if "" in by_job:
+        errors.append("spin manifest contains a row without job_id")
+    if len(by_job) != len(rows):
+        errors.append("spin manifest contains duplicate job_id values")
+
+    locked_hashes: set[str] = set()
+    lock = manifest.parent / "fragment_specifications.lock.json"
+    if lock.is_file():
+        try:
+            payload = json.loads(lock.read_text(encoding="utf-8"))
+            guesses = payload.get("guesses", payload) if isinstance(payload, dict) else payload
+            if isinstance(guesses, list):
+                locked_hashes = {_canonical_sha256(specification) for specification in guesses}
+            else:
+                errors.append(f"fragment lock has no guesses list: {lock}")
+        except (OSError, json.JSONDecodeError) as exc:
+            errors.append(f"cannot read fragment lock {lock}: {exc}")
+
+    status_by_job: dict[str, str] = {}
+    ordered = sorted(
+        rows,
+        key=lambda row: (row.get("chain_id", ""), _manifest_int(row.get("stage_index"))),
+    )
+    for row in ordered:
+        job_id = row.get("job_id", "")
+        problems: list[str] = []
+        if len(row.get("source_geometry_sha256", "")) != 64:
+            problems.append("source_geometry_hash_missing")
+        input_path = manifest.parent / row.get("input", "")
+        expected_input_hash = row.get("input_sha256", "")
+        if not input_path.is_file():
+            problems.append("input_file_missing")
+        elif len(expected_input_hash) != 64:
+            problems.append("input_hash_missing")
+        elif hashlib.sha256(input_path.read_bytes()).hexdigest() != expected_input_hash:
+            problems.append("input_hash_mismatch")
+        pathway = row.get("pathway", "")
+        stage = _manifest_int(row.get("stage_index"))
+        if pathway == "fragment_guess":
+            if row.get("initialization") != "explicit_manual_fragment_map":
+                problems.append("fragment_initialization_unmarked")
+            if row.get("audit_classification") != "manual_fragment_preparation":
+                problems.append("fragment_audit_classification_unmarked")
+            spec_hash = row.get("fragment_spec_sha256", "")
+            if len(spec_hash) != 64:
+                problems.append("fragment_spec_hash_missing")
+            elif spec_hash not in locked_hashes:
+                problems.append("fragment_spec_not_in_lock")
+            if row.get("predecessor_job_id") or row.get("predecessor_checkpoint"):
+                problems.append("fragment_has_checkpoint_predecessor")
+        elif pathway == "multiplicity_ladder":
+            intended = _manifest_int(row.get("intended_multiplicity"))
+            high = _manifest_int(row.get("high_spin_multiplicity"))
+            predecessor_id = row.get("predecessor_job_id", "")
+            if stage == 0:
+                if intended != high:
+                    problems.append("direct_state_is_not_trusted_high_spin")
+                if row.get("initialization") != "trusted_high_spin_direct":
+                    problems.append("high_spin_initialization_unmarked")
+                if row.get("audit_classification") != "trusted_high_spin_reference":
+                    problems.append("high_spin_audit_classification_unmarked")
+                if predecessor_id or row.get("predecessor_checkpoint"):
+                    problems.append("high_spin_reference_has_predecessor")
+                expected_lineage = f"m{intended}:{row.get('checkpoint', '')}"
+            else:
+                predecessor = by_job.get(predecessor_id)
+                if predecessor is None:
+                    problems.append("predecessor_job_missing")
+                    expected_lineage = ""
+                else:
+                    predecessor_stage = _manifest_int(predecessor.get("stage_index"), -1)
+                    predecessor_multiplicity = _manifest_int(
+                        predecessor.get("intended_multiplicity")
+                    )
+                    if predecessor.get("chain_id") != row.get("chain_id"):
+                        problems.append("predecessor_chain_mismatch")
+                    if predecessor_stage != stage - 1:
+                        problems.append("predecessor_stage_not_immediate")
+                    if predecessor_multiplicity - intended != 2:
+                        problems.append("not_one_spin_flip")
+                    if row.get("predecessor_multiplicity") != str(predecessor_multiplicity):
+                        problems.append("predecessor_multiplicity_mismatch")
+                    if row.get("predecessor_checkpoint") != predecessor.get("checkpoint"):
+                        problems.append("predecessor_checkpoint_mismatch")
+                    expected_lineage = (
+                        f"{predecessor.get('checkpoint_lineage', '')}>"
+                        f"m{intended}:{row.get('checkpoint', '')}"
+                    )
+                if row.get("initialization") != "checkpoint_spin_flip":
+                    problems.append("spin_flip_initialization_unmarked")
+                if row.get("audit_classification") != "sequential_checkpoint_spin_flip":
+                    problems.append("spin_flip_audit_classification_unmarked")
+            if row.get("checkpoint_lineage") != expected_lineage:
+                problems.append("checkpoint_lineage_mismatch")
+        else:
+            problems.append("unknown_pathway")
+        status_by_job[job_id] = "verified" if not problems else ";".join(problems)
+    return rows, status_by_job, errors
+
+
+def _locked_fragment_specifications(campaign: Path) -> dict[str, dict]:
+    lock = campaign / "fragment_specifications.lock.json"
+    if not lock.is_file():
+        return {}
+    try:
+        payload = json.loads(lock.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    guesses = payload.get("guesses", payload) if isinstance(payload, dict) else payload
+    if not isinstance(guesses, list):
+        return {}
+    return {
+        _canonical_sha256(specification): specification
+        for specification in guesses
+        if isinstance(specification, dict)
+    }
+
+
+def _fragment_spin_alignment(diagnostic: SpinDiagnostics, specification: dict | None) -> str:
+    """Compare converged net fragment spins with the requested alpha/beta orientations."""
+    if specification is None:
+        return "specification_unavailable"
+    if not diagnostic.atomic_spins:
+        return "spin_density_unavailable"
+    spins = {index: spin for index, _, spin in diagnostic.atomic_spins}
+    unresolved = False
+    for fragment in specification.get("fragments", []):
+        if int(fragment.get("multiplicity", 1)) <= 1:
+            continue
+        expected = _orientation_sign(fragment.get("orientation", "alpha"))
+        indices = [int(index) for index in fragment.get("atoms", [])]
+        if any(index not in spins for index in indices):
+            unresolved = True
+            continue
+        net_spin = sum(spins[index] for index in indices)
+        if abs(net_spin) < 0.10:
+            unresolved = True
+        elif (net_spin > 0) != (expected > 0):
+            return "mismatch"
+    return "unresolved" if unresolved else "matched"
+
+
 def validate_spin_campaign(
     original: Path,
     new_outputs: Path,
@@ -590,8 +908,24 @@ def validate_spin_campaign(
     s2_tolerance: float = 0.25,
 ) -> dict[str, int]:
     output.mkdir(parents=True, exist_ok=True)
+    manifest = new_outputs / "spin_jobs.csv"
+    manifest_rows, lineage_by_job, manifest_errors = _spin_manifest_audit(manifest)
+    fragment_specs_by_hash = _locked_fragment_specifications(new_outputs)
+    manifest_lookup = {
+        (Path(row.get("output", "")).name, _manifest_int(row.get("intended_charge")),
+         _manifest_int(row.get("intended_multiplicity"))): row
+        for row in manifest_rows
+    }
     old, old_errors = _load_observations(original)
     new, new_errors = _load_observations(new_outputs, outputs_only=True)
+
+    def provenance(observation: StateObservation) -> dict[str, str] | None:
+        key = (
+            Path(observation.record.source).name,
+            observation.record.charge,
+            observation.record.multiplicity,
+        )
+        return manifest_lookup.get(key)
     coverage_rows: list[dict[str, object]] = []
     matched_new: set[int] = set()
     counts = {
@@ -633,6 +967,7 @@ def validate_spin_campaign(
             else:
                 status = "matched_same_root"
         counts[status] += 1
+        prepared = None if current is None else provenance(current)
         coverage_rows.append({
             "legacy_record_id": legacy.record.record_id,
             "legacy_source": legacy.record.source,
@@ -655,6 +990,25 @@ def validate_spin_campaign(
             "new_spin_pattern": "" if current is None else current.diagnostics.spin_pattern,
             "legacy_root_signature": legacy.diagnostics.root_signature,
             "new_root_signature": "" if current is None else current.diagnostics.root_signature,
+            "new_pathway": "" if prepared is None else prepared.get("pathway", ""),
+            "new_initialization": "untracked" if prepared is None else prepared.get("initialization", ""),
+            "new_audit_classification": (
+                "untracked_direct_or_external"
+                if prepared is None else prepared.get("audit_classification", "")
+            ),
+            "new_chain_id": "" if prepared is None else prepared.get("chain_id", ""),
+            "new_stage_index": "" if prepared is None else prepared.get("stage_index", ""),
+            "new_predecessor_job_id": "" if prepared is None else prepared.get("predecessor_job_id", ""),
+            "new_predecessor_checkpoint": (
+                "" if prepared is None else prepared.get("predecessor_checkpoint", "")
+            ),
+            "new_checkpoint": "" if prepared is None else prepared.get("checkpoint", ""),
+            "new_checkpoint_lineage": (
+                "" if prepared is None else prepared.get("checkpoint_lineage", "")
+            ),
+            "new_lineage_status": (
+                "untracked" if prepared is None else lineage_by_job.get(prepared.get("job_id", ""), "invalid")
+            ),
         })
     with (output / "legacy_coverage.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(coverage_rows[0]) if coverage_rows else ["status"])
@@ -663,6 +1017,15 @@ def validate_spin_campaign(
     new_rows = []
     for index, observation in enumerate(new):
         diagnostic = observation.diagnostics
+        prepared = provenance(observation)
+        fragment_alignment = (
+            "not_applicable"
+            if prepared is None or prepared.get("pathway") != "fragment_guess"
+            else _fragment_spin_alignment(
+                diagnostic,
+                fragment_specs_by_hash.get(prepared.get("fragment_spec_sha256", "")),
+            )
+        )
         new_rows.append({
             "record_id": observation.record.record_id,
             "source": observation.record.source,
@@ -677,6 +1040,26 @@ def validate_spin_campaign(
             "optimized": diagnostic.optimized,
             "stability": diagnostic.stability,
             "novel_or_unmatched_candidate": index not in matched_new,
+            "pathway": "untracked" if prepared is None else prepared.get("pathway", ""),
+            "initialization": "untracked" if prepared is None else prepared.get("initialization", ""),
+            "audit_classification": (
+                "untracked_direct_or_external"
+                if prepared is None else prepared.get("audit_classification", "")
+            ),
+            "chain_id": "" if prepared is None else prepared.get("chain_id", ""),
+            "stage_index": "" if prepared is None else prepared.get("stage_index", ""),
+            "predecessor_job_id": "" if prepared is None else prepared.get("predecessor_job_id", ""),
+            "predecessor_checkpoint": (
+                "" if prepared is None else prepared.get("predecessor_checkpoint", "")
+            ),
+            "checkpoint": "" if prepared is None else prepared.get("checkpoint", ""),
+            "checkpoint_lineage": (
+                "" if prepared is None else prepared.get("checkpoint_lineage", "")
+            ),
+            "lineage_status": (
+                "untracked" if prepared is None else lineage_by_job.get(prepared.get("job_id", ""), "invalid")
+            ),
+            "fragment_spin_alignment": fragment_alignment,
         })
     with (output / "new_states.csv").open("w", newline="", encoding="utf-8") as handle:
         fields = list(new_rows[0]) if new_rows else ["record_id"]
@@ -684,33 +1067,123 @@ def validate_spin_campaign(
         writer.writeheader()
         writer.writerows(new_rows)
     planned_rows: list[dict[str, object]] = []
-    manifest = new_outputs / "spin_jobs.csv"
-    if manifest.exists():
+    if manifest_rows:
         observed = {
-            (Path(observation.record.source).name, observation.record.charge, observation.record.multiplicity)
+            (
+                Path(observation.record.source).name,
+                observation.record.charge,
+                observation.record.multiplicity,
+            ): observation
             for observation in new
         }
-        with manifest.open(newline="", encoding="utf-8") as handle:
-            for row in csv.DictReader(handle):
-                key = (Path(row["output"]).name, int(row["intended_charge"]), int(row["intended_multiplicity"]))
-                planned_rows.append({
-                    "job_id": row["job_id"],
-                    "pathway": row["pathway"],
-                    "output": row["output"],
-                    "intended_charge": row["intended_charge"],
-                    "intended_multiplicity": row["intended_multiplicity"],
-                    "observed": key in observed,
-                })
-        with (output / "planned_state_coverage.csv").open("w", newline="", encoding="utf-8") as handle:
-            fields = list(planned_rows[0]) if planned_rows else ["job_id"]
-            writer = csv.DictWriter(handle, fieldnames=fields)
-            writer.writeheader()
-            writer.writerows(planned_rows)
+        rows_by_job = {row.get("job_id", ""): row for row in manifest_rows}
+        observation_by_job: dict[str, StateObservation | None] = {}
+        for row in manifest_rows:
+            observation_by_job[row.get("job_id", "")] = observed.get((
+                Path(row.get("output", "")).name,
+                _manifest_int(row.get("intended_charge")),
+                _manifest_int(row.get("intended_multiplicity")),
+            ))
+        complete_by_job: dict[str, bool] = {}
+
+        def pathway_complete(job_id: str, visiting: set[str] | None = None) -> bool:
+            if job_id in complete_by_job:
+                return complete_by_job[job_id]
+            visiting = set() if visiting is None else visiting
+            if job_id in visiting:
+                complete_by_job[job_id] = False
+                return False
+            visiting.add(job_id)
+            row = rows_by_job.get(job_id)
+            observation = observation_by_job.get(job_id)
+            diagnostic = None if observation is None else observation.diagnostics
+            predecessor_id = "" if row is None else row.get("predecessor_job_id", "")
+            predecessor_complete = (
+                True if not predecessor_id else pathway_complete(predecessor_id, visiting)
+            )
+            complete_by_job[job_id] = bool(
+                row is not None
+                and diagnostic is not None
+                and diagnostic.normal_termination
+                and diagnostic.optimized
+                and predecessor_complete
+                and lineage_by_job.get(job_id) == "verified"
+            )
+            visiting.remove(job_id)
+            return complete_by_job[job_id]
+
+        for row in manifest_rows:
+            observation = observation_by_job.get(row.get("job_id", ""))
+            diagnostic = None if observation is None else observation.diagnostics
+            predecessor_id = row.get("predecessor_job_id", "")
+            predecessor_complete = (
+                True if not predecessor_id else pathway_complete(predecessor_id)
+            )
+            complete = pathway_complete(row.get("job_id", ""))
+            fragment_alignment = (
+                "not_applicable"
+                if row.get("pathway") != "fragment_guess" or diagnostic is None
+                else _fragment_spin_alignment(
+                    diagnostic,
+                    fragment_specs_by_hash.get(row.get("fragment_spec_sha256", "")),
+                )
+            )
+            planned_rows.append({
+                **{column: row.get(column, "") for column in SPIN_MANIFEST_COLUMNS},
+                "lineage_status": lineage_by_job.get(row.get("job_id", ""), "invalid"),
+                "observed": observation is not None,
+                "normal_termination": False if diagnostic is None else diagnostic.normal_termination,
+                "optimized": False if diagnostic is None else diagnostic.optimized,
+                "stability": "" if diagnostic is None else diagnostic.stability,
+                "spin_pattern": "" if diagnostic is None else diagnostic.spin_pattern,
+                "root_signature": "" if diagnostic is None else diagnostic.root_signature,
+                "s2_delta": "" if diagnostic is None else diagnostic.s2_delta,
+                "electronic_root_characterized": bool(
+                    diagnostic is not None
+                    and diagnostic.root_signature
+                    and (diagnostic.s2_before is not None or diagnostic.s2_after is not None)
+                ),
+                "fragment_spin_alignment": fragment_alignment,
+                "predecessor_complete": predecessor_complete,
+                "pathway_complete_through_stage": complete,
+            })
+    with (output / "planned_state_coverage.csv").open("w", newline="", encoding="utf-8") as handle:
+        fields = list(planned_rows[0]) if planned_rows else ["job_id", "lineage_status", "observed"]
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(planned_rows)
     planned_missing = sum(not bool(row["observed"]) for row in planned_rows)
+    lineage_errors = sum(status != "verified" for status in lineage_by_job.values()) + len(manifest_errors)
+    untracked_new_states = sum(provenance(observation) is None for observation in new)
+    planned_stages_incomplete = sum(
+        bool(row["observed"]) and not bool(row["pathway_complete_through_stage"])
+        for row in planned_rows
+    )
+    planned_states_uncharacterized = sum(
+        bool(row["observed"]) and not bool(row["electronic_root_characterized"])
+        for row in planned_rows
+    )
+    fragment_alignment_mismatches = sum(
+        row["fragment_spin_alignment"] == "mismatch" for row in planned_rows
+    )
+    fragment_alignment_unresolved = sum(
+        row["fragment_spin_alignment"]
+        in {"unresolved", "spin_density_unavailable", "specification_unavailable"}
+        for row in planned_rows
+    )
+    planned_states_without_stability = sum(
+        bool(row["observed"]) and row["stability"] != "stable" for row in planned_rows
+    )
     summary = {
         "legacy_records": len(old), "new_records": len(new), **counts,
         "novel_or_unmatched_new": len(new) - len(matched_new),
         "planned_stages": len(planned_rows), "planned_stages_missing": planned_missing,
+        "lineage_errors": lineage_errors, "untracked_new_states": untracked_new_states,
+        "planned_stages_incomplete": planned_stages_incomplete,
+        "planned_states_uncharacterized": planned_states_uncharacterized,
+        "fragment_alignment_mismatches": fragment_alignment_mismatches,
+        "fragment_alignment_unresolved": fragment_alignment_unresolved,
+        "planned_states_without_stability": planned_states_without_stability,
         "legacy_parse_errors": len(old_errors), "new_parse_errors": len(new_errors),
     }
     (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
@@ -724,12 +1197,24 @@ def validate_spin_campaign(
         f"- Matching state with incomplete new calculation: {counts['new_calculation_incomplete']}",
         f"- Missing legacy states: {counts['missing']}",
         f"- Planned spin stages without an observed state: {planned_missing}",
+        f"- Spin-pathway lineage errors: {lineage_errors}",
+        f"- New states not linked to the spin manifest: {untracked_new_states}",
+        f"- Observed planned stages incomplete or blocked by a predecessor: {planned_stages_incomplete}",
+        f"- Observed planned states without local-spin plus <S^2> characterization: {planned_states_uncharacterized}",
+        f"- Fragment candidates with converged spin signs opposing the manual map: {fragment_alignment_mismatches}",
+        f"- Fragment candidates whose requested orientation could not be resolved: {fragment_alignment_unresolved}",
+        f"- Observed planned states without a stable-wavefunction result: {planned_states_without_stability}",
         f"- Novel or unmatched new candidates retained: {summary['novel_or_unmatched_new']}",
         "",
         "`alternative_root` is not discarded. It marks a geometrically matching charge/multiplicity state with a materially different local-spin distribution.",
     ]
     (output / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     with (output / "errors.tsv").open("w", encoding="utf-8") as handle:
+        for message in manifest_errors:
+            handle.write(f"manifest\t{manifest}\t{message}\n")
+        for job_id, status in lineage_by_job.items():
+            if status != "verified":
+                handle.write(f"lineage\t{job_id}\t{status}\n")
         for category, errors in (("legacy", old_errors), ("new", new_errors)):
             for name, message in errors:
                 handle.write(f"{category}\t{name}\t{message}\n")

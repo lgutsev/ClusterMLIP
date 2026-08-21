@@ -291,22 +291,32 @@ cluster-mlip spin-extract Warehouse2.zip -o spin_inventory
 
 Then prepare a trusted high-spin reference and a one-spin-flip-at-a-time
 multiplicity ladder. Missing intermediate multiplicities are inserted
-automatically, so the following produces 29 -> 27 -> 25 -> 23 -> 21 even if
-only 21 is requested:
+automatically. For Fe10, the following produces
+29 -> 27 -> 25 -> 23 -> 21 -> 19 -> 17 even though only 17 is requested:
 
 ```bash
 cluster-mlip prepare-spins spin_inventory/seeds.extxyz \
   -o gaussian_spin_jobs \
   --high-spin 29 \
-  --targets 21 \
+  --targets 17 \
+  --strategy ladder \
   --memory 32GB \
   --nproc 16
 ```
 
-Each Link1 stage reads the immediately preceding checkpoint with
-`Geom=Checkpoint Guess=(Read,Always)`, writes a new checkpoint, and preserves
-the previous root. This is a multiplicity ladder, not proof of AFM coupling;
-the output must still be characterized from local spins and `<S^2>`.
+Multiplicity 29 is the only directly initialized state. Each lower-spin Link1
+stage reads the immediately preceding checkpoint with `%oldchk`, writes a
+different checkpoint with `%chk`, and uses
+`Geom=Checkpoint Guess=(Read,Always)`. Thus the multiplicity-17 state cannot be
+mistaken for an independently initialized low-spin calculation. This is a
+multiplicity ladder, not proof of the desired AFM coupling; the output must
+still be characterized from local spins and `<S^2>`.
+
+The default route is the Gaussian 09-era protocol used for the original work:
+unrestricted BPW91/6-311G*, the VShift/NoIncFock convergence controls, NoSymm,
+Opt/Freq, the historical IOP settings, and UltraFine integration. `Stable=Opt`
+and full spin-density population analysis are added so the electronic root can
+be audited. It does not use wB97M-V/def2TZVPP.
 
 The independent fragment pathway follows Gaussian's
 [`Guess=Fragment`](https://gaussian.com/guess/) and
@@ -345,20 +355,39 @@ fragment validator. For example:
 }
 ```
 
-Pass it alongside the ladder:
+Choose the manual fragment pathway by itself:
 
 ```bash
 cluster-mlip prepare-spins spin_inventory/seeds.extxyz \
   -o gaussian_spin_jobs \
   --high-spin 29 \
-  --targets 27,25,23,21 \
-  --fragment-spec examples/spin_fragments.example.json
+  --targets 17 \
+  --strategy fragment \
+  --fragment-spec my_fe10_fragments.json
 ```
 
-`spin_jobs.csv` records the pathway, parent state, predecessor multiplicity,
-stage index, checkpoint, intended charge/multiplicity, and output file. Fragment
-candidates are separate jobs, so convergence to a new root cannot overwrite a
-ladder solution.
+Use `--strategy both` to prepare independent ladder and fragment candidates;
+`auto` (the default) selects both when `--fragment-spec` is supplied and the
+ladder otherwise. Fragment-only mode refuses to proceed unless every requested
+record/multiplicity has an explicit fragment definition.
+
+`spin_jobs.csv` records, for every state, its initialization and audit
+classification, parent state, stage, intended charge/multiplicity, predecessor
+job and checkpoint, new checkpoint, complete checkpoint lineage, source
+geometry hash, input hash, and (for fragment jobs) fragment-definition hash.
+The original fragment JSON is copied to
+`fragment_specifications.lock.json`; `spin_campaign.json` records the selected
+strategy, trusted high spin, route, requested targets, and manifest hash.
+Generated input filenames are human-readable and include the original source,
+formula, charge/multiplicity, and pathway while retaining a short collision-safe
+machine identity.
+Any non-high-spin records present in the seed file are deliberately not
+submitted directly; they are listed in `skipped_spin_seeds.csv` with reason
+`direct_low_spin_initialization_prohibited` so the omission is visible rather
+than silent.
+Preparation also refuses to overwrite a nonempty campaign directory; use a new
+output directory for each attempt so checkpoints, inputs, and audit hashes
+cannot be mixed across runs.
 
 Finally compare the original warehouse against all new outputs:
 
@@ -373,7 +402,11 @@ The validator writes:
   incomplete calculation, or missing legacy state;
 - `new_states.csv` — every new root, including novel/unmatched candidates;
 - `planned_state_coverage.csv` — every requested ladder/fragment stage and
-  whether it appeared in an output;
+  whether it appeared in an output, plus its complete preparation lineage and
+  a `verified`/failure status, normal termination/optimization/stability,
+  `<S^2>`, local-spin root signature, and predecessor-completion status. For a
+  fragment job it also compares the converged net Mulliken spin on each
+  fragment with the requested alpha/beta orientation;
 - `report.md`, `summary.json`, and `errors.tsv`.
 
 Geometry matching uses a translation-, rotation-, and atom-order-invariant
@@ -381,7 +414,8 @@ element-pair distance fingerprint. Electronic-root comparison uses element-
 resolved local-spin distributions when both old and new outputs contain them.
 An `alternative_root` is retained as potentially useful training data rather
 than silently discarded. `--strict` returns nonzero for missing states,
-incomplete calculations, alternative roots, or planned stages without output.
+incomplete calculations, alternative roots, planned stages without output,
+broken checkpoint/fragment lineage, or outputs not linked to `spin_jobs.csv`.
 
 ## 4. Collect labels and split by parent
 
