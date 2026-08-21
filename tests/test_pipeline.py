@@ -23,6 +23,9 @@ from cluster_mlip.jobs import (
 )
 from cluster_mlip.models import Atom, Record
 from cluster_mlip.spin import (
+    DEFAULT_SPIN_ROUTE,
+    _fragment_spin_alignment,
+    _spin_manifest_audit,
     geometry_distance,
     parse_spin_diagnostics,
     render_fragment_input,
@@ -229,6 +232,99 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(text.count("--Link1--"), 4)
         self.assertIn("Geom=Checkpoint Guess=(Read,Always)", text)
         self.assertIn("%oldchk=fe2-ladder-m9-m1-s00-m9.chk", text)
+        self.assertIn("UBPW91/6-311G*", DEFAULT_SPIN_ROUTE)
+        self.assertIn("VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc", DEFAULT_SPIN_ROUTE)
+        self.assertNotIn("wB97M-V", DEFAULT_SPIN_ROUTE)
+
+    def test_fe10_spin_flip_ladder_has_complete_checkpoint_lineage(self):
+        record = Record(
+            "fe10-high-spin",
+            "warehouse/fe10_m29.log",
+            [Atom("Fe", float(index), 0.0, 0.0) for index in range(10)],
+            0,
+            29,
+            "minimum",
+        )
+        unsafe_low_spin_seed = Record(
+            "fe10-direct-m17",
+            "warehouse/fe10_m17.log",
+            list(record.atoms),
+            0,
+            17,
+            "minimum",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "jobs"
+            count = write_spin_jobs(
+                [record, unsafe_low_spin_seed], output, 29, [17], strategy="ladder"
+            )
+            self.assertEqual(count, 7)
+            with (output / "spin_jobs.csv").open(newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+            self.assertEqual(
+                [int(row["intended_multiplicity"]) for row in rows],
+                [29, 27, 25, 23, 21, 19, 17],
+            )
+            self.assertEqual(rows[0]["audit_classification"], "trusted_high_spin_reference")
+            for previous, current in zip(rows, rows[1:]):
+                self.assertEqual(current["audit_classification"], "sequential_checkpoint_spin_flip")
+                self.assertEqual(current["predecessor_job_id"], previous["job_id"])
+                self.assertEqual(current["predecessor_checkpoint"], previous["checkpoint"])
+                self.assertNotEqual(current["checkpoint"], previous["checkpoint"])
+                self.assertTrue(current["checkpoint_lineage"].startswith(previous["checkpoint_lineage"] + ">"))
+            input_name = rows[0]["input"]
+            self.assertIn("fe10-m29", input_name)
+            text = (output / input_name).read_text(encoding="utf-8")
+            self.assertEqual(text.count("--Link1--"), 6)
+            self.assertIn(f"%oldchk={rows[0]['checkpoint']}\n%chk={rows[1]['checkpoint']}", text)
+            manifest_rows, statuses, errors = _spin_manifest_audit(output / "spin_jobs.csv")
+            self.assertEqual(len(manifest_rows), 7)
+            self.assertEqual(errors, [])
+            self.assertEqual(set(statuses.values()), {"verified"})
+            with (output / "skipped_spin_seeds.csv").open(newline="", encoding="utf-8") as handle:
+                skipped = list(csv.DictReader(handle))
+            self.assertEqual(skipped[0]["record_id"], "fe10-direct-m17")
+            self.assertEqual(skipped[0]["reason"], "direct_low_spin_initialization_prohibited")
+
+    def test_manual_fragment_pathway_is_locked_and_auditable(self):
+        record = Record(
+            "fe10-high-spin",
+            "warehouse/fe10_m29.log",
+            [Atom("Fe", float(index), 0.0, 0.0) for index in range(10)],
+            0,
+            29,
+            "minimum",
+        )
+        specification = {
+            "record_id": record.record_id,
+            "name": "seven-up-three-down",
+            "target_multiplicity": 17,
+            "fragments": [
+                {
+                    "atoms": [index],
+                    "charge": 0,
+                    "multiplicity": 5,
+                    "orientation": "alpha" if index <= 7 else "beta",
+                }
+                for index in range(1, 11)
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "jobs"
+            count = write_spin_jobs(
+                [record], output, 29, [17],
+                fragment_specifications=[specification], strategy="fragment",
+            )
+            self.assertEqual(count, 1)
+            self.assertTrue((output / "fragment_specifications.lock.json").is_file())
+            with (output / "spin_jobs.csv").open(newline="", encoding="utf-8") as handle:
+                row = next(csv.DictReader(handle))
+            self.assertEqual(row["initialization"], "explicit_manual_fragment_map")
+            self.assertEqual(row["audit_classification"], "manual_fragment_preparation")
+            self.assertEqual(len(row["fragment_spec_sha256"]), 64)
+            _, statuses, errors = _spin_manifest_audit(output / "spin_jobs.csv")
+            self.assertEqual(errors, [])
+            self.assertEqual(statuses[row["job_id"]], "verified")
 
     def test_fragment_afm_input_is_explicit_and_partitioned(self):
         record = Record("fe2", "legacy", [Atom("Fe", 0, 0, 0), Atom("Fe", 2, 0, 0)], 0, 9, "minimum")
@@ -259,6 +355,30 @@ class PipelineTests(unittest.TestCase):
         }
         with self.assertRaisesRegex(ValueError, "inconsistent with the total multiplicity"):
             render_fragment_input(record, inconsistent)
+
+    def test_fragment_audit_checks_converged_orientation(self):
+        specification = {
+            "fragments": [
+                {"atoms": [1], "multiplicity": 5, "orientation": "alpha"},
+                {"atoms": [2], "multiplicity": 5, "orientation": "beta"},
+            ]
+        }
+        matched = parse_spin_diagnostics("""
+ Charge = 0 Multiplicity = 1
+ Mulliken charges and spin densities:
+ 1 Fe 0.0 3.8
+ 2 Fe 0.0 -3.8
+ Sum of Mulliken charges = 0.0 Sum of Mulliken spin densities = 0.0
+ """)[0]
+        mismatched = parse_spin_diagnostics("""
+ Charge = 0 Multiplicity = 1
+ Mulliken charges and spin densities:
+ 1 Fe 0.0 3.8
+ 2 Fe 0.0 3.8
+ Sum of Mulliken charges = 0.0 Sum of Mulliken spin densities = 7.6
+ """)[0]
+        self.assertEqual(_fragment_spin_alignment(matched, specification), "matched")
+        self.assertEqual(_fragment_spin_alignment(mismatched, specification), "mismatch")
 
     def test_prepare_spins_bad_fragment_spec_writes_nothing(self):
         record = Record("fe2", "legacy", [Atom("Fe", 0, 0, 0), Atom("Fe", 2, 0, 0)], 0, 9, "minimum")

@@ -356,14 +356,15 @@ def command_prepare_spins(args: argparse.Namespace) -> int:
                 "(see examples/spin_fragments.schema.json):\n  - " + "\n  - ".join(shape_errors)
             )
     stages = write_spin_jobs(
-        records,
-        Path(args.output),
-        args.high_spin,
-        args.targets,
-        args.route,
-        args.memory,
-        args.nproc,
-        specifications,
+        records=records,
+        output=Path(args.output),
+        high_spin=args.high_spin,
+        targets=args.targets,
+        route=args.route,
+        memory=args.memory,
+        nproc=args.nproc,
+        fragment_specifications=specifications,
+        strategy=args.strategy,
     )
     print(f"Prepared {stages} traceable spin stages")
     print(f"Manifest: {Path(args.output).resolve() / 'spin_jobs.csv'}")
@@ -389,6 +390,13 @@ def command_validate_spins(args: argparse.Namespace) -> int:
         + summary["alternative_root"]
         + summary["new_calculation_incomplete"]
         + summary["planned_stages_missing"]
+        + summary["lineage_errors"]
+        + summary["untracked_new_states"]
+        + summary["planned_stages_incomplete"]
+        + summary["planned_states_uncharacterized"]
+        + summary["fragment_alignment_mismatches"]
+        + summary["fragment_alignment_unresolved"]
+        + summary["planned_states_without_stability"]
     )
     return 2 if args.strict and strict_failures else 0
 
@@ -615,6 +623,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--fragment-spec",
         help="JSON file with explicit atom-to-fragment maps and fragment charge/spin orientations",
     )
+    prepare_spins.add_argument(
+        "--strategy", choices=("auto", "ladder", "fragment", "both"), default="auto",
+        help=(
+            "state preparation: ladder, fragment, both, or auto (both when a fragment spec is "
+            "supplied; otherwise ladder)"
+        ),
+    )
     prepare_spins.add_argument("--elements", help="comma-separated element allow-list")
     prepare_spins.add_argument("--require-elements", help="require all listed elements")
     prepare_spins.add_argument("--min-atoms", type=int)
@@ -657,7 +672,7 @@ def build_parser() -> argparse.ArgumentParser:
     validate_spins.add_argument("--s2-tolerance", type=float, default=0.25)
     validate_spins.add_argument(
         "--strict", action="store_true",
-        help="exit nonzero when a legacy state is missing or converges to an alternative root",
+        help="exit nonzero for missing/wrong roots, incomplete jobs, or unverified spin provenance",
     )
     validate_spins.set_defaults(func=command_validate_spins)
 
