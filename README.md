@@ -302,10 +302,15 @@ by hand. Prepare the whole archive with:
 cluster-mlip prepare-spins spin_inventory/seeds.extxyz \
   -o gaussian_spin_jobs_auto_v1 \
   --auto-from-data \
-  --require-elements Fe \
+  --elements Fe,O \
+  --require-elements Fe,O \
   --memory 32GB \
   --nproc 16
 ```
+
+`--elements Fe,O` excludes Ga-, Ti-, U-, and other mixed oxides, while
+`--require-elements Fe,O` requires both elements to be present. Use only the
+latter if the mixed-oxide entries are intentionally part of the campaign.
 
 The planner groups real archive entries by formula and charge. For each group,
 the highest reliably observed multiplicity is accepted when either (a) its
