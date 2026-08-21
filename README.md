@@ -156,6 +156,30 @@ energies or forces from different electronic-structure methods in one target
 head. `jobs.csv` preserves each job's parent structure; `run_one.sh` is a small
 Gaussian runner to adapt to the local scheduler.
 
+Generated filenames are human-readable but remain collision-safe. For example:
+
+```text
+fe2o2-5-12345-lb__fe2o2__minimum__q0-m5__reference__1a2b3c4d5e.gjf
+fe2o2-5-12345-lb__fe2o2__minimum__q0-m5__r01__6f7e8d9c0b.gjf
+```
+
+The final short suffix is the stable machine identity, not a random filename.
+`jobs.csv` is the authoritative crosswalk and records the readable ID, machine
+job ID, original archive path and record ID, parent ID, charge/multiplicity,
+variant and deterministic rattle seed, input and parent geometry SHA-256,
+legacy energy/route, exact new routes, filenames, and input-file SHA-256.
+`campaign_manifest.json` fingerprints `jobs.csv` and records the campaign-wide
+method and resource settings. Rattles are derived independently from the
+campaign seed plus parent ID and variant, so filtering or reordering seeds no
+longer changes a geometry while leaving its apparent identity unchanged.
+`collect` copies the same crosswalk fields into each labeled extxyz frame's
+metadata, so the training dataset remains traceable even when moved separately
+from the raw Gaussian campaign.
+
+For safety, `prepare` refuses to overwrite a campaign containing Gaussian
+outputs, checkpoints, or status files. Use a new output directory when changing
+the method, seed, rattle policy, or selection.
+
 ### Generate separately monitorable LONI Slurm batches
 
 After `prepare`, split the campaign into physical batch directories and create
@@ -186,6 +210,22 @@ Submit from anywhere with the generated wrapper:
 ./gaussian_jobs/submit_gaussian_batches.sh
 ./gaussian_jobs/gaussian_batch_status.sh
 ```
+
+For a persistent, job-by-job audit table rather than only batch totals, run:
+
+```bash
+cluster-mlip campaign-status gaussian_jobs
+```
+
+This refreshes `gaussian_jobs/progress.csv` and
+`gaussian_jobs/progress_summary.json`. Every row carries the original-source
+crosswalk alongside batch, pending/running/failed/completed state, timestamps,
+return code, normal-termination and force-parse checks, output SHA-256, output
+geometry SHA-256, and final label energy. For reference structures it also
+reports the raw new-minus-legacy energy difference. That raw difference must
+not be interpreted as an error when the legacy and label routes/bases differ;
+the two route columns remain beside it specifically to make that distinction
+auditable.
 
 Each batch can also be watched or resubmitted on its own:
 

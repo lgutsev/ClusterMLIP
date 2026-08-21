@@ -26,6 +26,7 @@ from .mace_glue import MaceUnavailable
 from .manifest import write_experiment_manifest
 from .models import Record, composition_allowed, geometry_signature
 from .physical_checks import write_physical_checks_report
+from .progress import write_campaign_progress
 from .spin import (
     DEFAULT_SPIN_ROUTE,
     validate_fragment_specification_shape,
@@ -216,18 +217,56 @@ def command_prepare_slurm(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_campaign_status(args: argparse.Namespace) -> int:
+    result = write_campaign_progress(
+        Path(args.campaign), Path(args.output) if args.output else None
+    )
+    summary = result["summary"]
+    counts = summary["by_state"]
+    assert isinstance(counts, dict)
+    print(f"Campaign jobs: {summary['total']}")
+    print("Status: " + ", ".join(f"{name}={count}" for name, count in counts.items()))
+    print(f"Progress CSV: {result['csv_path']}")
+    print(f"Summary JSON: {result['summary_path']}")
+    return 0
+
+
 def command_collect(args: argparse.Namespace) -> int:
     outputs = Path(args.outputs)
     destination = Path(args.output)
     destination.mkdir(parents=True, exist_ok=True)
     manifest = read_jobs_manifest(outputs / "jobs.csv")
+    manifest_by_output = {
+        Path(row.get("output", "")).stem: row
+        for row in manifest.values()
+        if row.get("output")
+    }
     frames = []
     failures: list[tuple[str, str]] = []
     for path in sorted(list(outputs.rglob("*.log")) + list(outputs.rglob("*.out"))):
-        job_id = path.stem
-        row = manifest.get(job_id, {})
+        row = manifest.get(path.stem, {}) or manifest_by_output.get(path.stem, {})
+        job_id = row.get("job_id", path.stem)
         seed = None
         if row:
+            provenance_keys = (
+                "human_id",
+                "source_record_id",
+                "parent_record_id",
+                "variant",
+                "rattle_index",
+                "rattle_sigma_angstrom",
+                "campaign_seed",
+                "resolved_rattle_seed",
+                "parent_geometry_sha256",
+                "input_geometry_sha256",
+                "input_sha256",
+                "legacy_energy_hartree",
+                "legacy_route",
+                "first_route",
+                "link1_route",
+            )
+            metadata = {key: row[key] for key in provenance_keys if row.get(key)}
+            metadata["parent_record_id"] = row.get("parent_record_id", job_id)
             seed = Record(
                 record_id=job_id,
                 source=row.get("source", str(path)),
@@ -235,7 +274,13 @@ def command_collect(args: argparse.Namespace) -> int:
                 charge=int(row.get("charge", 0)),
                 multiplicity=int(row.get("multiplicity", 1)),
                 config_type=row.get("config_type", "labeled"),
-                metadata={"parent_record_id": row.get("parent_record_id", job_id)},
+                route=row.get("legacy_route", ""),
+                legacy_energy_hartree=(
+                    float(row["legacy_energy_hartree"])
+                    if row.get("legacy_energy_hartree")
+                    else None
+                ),
+                metadata=metadata,
             )
         try:
             frame = parse_final_force_frame(path.read_text(errors="ignore"), path, seed)
@@ -544,6 +589,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="optional shell file copied into the campaign and sourced inside every srun worker",
     )
     prepare_slurm.set_defaults(func=command_prepare_slurm)
+
+    campaign_status = sub.add_parser(
+        "campaign-status",
+        help="write a job-by-job progress/provenance table for a Gaussian campaign",
+    )
+    campaign_status.add_argument("campaign", help="prepared Gaussian campaign containing jobs.csv")
+    campaign_status.add_argument(
+        "-o", "--output", help="progress CSV path (default: CAMPAIGN/progress.csv)"
+    )
+    campaign_status.set_defaults(func=command_campaign_status)
 
     prepare_spins = sub.add_parser(
         "prepare-spins",

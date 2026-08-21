@@ -1,3 +1,4 @@
+import csv
 from pathlib import Path
 import tempfile
 import unittest
@@ -17,6 +18,7 @@ from cluster_mlip.jobs import (
     DEFAULT_RATTLE_ROUTE,
     DEFAULT_ROUTE,
     expanded_records,
+    human_job_stem,
     write_gaussian_jobs,
 )
 from cluster_mlip.models import Atom, Record
@@ -65,8 +67,17 @@ class PipelineTests(unittest.TestCase):
             jobs = expanded_records(loaded, 2, 0.05, 7)
             write_gaussian_jobs(jobs, tmp_path / "jobs")
             self.assertEqual(len(list((tmp_path / "jobs").glob("*.gjf"))), 3)
-            seed_input = (tmp_path / "jobs" / f"{jobs[0].record_id}.gjf").read_text()
-            rattle_input = (tmp_path / "jobs" / f"{jobs[1].record_id}.gjf").read_text()
+            with (tmp_path / "jobs" / "jobs.csv").open(newline="") as handle:
+                rows = list(csv.DictReader(handle))
+            seed_input = (tmp_path / "jobs" / rows[0]["input"]).read_text()
+            rattle_input = (tmp_path / "jobs" / rows[1]["input"]).read_text()
+            self.assertIn("minimum__q0-m3__reference", rows[0]["human_id"])
+            self.assertIn("minimum__q0-m3__r01", rows[1]["human_id"])
+            self.assertEqual(rows[0]["source_record_id"], jobs[0].record_id)
+            self.assertEqual(rows[1]["source_record_id"], jobs[0].record_id)
+            self.assertEqual(len(rows[1]["input_geometry_sha256"]), 64)
+            self.assertEqual(len(rows[1]["input_sha256"]), 64)
+            self.assertTrue((tmp_path / "jobs" / "campaign_manifest.json").is_file())
             self.assertIn(DEFAULT_ROUTE, seed_input)
             self.assertIn(DEFAULT_RATTLE_ROUTE, rattle_input)
             self.assertNotIn(" Opt Freq ", rattle_input.split("--Link1--", 1)[0])
@@ -76,6 +87,26 @@ class PipelineTests(unittest.TestCase):
                 self.assertIn("UBPW91/6-311++G* Force", text)
                 self.assertIn("Guess=Read Geom=Checkpoint", text)
                 self.assertNotIn("wB97M-V", text)
+
+    def test_rattles_are_stable_when_seed_order_changes(self):
+        first = Record("first", "archive/first.log", [Atom("H", 0, 0, 0)], 0, 1, "minimum")
+        second = Record("second", "archive/second.log", [Atom("H", 1, 0, 0)], 0, 1, "minimum")
+        forward = expanded_records([first, second], 1, 0.05, 41)
+        reverse = expanded_records([second, first], 1, 0.05, 41)
+        forward_rattles = {
+            record.metadata["source_record_id"]: (record.record_id, record.atoms)
+            for record in forward
+            if "rattle_index" in record.metadata
+        }
+        reverse_rattles = {
+            record.metadata["source_record_id"]: (record.record_id, record.atoms)
+            for record in reverse
+            if "rattle_index" in record.metadata
+        }
+        self.assertEqual(forward_rattles, reverse_rattles)
+        different_seed = expanded_records([first], 1, 0.05, 42)[1]
+        self.assertNotEqual(forward[1].record_id, different_seed.record_id)
+        self.assertNotEqual(human_job_stem(forward[1]), human_job_stem(different_seed))
 
     def test_native_warehouse(self):
         text = (FIXTURES / "warehouse.txt").read_text()
