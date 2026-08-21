@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import collections
 import csv
 import hashlib
 import json
@@ -23,6 +24,8 @@ DEFAULT_SPIN_ROUTE = (
 
 SPIN_MANIFEST_COLUMNS = [
     "job_id", "chain_id", "stage_index", "pathway", "initialization", "audit_classification",
+    "spin_plan_id", "spin_group_key", "target_record_multiplicity", "high_spin_inference",
+    "high_spin_evidence_record_ids",
     "parent_record_id", "source", "formula", "source_geometry_sha256", "high_spin_multiplicity",
     "final_target_multiplicity", "intended_charge", "intended_multiplicity", "spin_flip_index",
     "predecessor_job_id", "predecessor_multiplicity", "predecessor_checkpoint", "checkpoint",
@@ -94,6 +97,164 @@ class SpinDiagnostics:
 class StateObservation:
     record: Record
     diagnostics: SpinDiagnostics
+
+
+@dataclass(frozen=True)
+class AutomaticSpinPlan:
+    plan_id: str
+    record: Record
+    group_key: str
+    target_multiplicity: int
+    high_spin_multiplicity: int
+    inference: str
+    evidence_record_ids: tuple[str, ...]
+    observed_multiplicities: tuple[int, ...]
+    fe_count: int
+
+
+@dataclass(frozen=True)
+class SkippedAutomaticSpinPlan:
+    record: Record
+    group_key: str
+    reason: str
+    observed_multiplicities: tuple[int, ...]
+    fe_count: int
+
+
+def _metadata_true(record: Record, key: str) -> bool:
+    return str(record.metadata.get(key, "")).lower() == "true"
+
+
+def fe_spin_summary(
+    record: Record,
+    diagnostic: SpinDiagnostics,
+    threshold: float = 0.25,
+) -> dict[str, str]:
+    """Summarize actual Fe Mulliken moments without imposing an ionic spin model."""
+    fe_indices = [index for index, atom in enumerate(record.atoms, start=1) if atom.symbol == "Fe"]
+    spins = {index: spin for index, symbol, spin in diagnostic.atomic_spins if symbol == "Fe"}
+    complete = bool(fe_indices) and all(index in spins for index in fe_indices)
+    resolved = [spins[index] for index in fe_indices if index in spins and abs(spins[index]) >= threshold]
+    positive = sum(spin > 0 for spin in resolved)
+    negative = sum(spin < 0 for spin in resolved)
+    weak = len(fe_indices) - len(resolved) if complete else 0
+    parallel = (
+        complete
+        and len(resolved) == len(fe_indices)
+        and bool(resolved)
+        and not (positive and negative)
+    )
+    mean_local_s = sum(abs(spin) / 2 for spin in resolved) / len(resolved) if resolved else None
+    return {
+        "fe_count": str(len(fe_indices)),
+        "fe_spin_density_complete": str(complete).lower(),
+        "fe_resolved_spin_count": str(len(resolved)),
+        "fe_positive_spin_count": str(positive),
+        "fe_negative_spin_count": str(negative),
+        "fe_weak_spin_count": str(weak),
+        "fe_all_resolved_parallel": str(parallel).lower(),
+        "fe_mean_abs_local_s": "" if mean_local_s is None else f"{mean_local_s:.6g}",
+    }
+
+
+def infer_automatic_fe_spin_plans(
+    records: list[Record],
+) -> tuple[list[AutomaticSpinPlan], list[SkippedAutomaticSpinPlan]]:
+    """Infer oxide spin ladders strictly from archived state evidence.
+
+    A formula/charge group's highest reliably observed multiplicity is accepted
+    when its Fe Mulliken moments are all parallel, or as a clearly labeled
+    fallback when the group contains multiple observed multiplicities. A
+    singleton without parallel-moment evidence is deliberately unplannable; no
+    idealized 4*N(Fe)+1 state is invented.
+    """
+    grouped: dict[tuple[str, int], list[Record]] = {}
+    skipped: list[SkippedAutomaticSpinPlan] = []
+    for record in records:
+        fe_count = sum(atom.symbol == "Fe" for atom in record.atoms)
+        group_key = f"{record.formula}|q{record.charge:+d}"
+        if not fe_count:
+            skipped.append(SkippedAutomaticSpinPlan(
+                record, group_key, "no_fe_atoms", (record.multiplicity,), 0
+            ))
+            continue
+        grouped.setdefault((record.formula, record.charge), []).append(record)
+
+    plans: list[AutomaticSpinPlan] = []
+    unreliable_inferences = {"default_unmatched_singlet", "electron_parity_fallback"}
+    for (formula, charge), members in sorted(grouped.items()):
+        group_key = f"{formula}|q{charge:+d}"
+        observed = tuple(sorted({record.multiplicity for record in members}, reverse=True))
+        parallel = [record for record in members if _metadata_true(record, "fe_all_resolved_parallel")]
+        reliable = [
+            record for record in members
+            if record.metadata.get("state_inference", "") not in unreliable_inferences
+        ]
+        reliable_multiplicities = sorted(
+            {record.multiplicity for record in reliable}, reverse=True
+        )
+        if not reliable_multiplicities:
+            for record in members:
+                skipped.append(SkippedAutomaticSpinPlan(
+                    record,
+                    group_key,
+                    "insufficient_real_data_no_parallel_reference",
+                    observed,
+                    sum(atom.symbol == "Fe" for atom in record.atoms),
+                ))
+            continue
+        high_spin = reliable_multiplicities[0]
+        parallel_at_high = [record for record in parallel if record.multiplicity == high_spin]
+        if parallel_at_high:
+            evidence = tuple(sorted(record.record_id for record in parallel_at_high))
+            inference = "observed_all_resolved_fe_parallel"
+        elif len(reliable_multiplicities) >= 2:
+            evidence = tuple(sorted(
+                record.record_id for record in reliable if record.multiplicity == high_spin
+            ))
+            inference = "highest_observed_group_multiplicity"
+        else:
+            for record in members:
+                skipped.append(SkippedAutomaticSpinPlan(
+                    record,
+                    group_key,
+                    "insufficient_real_data_no_parallel_reference",
+                    observed,
+                    sum(atom.symbol == "Fe" for atom in record.atoms),
+                ))
+            continue
+
+        for record in members:
+            fe_count = sum(atom.symbol == "Fe" for atom in record.atoms)
+            if record.metadata.get("state_inference", "") in unreliable_inferences:
+                skipped.append(SkippedAutomaticSpinPlan(
+                    record, group_key, "target_multiplicity_not_reliably_observed", observed, fe_count
+                ))
+                continue
+            try:
+                validate_multiplicity(record, high_spin)
+                if record.multiplicity > high_spin:
+                    raise ValueError("target exceeds inferred high-spin multiplicity")
+            except ValueError as exc:
+                skipped.append(SkippedAutomaticSpinPlan(
+                    record, group_key, f"invalid_data_inferred_ladder:{exc}", observed, fe_count
+                ))
+                continue
+            seed = (
+                f"{record.record_id}|{group_key}|m{high_spin}|m{record.multiplicity}|{inference}"
+            )
+            plans.append(AutomaticSpinPlan(
+                plan_id=hashlib.sha1(seed.encode()).hexdigest()[:20],
+                record=record,
+                group_key=group_key,
+                target_multiplicity=record.multiplicity,
+                high_spin_multiplicity=high_spin,
+                inference=inference,
+                evidence_record_ids=evidence,
+                observed_multiplicities=observed,
+                fe_count=fe_count,
+            ))
+    return plans, skipped
 
 
 def electron_count(record: Record) -> int:
@@ -182,6 +343,7 @@ def render_ladder_input(
     route: str = DEFAULT_SPIN_ROUTE,
     memory: str = "16GB",
     nproc: int = 16,
+    provenance: str = "",
 ) -> tuple[str, list[dict[str, str]]]:
     """Render a checkpoint-preserving one-spin-flip-at-a-time Link1 ladder."""
     sequence = multiplicity_ladder(high_spin, targets)
@@ -205,7 +367,8 @@ def render_ladder_input(
             "",
             "ClusterMLIP spin pathway; "
             f"strategy=sequential_spin_flip; record={record.record_id}; stage={stage}; "
-            f"multiplicity={multiplicity}; predecessor={previous_job_id or 'none'}",
+            f"multiplicity={multiplicity}; predecessor={previous_job_id or 'none'}"
+            f"{'; ' + provenance if provenance else ''}",
             "",
             f"{record.charge} {multiplicity}",
         ])
@@ -566,6 +729,194 @@ def write_spin_jobs(
     return len(rows)
 
 
+def write_automatic_fe_spin_jobs(
+    records: list[Record],
+    output: Path,
+    route: str = DEFAULT_SPIN_ROUTE,
+    memory: str = "16GB",
+    nproc: int = 16,
+) -> int:
+    """Prepare one data-inferred high-spin-to-archived-target ladder per Fe record."""
+    plans, skipped = infer_automatic_fe_spin_plans(records)
+    if output.exists():
+        existing = sorted(path.name for path in output.iterdir())
+        if existing:
+            preview = ", ".join(existing[:5])
+            raise RuntimeError(
+                "refusing to overwrite an existing spin campaign; use a fresh output directory "
+                f"so checkpoint and audit lineage remain immutable: {preview}"
+            )
+
+    files: list[tuple[str, str]] = []
+    rows: list[dict[str, str]] = []
+    plan_rows: list[dict[str, object]] = []
+    for plan in plans:
+        targets = [] if plan.target_multiplicity == plan.high_spin_multiplicity else [plan.target_multiplicity]
+        text, chain_rows = render_ladder_input(
+            plan.record,
+            plan.high_spin_multiplicity,
+            targets,
+            route,
+            memory,
+            nproc,
+            provenance=(
+                f"spin_plan_id={plan.plan_id}; high_spin_inference={plan.inference}"
+            ),
+        )
+        readable = human_job_stem(plan.record)
+        filename = (
+            f"{readable}__auto-spin-m{plan.high_spin_multiplicity}"
+            f"-to-m{plan.target_multiplicity}.gjf"
+        )
+        input_hash = hashlib.sha256(text.encode()).hexdigest()
+        evidence_ids = ";".join(plan.evidence_record_ids)
+        for row in chain_rows:
+            row.update({
+                "spin_plan_id": plan.plan_id,
+                "spin_group_key": plan.group_key,
+                "target_record_multiplicity": str(plan.target_multiplicity),
+                "high_spin_inference": plan.inference,
+                "high_spin_evidence_record_ids": evidence_ids,
+                "input": filename,
+                "input_sha256": input_hash,
+                "output": f"{Path(filename).stem}.log",
+            })
+            if row["stage_index"] == "0":
+                row["initialization"] = "data_inferred_high_spin_direct_on_target_geometry"
+                row["audit_classification"] = "data_inferred_high_spin_reference"
+        files.append((filename, text))
+        rows.extend(chain_rows)
+        plan_rows.append({
+            "spin_plan_id": plan.plan_id,
+            "status": "planned",
+            "record_id": plan.record.record_id,
+            "source": plan.record.source,
+            "formula": plan.record.formula,
+            "charge": plan.record.charge,
+            "fe_count": plan.fe_count,
+            "target_multiplicity": plan.target_multiplicity,
+            "inferred_high_spin_multiplicity": plan.high_spin_multiplicity,
+            "high_spin_inference": plan.inference,
+            "high_spin_evidence_record_ids": evidence_ids,
+            "observed_group_multiplicities": ";".join(map(str, plan.observed_multiplicities)),
+            "input": filename,
+            "reason": "",
+        })
+    for item in skipped:
+        plan_rows.append({
+            "spin_plan_id": "",
+            "status": "skipped",
+            "record_id": item.record.record_id,
+            "source": item.record.source,
+            "formula": item.record.formula,
+            "charge": item.record.charge,
+            "fe_count": item.fe_count,
+            "target_multiplicity": item.record.multiplicity,
+            "inferred_high_spin_multiplicity": "",
+            "high_spin_inference": "",
+            "high_spin_evidence_record_ids": "",
+            "observed_group_multiplicities": ";".join(map(str, item.observed_multiplicities)),
+            "input": "",
+            "reason": item.reason,
+        })
+
+    filenames = [filename for filename, _ in files]
+    if len(set(filenames)) != len(filenames):
+        duplicates = sorted({name for name in filenames if filenames.count(name) > 1})
+        raise ValueError(f"automatic spin planning produced duplicate filenames: {duplicates}")
+    job_ids = [row["job_id"] for row in rows]
+    if len(set(job_ids)) != len(job_ids):
+        duplicates = sorted({name for name in job_ids if job_ids.count(name) > 1})
+        raise ValueError(f"automatic spin planning produced duplicate job IDs: {duplicates}")
+
+    output.mkdir(parents=True, exist_ok=True)
+    for filename, text in files:
+        (output / filename).write_text(text, encoding="utf-8")
+    with (output / "spin_jobs.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=SPIN_MANIFEST_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+    plan_columns = [
+        "spin_plan_id", "status", "record_id", "source", "formula", "charge", "fe_count",
+        "target_multiplicity", "inferred_high_spin_multiplicity", "high_spin_inference",
+        "high_spin_evidence_record_ids", "observed_group_multiplicities", "input", "reason",
+    ]
+    with (output / "spin_plan.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=plan_columns)
+        writer.writeheader()
+        writer.writerows(plan_rows)
+    plan_summary = {
+        "total_archive_records": len(plan_rows),
+        "planned_records": len(plans),
+        "skipped_records": len(skipped),
+        "by_inference": dict(sorted(collections.Counter(
+            plan.inference for plan in plans
+        ).items())),
+        "by_skip_reason": dict(sorted(collections.Counter(
+            item.reason for item in skipped
+        ).items())),
+        "by_formula_charge_group": dict(sorted(collections.Counter(
+            plan.group_key for plan in plans
+        ).items())),
+        "by_ladder": dict(sorted(collections.Counter(
+            f"m{plan.high_spin_multiplicity}->m{plan.target_multiplicity}"
+            for plan in plans
+        ).items())),
+    }
+    (output / "spin_plan_summary.json").write_text(
+        json.dumps(plan_summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    with (output / "skipped_spin_seeds.csv").open("w", newline="", encoding="utf-8") as handle:
+        columns = ["record_id", "source", "formula", "charge", "multiplicity", "reason"]
+        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer.writeheader()
+        for item in skipped:
+            writer.writerow({
+                "record_id": item.record.record_id,
+                "source": item.record.source,
+                "formula": item.record.formula,
+                "charge": item.record.charge,
+                "multiplicity": item.record.multiplicity,
+                "reason": item.reason,
+            })
+    manifest_hash = hashlib.sha256((output / "spin_jobs.csv").read_bytes()).hexdigest()
+    plan_hash = hashlib.sha256((output / "spin_plan.csv").read_bytes()).hexdigest()
+    plan_summary_hash = hashlib.sha256(
+        (output / "spin_plan_summary.json").read_bytes()
+    ).hexdigest()
+    campaign = {
+        "schema_version": 2,
+        "strategy": "automatic_data_inferred_ladder",
+        "automatic_from_real_data": True,
+        "planned_parent_count": len(plans),
+        "skipped_parent_count": len(skipped),
+        "high_spin_inference_precedence": [
+            "observed_all_resolved_fe_parallel",
+            "highest_observed_group_multiplicity",
+            "skip_if_insufficient_real_data",
+        ],
+        "idealized_per_fe_high_spin_used": False,
+        "route": route,
+        "memory": memory,
+        "nproc": nproc,
+        "manifest": "spin_jobs.csv",
+        "manifest_sha256": manifest_hash,
+        "spin_plan": "spin_plan.csv",
+        "spin_plan_sha256": plan_hash,
+        "spin_plan_summary": "spin_plan_summary.json",
+        "spin_plan_summary_sha256": plan_summary_hash,
+    }
+    (output / "spin_campaign.json").write_text(
+        json.dumps(campaign, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    (output / "run_one.sh").write_text(
+        "#!/usr/bin/env bash\nset -euo pipefail\ninput=$1\noutput=${input%.gjf}.log\ng16 \"$input\" > \"$output\"\n",
+        encoding="utf-8",
+    )
+    (output / "run_one.sh").chmod(0o755)
+    return len(rows)
+
+
 def _diagnostics_from_section(text: str, charge: int | None, multiplicity: int | None) -> SpinDiagnostics:
     energies = list(_SCF_RE.finditer(text))
     s2 = list(_S2_RE.finditer(text))
@@ -694,12 +1045,18 @@ def _load_observations(source: Path, outputs_only: bool = False) -> tuple[list[S
 def write_spin_inventory(source: Path, output: Path) -> int:
     output.mkdir(parents=True, exist_ok=True)
     observations, errors = _load_observations(source)
+    for observation in observations:
+        observation.record.metadata.update(
+            fe_spin_summary(observation.record, observation.diagnostics)
+        )
     write_extxyz([observation.record for observation in observations], output / "seeds.extxyz")
     columns = [
         "record_id", "source", "formula", "n_atoms", "charge", "multiplicity", "electron_count",
         "multiplicity_parity_valid", "config_type", "state_inference", "energy_hartree", "expected_s2",
         "s2_before", "s2_after", "s2_delta", "spin_pattern", "root_signature", "normal_termination",
-        "optimized", "stability",
+        "optimized", "stability", "fe_count", "fe_spin_density_complete",
+        "fe_resolved_spin_count", "fe_positive_spin_count", "fe_negative_spin_count",
+        "fe_weak_spin_count", "fe_all_resolved_parallel", "fe_mean_abs_local_s",
     ]
     with (output / "spin_inventory.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=columns)
@@ -723,6 +1080,14 @@ def write_spin_inventory(source: Path, output: Path) -> int:
                 "spin_pattern": diagnostic.spin_pattern, "root_signature": diagnostic.root_signature,
                 "normal_termination": diagnostic.normal_termination, "optimized": diagnostic.optimized,
                 "stability": diagnostic.stability,
+                **{
+                    key: record.metadata.get(key, "")
+                    for key in (
+                        "fe_count", "fe_spin_density_complete", "fe_resolved_spin_count",
+                        "fe_positive_spin_count", "fe_negative_spin_count", "fe_weak_spin_count",
+                        "fe_all_resolved_parallel", "fe_mean_abs_local_s",
+                    )
+                },
             })
     with (output / "errors.tsv").open("w", encoding="utf-8") as handle:
         for name, message in errors:
@@ -735,6 +1100,7 @@ def _spin_manifest_audit(
 ) -> tuple[list[dict[str, str]], dict[str, str], list[str]]:
     """Validate preparation provenance without trusting filenames or outputs."""
     errors: list[str] = []
+    campaign: dict[str, object] = {}
     if not manifest.is_file():
         return [], {}, [f"missing spin manifest: {manifest}"]
     campaign_path = manifest.parent / "spin_campaign.json"
@@ -755,6 +1121,32 @@ def _spin_manifest_audit(
         if missing:
             errors.append(f"spin manifest is missing audit columns: {missing}")
         rows = list(reader)
+
+    planned_spin_ids: set[str] = set()
+    spin_plan_name = campaign.get("spin_plan")
+    if isinstance(spin_plan_name, str):
+        spin_plan = manifest.parent / spin_plan_name
+        if not spin_plan.is_file():
+            errors.append(f"missing automatic spin plan: {spin_plan}")
+        else:
+            actual_plan_hash = hashlib.sha256(spin_plan.read_bytes()).hexdigest()
+            if campaign.get("spin_plan_sha256") != actual_plan_hash:
+                errors.append("spin_plan.csv SHA-256 does not match spin_campaign.json")
+            with spin_plan.open(newline="", encoding="utf-8") as handle:
+                planned_spin_ids = {
+                    row.get("spin_plan_id", "")
+                    for row in csv.DictReader(handle)
+                    if row.get("status") == "planned"
+                }
+    plan_summary_name = campaign.get("spin_plan_summary")
+    if isinstance(plan_summary_name, str):
+        plan_summary = manifest.parent / plan_summary_name
+        if not plan_summary.is_file():
+            errors.append(f"missing automatic spin plan summary: {plan_summary}")
+        elif campaign.get("spin_plan_summary_sha256") != hashlib.sha256(
+            plan_summary.read_bytes()
+        ).hexdigest():
+            errors.append("spin_plan_summary.json SHA-256 does not match spin_campaign.json")
 
     by_job = {row.get("job_id", ""): row for row in rows}
     if "" in by_job:
@@ -793,6 +1185,8 @@ def _spin_manifest_audit(
             problems.append("input_hash_missing")
         elif hashlib.sha256(input_path.read_bytes()).hexdigest() != expected_input_hash:
             problems.append("input_hash_mismatch")
+        if row.get("high_spin_inference") and row.get("spin_plan_id") not in planned_spin_ids:
+            problems.append("spin_plan_crosswalk_missing")
         pathway = row.get("pathway", "")
         stage = _manifest_int(row.get("stage_index"))
         if pathway == "fragment_guess":
@@ -814,10 +1208,24 @@ def _spin_manifest_audit(
             if stage == 0:
                 if intended != high:
                     problems.append("direct_state_is_not_trusted_high_spin")
-                if row.get("initialization") != "trusted_high_spin_direct":
-                    problems.append("high_spin_initialization_unmarked")
-                if row.get("audit_classification") != "trusted_high_spin_reference":
-                    problems.append("high_spin_audit_classification_unmarked")
+                inferred = row.get("initialization") == "data_inferred_high_spin_direct_on_target_geometry"
+                if inferred:
+                    if row.get("audit_classification") != "data_inferred_high_spin_reference":
+                        problems.append("inferred_high_spin_audit_classification_unmarked")
+                    if row.get("spin_plan_id") not in planned_spin_ids:
+                        problems.append("inferred_high_spin_plan_missing")
+                    if row.get("high_spin_inference") not in {
+                        "observed_all_resolved_fe_parallel",
+                        "highest_observed_group_multiplicity",
+                    }:
+                        problems.append("inferred_high_spin_evidence_unrecognized")
+                    if not row.get("high_spin_evidence_record_ids"):
+                        problems.append("inferred_high_spin_evidence_missing")
+                else:
+                    if row.get("initialization") != "trusted_high_spin_direct":
+                        problems.append("high_spin_initialization_unmarked")
+                    if row.get("audit_classification") != "trusted_high_spin_reference":
+                        problems.append("high_spin_audit_classification_unmarked")
                 if predecessor_id or row.get("predecessor_checkpoint"):
                     problems.append("high_spin_reference_has_predecessor")
                 expected_lineage = f"m{intended}:{row.get('checkpoint', '')}"
@@ -1113,8 +1521,8 @@ def validate_spin_campaign(
             return complete_by_job[job_id]
 
         for row in manifest_rows:
-            observation = observation_by_job.get(row.get("job_id", ""))
-            diagnostic = None if observation is None else observation.diagnostics
+            row_observation = observation_by_job.get(row.get("job_id", ""))
+            row_diagnostic = None if row_observation is None else row_observation.diagnostics
             predecessor_id = row.get("predecessor_job_id", "")
             predecessor_complete = (
                 True if not predecessor_id else pathway_complete(predecessor_id)
@@ -1122,26 +1530,29 @@ def validate_spin_campaign(
             complete = pathway_complete(row.get("job_id", ""))
             fragment_alignment = (
                 "not_applicable"
-                if row.get("pathway") != "fragment_guess" or diagnostic is None
+                if row.get("pathway") != "fragment_guess" or row_diagnostic is None
                 else _fragment_spin_alignment(
-                    diagnostic,
+                    row_diagnostic,
                     fragment_specs_by_hash.get(row.get("fragment_spec_sha256", "")),
                 )
             )
             planned_rows.append({
                 **{column: row.get(column, "") for column in SPIN_MANIFEST_COLUMNS},
                 "lineage_status": lineage_by_job.get(row.get("job_id", ""), "invalid"),
-                "observed": observation is not None,
-                "normal_termination": False if diagnostic is None else diagnostic.normal_termination,
-                "optimized": False if diagnostic is None else diagnostic.optimized,
-                "stability": "" if diagnostic is None else diagnostic.stability,
-                "spin_pattern": "" if diagnostic is None else diagnostic.spin_pattern,
-                "root_signature": "" if diagnostic is None else diagnostic.root_signature,
-                "s2_delta": "" if diagnostic is None else diagnostic.s2_delta,
+                "observed": row_observation is not None,
+                "normal_termination": False if row_diagnostic is None else row_diagnostic.normal_termination,
+                "optimized": False if row_diagnostic is None else row_diagnostic.optimized,
+                "stability": "" if row_diagnostic is None else row_diagnostic.stability,
+                "spin_pattern": "" if row_diagnostic is None else row_diagnostic.spin_pattern,
+                "root_signature": "" if row_diagnostic is None else row_diagnostic.root_signature,
+                "s2_delta": "" if row_diagnostic is None else row_diagnostic.s2_delta,
                 "electronic_root_characterized": bool(
-                    diagnostic is not None
-                    and diagnostic.root_signature
-                    and (diagnostic.s2_before is not None or diagnostic.s2_after is not None)
+                    row_diagnostic is not None
+                    and row_diagnostic.root_signature
+                    and (
+                        row_diagnostic.s2_before is not None
+                        or row_diagnostic.s2_after is not None
+                    )
                 ),
                 "fragment_spin_alignment": fragment_alignment,
                 "predecessor_complete": predecessor_complete,

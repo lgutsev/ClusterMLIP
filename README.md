@@ -97,7 +97,7 @@ pilot selection, use the first-class audit command:
 ```bash
 cluster-mlip audit /path/to/Oct9.zip \
   --elements Fe,N,O \
-  --require-elements Fe \
+  --require-elements Fe,O \
   --max-atoms 20
 ```
 
@@ -278,7 +278,11 @@ converged SCF root, and local-spin pattern separate.
 First extract a state inventory from the original warehouse. This records
 electron-count parity, multiplicity, `<S^2>`, Mulliken atomic spin densities,
 normal termination, optimization status, stability-test evidence, and a local-
-spin root signature when the source contains them. Every record also carries
+spin root signature when the source contains them. It also records the number
+of resolved positive, negative, and weak Fe moments; whether the Fe spin block
+is complete; whether all resolved Fe moments are parallel; and the mean
+absolute local Fe spin inferred from the actual Mulliken population. Every
+record also carries
 a `state_inference` provenance tag (`filename`, `electron_parity_fallback`,
 `default_unmatched_singlet`, or blank for a charge/multiplicity read directly
 off an explicit Gaussian `Charge =`/`Multiplicity =` line) in `manifest.csv`,
@@ -288,6 +292,46 @@ indistinguishable from a validated state:
 ```bash
 cluster-mlip spin-extract Warehouse2.zip -o spin_inventory
 ```
+
+### Automatic data-derived oxide campaign
+
+For hundreds of oxide structures, do not select record IDs or multiplicities
+by hand. Prepare the whole archive with:
+
+```bash
+cluster-mlip prepare-spins spin_inventory/seeds.extxyz \
+  -o gaussian_spin_jobs_auto_v1 \
+  --auto-from-data \
+  --require-elements Fe \
+  --memory 32GB \
+  --nproc 16
+```
+
+The planner groups real archive entries by formula and charge. For each group,
+the highest reliably observed multiplicity is accepted when either (a) its
+archived Mulliken data show all resolved Fe moments parallel or (b) the group
+contains at least two reliably observed multiplicities. Case (b) is explicitly
+labeled `highest_observed_group_multiplicity`, not presented as proven local-
+spin coupling. A singleton group without parallel-spin evidence is skipped as
+`insufficient_real_data_no_parallel_reference`.
+
+No ionic or idealized `4*N(Fe)+1` multiplicity is generated. Thus an Fe10 oxide
+group actually observed at multiplicities 29 and 17 produces a 29 -> 27 -> 25
+-> 23 -> 21 -> 19 -> 17 ladder; the code does not invent multiplicity 41. Each
+archived geometry remains its own parent and its archived multiplicity is the
+target. The inferred high-spin state is initialized on that target geometry,
+then every lower state reads the immediately preceding checkpoint.
+
+Start with `spin_plan_summary.json`; it counts planned/skipped records by
+inference, skip reason, formula/charge group, and high-to-target ladder. Drill
+into `spin_plan.csv` only for exceptions. It contains one
+row per archive record with `planned`/`skipped`, formula/charge group, archived
+target, inferred high multiplicity, inference class, evidence record IDs, all
+observed group multiplicities, generated input, and any skip reason.
+`spin_campaign.json` hashes both this plan and `spin_jobs.csv`; every generated
+stage carries the plan ID and evidence crosswalk.
+
+### Manual single-case or fragment campaign
 
 Then prepare a trusted high-spin reference and a one-spin-flip-at-a-time
 multiplicity ladder. Missing intermediate multiplicities are inserted
@@ -386,10 +430,10 @@ strategy, trusted high spin, route, requested targets, and manifest hash.
 Generated input filenames are human-readable and include the original source,
 formula, charge/multiplicity, and pathway while retaining a short collision-safe
 machine identity.
-Any non-high-spin records present in the seed file are deliberately not
-submitted directly; they are listed in `skipped_spin_seeds.csv` with reason
-`direct_low_spin_initialization_prohibited` so the omission is visible rather
-than silent.
+In manual mode, non-high-spin seed records are deliberately not submitted
+directly; they are listed in `skipped_spin_seeds.csv`. In automatic data-derived
+mode, lower-spin records instead receive their inferred high-to-target ladder,
+while unsupported groups are listed with a precise evidence failure reason.
 Preparation also refuses to overwrite a nonempty campaign directory; use a new
 output directory for each attempt so checkpoints, inputs, and audit hashes
 cannot be mixed across runs.
