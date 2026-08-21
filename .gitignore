@@ -17,6 +17,9 @@ spin_validation/
 dataset*/
 checkpoints/
 results/
+slurm_batches/
+slurm_outputs/
+slurm_logs/
 *.chk
 *.fchk
 *.model

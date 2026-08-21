@@ -49,6 +49,25 @@ Run `cluster-mlip doctor` after installing to check which of these optional
 tools (`strings`, `formchk`, `mace-torch`) are actually on `PATH`/importable
 before starting a large extraction or training run.
 
+On LONI, do not upgrade a shared InterfaceForge/OpenMM runtime in place merely
+to satisfy ClusterMLIP's `mace-torch>=0.3.16` requirement. Clone it and update
+the clone so the known-working MACE 0.3.15 environment remains recoverable:
+
+```bash
+conda create -y \
+  --prefix /project/lgutsev/env/cluster_mlip_runtime \
+  --clone /project/lgutsev/env/iface_mace_runtime
+conda activate /project/lgutsev/env/cluster_mlip_runtime
+python -m pip install --upgrade 'mace-torch>=0.3.16'
+python -m pip install -e '.[train]'
+cluster-mlip doctor
+```
+
+Inspect the packages pip proposes to replace if it needs to change PyTorch or
+CUDA-facing dependencies. Keep `iface_mace_runtime` and `lgutsev_dev`
+unchanged until the cloned environment passes a short train/load/evaluate
+smoke test.
+
 ## 1. Analyze a database first
 
 ```bash
@@ -125,6 +144,64 @@ Use `--route` to select the single reference method for a campaign. Do not mix
 energies or forces from different electronic-structure methods in one target
 head. `jobs.csv` preserves each job's parent structure; `run_one.sh` is a small
 Gaussian runner to adapt to the local scheduler.
+
+### Generate a batched LONI Slurm array
+
+After `prepare`, turn the campaign into a resumable Slurm array:
+
+```bash
+cluster-mlip prepare-slurm gaussian_jobs \
+  --jobs-per-batch 30 \
+  --concurrent-jobs 4 \
+  --cpus-per-job 16 \
+  --time 72:00:00 \
+  --partition checkpt \
+  --account loni_dspm_25 \
+  --gaussian-module gaussian/g16-c01
+```
+
+This preserves the useful two-level batching strategy: each array element owns
+one shard of 30 inputs and runs up to four independent 16-core Gaussian jobs
+at once on its node. Unlike the older folder-repacking scripts, it does not
+move inputs or edit `%chk` lines. It reads the authoritative `jobs.csv`, writes
+batch manifests under `slurm_batches/`, and puts `.log`, `.status`, `.rc`, and
+timestamp files under `slurm_outputs/batch_NNNN/`. `collect` already scans
+these output subdirectories recursively.
+
+Submit from anywhere with the generated wrapper:
+
+```bash
+./gaussian_jobs/submit_gaussian_array.sh
+./gaussian_jobs/gaussian_array_status.sh
+```
+
+The wrapper exports the actual campaign directory rather than relying on
+`$PWD` or the Slurm spool directory. A resubmission is safe by default:
+`RUN_POLICY=resume` skips any `.log` containing a normal Gaussian termination
+and reruns missing/incomplete calculations. Force a complete rerun only when
+deliberate:
+
+```bash
+RUN_POLICY=all ./gaussian_jobs/submit_gaussian_array.sh
+```
+
+Use `--array-concurrency N` to cap the number of simultaneously running array
+elements. Gaussian scratch defaults to `/work/$USER/g16-scr`; override it at
+submission time with `GAUSSIAN_SCRATCH_ROOT`. Scratch is removed per completed
+worker unless `KEEP_GAUSSIAN_SCRATCH=1` is exported.
+
+For Gaussian `External` calculations that need the xTB conda environment and
+wrapper on `PATH`, copy and source the supplied optional initialization hook:
+
+```bash
+cluster-mlip prepare-slurm gaussian_jobs \
+  --worker-init examples/gaussian_worker_init_xtb.sh
+```
+
+Its conda initialization path, environment name, and wrapper directory can be
+overridden with `CLUSTER_MLIP_CONDA_SH`, `CLUSTER_MLIP_XTB_ENV`, and
+`CLUSTER_MLIP_XTB_WRAPPER_DIR`. Ordinary wB97M-V Gaussian labeling does not
+need this hook.
 
 ## Spin-safe Fe-cluster preparation
 

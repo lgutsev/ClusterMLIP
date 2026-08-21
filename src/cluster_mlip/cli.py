@@ -27,6 +27,7 @@ from .spin import (
     write_spin_inventory,
     write_spin_jobs,
 )
+from .slurm import SlurmConfig, prepare_slurm_array
 from .stratify import STRATA_FIELDS
 
 
@@ -166,6 +167,37 @@ def command_prepare(args: argparse.Namespace) -> int:
     write_gaussian_jobs(jobs, Path(args.output), args.route, args.memory, args.nproc)
     print(f"Prepared {len(jobs)} Gaussian force jobs from {len(records)} seeds")
     print(f"Route: {args.route}")
+    return 0
+
+
+def command_prepare_slurm(args: argparse.Namespace) -> int:
+    config = SlurmConfig(
+        jobs_per_batch=args.jobs_per_batch,
+        concurrent_jobs=args.concurrent_jobs,
+        cpus_per_job=args.cpus_per_job,
+        time_limit=args.time,
+        partition=args.partition,
+        account=args.account,
+        gaussian_module=args.gaussian_module,
+        gaussian_command=args.gaussian_command,
+        job_name=args.job_name,
+        memory_per_node=args.memory_per_node,
+        array_concurrency=args.array_concurrency,
+        scratch_root=args.scratch_root,
+    )
+    plan = prepare_slurm_array(
+        Path(args.campaign),
+        config,
+        worker_init=Path(args.worker_init) if args.worker_init else None,
+        allow_nproc_mismatch=args.allow_nproc_mismatch,
+    )
+    print(
+        f"Prepared {plan['input_count']} Gaussian inputs in {plan['batch_count']} Slurm batches "
+        f"({args.jobs_per_batch} inputs/batch, {args.concurrent_jobs} concurrent jobs/node)"
+    )
+    print(f"Submit: {Path(args.campaign).resolve() / 'submit_gaussian_array.sh'}")
+    for warning in plan["warnings"]:
+        print(f"WARNING: {warning}", file=sys.stderr)
     return 0
 
 
@@ -446,6 +478,47 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--memory", default="16GB")
     prepare.add_argument("--nproc", type=int, default=16)
     prepare.set_defaults(func=command_prepare)
+
+    prepare_slurm = sub.add_parser(
+        "prepare-slurm",
+        help="generate a resumable batched Slurm array for a prepared Gaussian campaign",
+    )
+    prepare_slurm.add_argument(
+        "campaign", help="directory containing jobs.csv or spin_jobs.csv plus generated inputs"
+    )
+    prepare_slurm.add_argument("--jobs-per-batch", type=int, default=30)
+    prepare_slurm.add_argument(
+        "--concurrent-jobs", type=int, default=4,
+        help="Gaussian jobs multiplexed inside each one-node array task",
+    )
+    prepare_slurm.add_argument("--cpus-per-job", type=int, default=16)
+    prepare_slurm.add_argument(
+        "--allow-nproc-mismatch", action="store_true",
+        help="generate despite %%nprocshared/Slurm CPU disagreement (normally rejected)",
+    )
+    prepare_slurm.add_argument("--time", default="72:00:00")
+    prepare_slurm.add_argument("--partition", default="checkpt")
+    prepare_slurm.add_argument("--account", default="loni_dspm_25")
+    prepare_slurm.add_argument("--gaussian-module", default="gaussian/g16-c01")
+    prepare_slurm.add_argument("--gaussian-command", default="g16")
+    prepare_slurm.add_argument("--job-name", default="cluster_mlip_g16")
+    prepare_slurm.add_argument(
+        "--memory-per-node",
+        help="optional Slurm --mem value; Gaussian per-job memory remains controlled by the .gjf files",
+    )
+    prepare_slurm.add_argument(
+        "--array-concurrency", type=int,
+        help="optional maximum number of array tasks allowed to run simultaneously",
+    )
+    prepare_slurm.add_argument(
+        "--scratch-root", default="/work/$USER/g16-scr",
+        help="node-visible Gaussian scratch parent (shell variables are expanded at run time)",
+    )
+    prepare_slurm.add_argument(
+        "--worker-init",
+        help="optional shell file copied into the campaign and sourced inside every srun worker",
+    )
+    prepare_slurm.set_defaults(func=command_prepare_slurm)
 
     prepare_spins = sub.add_parser(
         "prepare-spins",

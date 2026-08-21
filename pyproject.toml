@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cluster-mlip-pipeline"
-version = "0.4.0"
+version = "0.5.0"
 description = "Analyze Gaussian cluster archives and prepare charge/spin-aware MACE datasets"
 requires-python = ">=3.10"
 dependencies = []
