@@ -11,7 +11,8 @@ The first milestone deliberately covers one model strategy:
 - provenance-aware splits that keep sibling perturbations together.
 
 Foundation-model fine-tuning is deferred until the scratch model provides a
-clean control.
+clean control; `configs/finetune_foundation.sh` is an unverified starting
+point for that milestone, not a claim that it is ready (see below).
 
 ## What it handles
 
@@ -38,11 +39,15 @@ source .venv/bin/activate
 python -m pip install -e .
 ```
 
-MACE is needed only when training:
+MACE is needed only for training, fine-tuning, or `select-next-batch`:
 
 ```bash
-python -m pip install 'mace-torch>=0.3.16'
+python -m pip install -e '.[train]'
 ```
+
+Run `cluster-mlip doctor` after installing to check which of these optional
+tools (`strings`, `formchk`, `mace-torch`) are actually on `PATH`/importable
+before starting a large extraction or training run.
 
 ## 1. Analyze a database first
 
@@ -62,6 +67,10 @@ formulas, cluster-size range, charge/multiplicity states, stationary-point and
 IRC classes, and legacy Gaussian routes. Unsupported files remain visible in
 the inventory. Binary `.chk` files are reported as errors if `formchk` is not
 available.
+
+Add `-j N`/`--jobs N` to parse files in `N` worker processes for a large
+(LONI-scale) warehouse; the default of 1 runs the original single-process
+scan unchanged. `analyze` and `audit` both accept it.
 
 For a private LONI audit with both a complete inventory and the initial Fe/N/O
 pilot selection, use the first-class audit command:
@@ -176,7 +185,12 @@ The preparer rejects fragment inputs unless all atoms are assigned exactly
 once, fragment charges sum to the molecular charge, every local multiplicity
 has valid electron parity, and
 `sum[orientation * (local multiplicity - 1)] == total multiplicity - 1`.
-For example:
+`examples/spin_fragments.schema.json` documents the same shape as a JSON
+Schema (most editors will validate a `--fragment-spec` file against it live
+if it keeps the example's `$schema` pointer); `prepare-spins` also checks the
+shape itself before rendering anything, so a missing/mistyped field is
+reported all at once instead of as a bare traceback from deep inside the
+fragment validator. For example:
 
 ```json
 {
@@ -244,6 +258,12 @@ The collector converts Gaussian energies and forces to eV and eV/Å and writes
 `all.extxyz`, `train.extxyz`, `valid.extxyz`, and `test.extxyz`. All rattles from
 one parent remain in one split, preventing near-duplicate leakage.
 
+It also writes `label_report.md`/`label_report.json`: energy and force-RMS
+statistics grouped by charge/multiplicity, plus every frame whose force RMS
+exceeds `--force-outlier-threshold` (default 5 eV/Å, adjust for your route
+and system). A non-converged SCF root or a rattle that blew up a geometry
+shows up here before it ever reaches training, which nothing checked before.
+
 ## 5. Train from scratch
 
 ```bash
@@ -255,6 +275,52 @@ categorical embeddings for total charge and spin multiplicity. It uses energy
 and force losses and no stress target because these are isolated clusters.
 Hyperparameters are a documented baseline, not a claim of final convergence.
 
+### Fine-tuning a foundation model (deferred, unverified)
+
+`configs/finetune_foundation.sh` is a starting point for the fine-tuning
+milestone the top of this README defers, written from MACE's documented
+naive-fine-tuning flags (`--foundation_model`, low `--lr`, few epochs) rather
+than from a run that has actually been executed against this project's data.
+It carries the open question in a comment: whether `--foundation_model`
+tolerates the project's `--embedding_specs`/`--use_embedding_readout`
+charge/spin modules being attached to a checkpoint that was never trained
+with them. Smoke-test on a handful of structures before a real allocation,
+the same way the spin workflow needs a one-case check first.
+
+```bash
+FOUNDATION_MODEL=medium bash configs/finetune_foundation.sh dataset
+```
+
+## 6. Evaluate a trained model
+
+```bash
+cluster-mlip evaluate dataset/test.extxyz --model checkpoints/model.model -o evaluation
+```
+
+Runs the model over a labeled `extxyz` (from `collect`) and reports energy
+(eV/atom) and force (eV/Å) MAE/RMSE overall and broken out by charge and
+multiplicity, in `evaluation.json`, `by_charge_multiplicity.csv`, and
+`report.md`. This implements the first bullet of "Validation priorities"
+below; the rest of that list is still open. Needs the training extra
+(`pip install -e '.[train]'`).
+
+## 7. Active learning: pick what to label next
+
+```bash
+cluster-mlip select-next-batch extracted/seeds.extxyz \
+  --models checkpoints/seed1.model checkpoints/seed2.model checkpoints/seed3.model \
+  --top-k 50 -o next_batch
+```
+
+Runs a committee of two or more independently trained checkpoints (different
+seeds and/or data subsets) over an unlabeled candidate pool, scores each
+structure by the worst-atom force disagreement across the committee, and
+writes the `top-k` most-disagreed-upon structures to `next_batch.extxyz` (plus
+`selection.csv` with the scores) -- these are the structures the current
+dataset constrains the least, and so are the best next candidates for the
+next (expensive) DFT labeling round rather than labeling the warehouse in
+arbitrary order. Needs the training extra.
+
 ## Model and data storage
 
 Keep code, small configs, manifests, and reports in Git. Keep raw warehouses,
@@ -263,20 +329,51 @@ versioned object storage or an institutional data repository. Record their
 checksums and immutable storage URIs in experiment manifests; do not commit
 multi-gigabyte model or calculation artifacts to this repository.
 
+```bash
+cluster-mlip manifest dataset -o manifests/exp001.json \
+  --config configs/train_from_scratch.sh --notes "first scratch run"
+```
+
+Bundles the dataset's file checksums, the training config's checksum, the
+current git commit (and whether the checkout is dirty), and a timestamp into
+one JSON record -- the "checksums ... in experiment manifests" half of the
+paragraph above; the storage-URI half is still on you, since this tool has no
+opinion on where your object storage lives.
+
 ## Validation priorities
 
-- energy and force errors by charge and multiplicity;
-- isomer ordering within composition/state groups;
-- held-out reaction families and cluster sizes;
-- barrier errors once genuine TS/IRC labels are available;
-- fragmentation curves and short trajectory stability;
-- explicit checks for inconsistent broken-symmetry SCF roots.
+- energy and force errors by charge and multiplicity -- implemented, see
+  `cluster-mlip evaluate` above;
+- isomer ordering within composition/state groups -- not yet implemented;
+- held-out reaction families and cluster sizes -- not yet implemented;
+- barrier errors once genuine TS/IRC labels are available -- not yet implemented;
+- fragmentation curves and short trajectory stability -- not yet implemented;
+- explicit checks for inconsistent broken-symmetry SCF roots -- not yet
+  implemented as a validation-priority check (`validate-spins` already flags
+  `alternative_root` states during spin-campaign preparation, which is a
+  related but earlier-stage check).
+
+## Before a large run
+
+```bash
+cluster-mlip doctor
+```
+
+Checks Python version plus whether `strings`, `formchk`, a Gaussian
+executable, and the optional `mace-torch`/`torch` stack are actually
+available, so a multi-thousand-file HPC run doesn't discover a missing tool
+partway through. Everything but the Python-version check is advisory: most
+commands don't need every tool on the list.
 
 ## Tests
 
 ```bash
 python -m unittest discover -s tests -v
+python -m pip install -e '.[dev]' && mypy src
 ```
 
 The fixtures exercise minimum, TS, IRC, checkpoint, warehouse, force-table,
-grouped job, and nested-ZIP analysis paths.
+grouped job, nested-ZIP analysis, label-report, evaluation, active-learning
+disagreement-ranking, fragment-spec shape-validation, and parallel-scan
+paths. CI (`.github/workflows/tests.yml`) runs the unit tests on Python
+3.10/3.11/3.12 and `mypy` separately; the package is fully type-hinted.

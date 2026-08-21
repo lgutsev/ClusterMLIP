@@ -6,15 +6,22 @@ import json
 import sys
 from pathlib import Path
 
+from .active_learning import predict_committee_forces, write_next_batch
 from .analysis import write_analysis
 from .audit import run_private_audit
-from .dataset import grouped_split, read_jobs_manifest, write_labeled_extxyz
+from .dataset import grouped_split, read_jobs_manifest, read_labeled_extxyz, write_labeled_extxyz
+from .doctor import MISSING_REQUIRED, format_report, run_checks
+from .evaluate import predict_with_mace, write_evaluation_report
 from .gaussian import extract_document_records, parse_final_force_frame
 from .io import iter_documents, read_document, read_extxyz, source_tree, write_extxyz, write_manifest
 from .jobs import DEFAULT_ROUTE, expanded_records, write_gaussian_jobs
+from .label_report import write_label_report
+from .mace_glue import MaceUnavailable
+from .manifest import write_experiment_manifest
 from .models import Record, composition_allowed, geometry_signature
 from .spin import (
     DEFAULT_SPIN_ROUTE,
+    validate_fragment_specification_shape,
     validate_spin_campaign,
     write_spin_inventory,
     write_spin_jobs,
@@ -198,6 +205,12 @@ def command_collect(args: argparse.Namespace) -> int:
             handle.write(f"{name}\t{message}\n")
     print(f"Collected {len(frames)} labeled frames; rejected {len(failures)} outputs")
     print("Split: " + ", ".join(f"{name}={len(values)}" for name, values in splits.items()))
+    if frames:
+        label_summary = write_label_report(frames, destination, args.force_outlier_threshold)
+        print(
+            f"Label report: {len(label_summary['outliers'])} force-RMS outliers "
+            f"(> {args.force_outlier_threshold} eV/Angstrom) -- see {destination / 'label_report.md'}"
+        )
     return 0
 
 
@@ -227,8 +240,12 @@ def command_prepare_spins(args: argparse.Namespace) -> int:
     if args.fragment_spec:
         payload = json.loads(Path(args.fragment_spec).read_text(encoding="utf-8"))
         specifications = payload.get("guesses", payload) if isinstance(payload, dict) else payload
-        if not isinstance(specifications, list):
-            raise ValueError("fragment specification must be a list or an object containing 'guesses'")
+        shape_errors = validate_fragment_specification_shape(specifications)
+        if shape_errors:
+            raise ValueError(
+                f"{args.fragment_spec} does not match the expected shape "
+                "(see examples/spin_fragments.schema.json):\n  - " + "\n  - ".join(shape_errors)
+            )
     stages = write_spin_jobs(
         records,
         Path(args.output),
@@ -265,6 +282,73 @@ def command_validate_spins(args: argparse.Namespace) -> int:
         + summary["planned_stages_missing"]
     )
     return 2 if args.strict and strict_failures else 0
+
+
+def command_doctor(args: argparse.Namespace) -> int:
+    checks = run_checks()
+    report, worst = format_report(checks)
+    print(report)
+    return 1 if worst == MISSING_REQUIRED else 0
+
+
+def command_manifest(args: argparse.Namespace) -> int:
+    manifest = write_experiment_manifest(
+        Path(args.dataset),
+        Path(args.output),
+        config=Path(args.config) if args.config else None,
+        notes=args.notes or "",
+    )
+    print(f"Dataset files hashed: {len(manifest['dataset_files'])}")
+    print(f"Git commit: {manifest['git_commit'] or '(not a git checkout)'}")
+    print(f"Manifest: {Path(args.output).resolve()}")
+    return 0
+
+
+def command_evaluate(args: argparse.Namespace) -> int:
+    frames = read_labeled_extxyz(Path(args.labeled))
+    if not frames:
+        print("No labeled frames found; nothing to evaluate.", file=sys.stderr)
+        return 1
+    try:
+        predictions = predict_with_mace(Path(args.model), frames, device=args.device)
+    except MaceUnavailable as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    summary = write_evaluation_report(frames, predictions, Path(args.output))
+    overall = summary["overall"]
+    print(
+        f"Evaluated {summary['n_frames']} frames: "
+        f"energy MAE {overall['energy_mae_ev_per_atom']:.4f} eV/atom, "
+        f"force MAE {overall['force_mae_ev_ang']:.4f} eV/Angstrom"
+    )
+    print(f"Report: {Path(args.output).resolve() / 'report.md'}")
+    return 0
+
+
+def command_select_next_batch(args: argparse.Namespace) -> int:
+    if len(args.models) < 2:
+        print("error: --models needs at least two checkpoints to form a committee", file=sys.stderr)
+        return 1
+    candidates = read_extxyz(Path(args.candidates))
+    if not candidates:
+        print("No candidate structures found; nothing to rank.", file=sys.stderr)
+        return 1
+    try:
+        committee_forces = predict_committee_forces(
+            [Path(model) for model in args.models], candidates, device=args.device
+        )
+    except MaceUnavailable as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    selected = write_next_batch(candidates, committee_forces, Path(args.output), args.top_k)
+    print(f"Ranked {len(candidates)} candidates by {len(args.models)}-model committee disagreement")
+    if selected:
+        print(
+            f"Selected top {len(selected)}: worst disagreement "
+            f"{selected[0][1]:.4f} eV/Angstrom, weakest of the selection {selected[-1][1]:.4f} eV/Angstrom"
+        )
+    print(f"Next batch: {Path(args.output).resolve() / 'next_batch.extxyz'}")
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -370,6 +454,10 @@ def build_parser() -> argparse.ArgumentParser:
     collect.add_argument("--valid-fraction", type=float, default=0.10)
     collect.add_argument("--test-fraction", type=float, default=0.10)
     collect.add_argument("--seed", type=int, default=20260811)
+    collect.add_argument(
+        "--force-outlier-threshold", type=float, default=5.0,
+        help="flag frames whose force RMS (eV/Angstrom) exceeds this in label_report.md/json",
+    )
     collect.set_defaults(func=command_collect)
 
     validate_spins = sub.add_parser(
@@ -387,6 +475,45 @@ def build_parser() -> argparse.ArgumentParser:
         help="exit nonzero when a legacy state is missing or converges to an alternative root",
     )
     validate_spins.set_defaults(func=command_validate_spins)
+
+    doctor = sub.add_parser(
+        "doctor", help="check for strings/formchk/Gaussian/mace-torch before a large run"
+    )
+    doctor.set_defaults(func=command_doctor)
+
+    manifest = sub.add_parser(
+        "manifest",
+        help="bundle a dataset's checksums, config, and git commit into one experiment manifest",
+    )
+    manifest.add_argument("dataset", help="dataset directory from `collect` (train/valid/test/all.extxyz)")
+    manifest.add_argument("-o", "--output", default="manifest.json", help="output manifest JSON path")
+    manifest.add_argument("--config", help="training config file to checksum alongside the dataset")
+    manifest.add_argument("--notes", help="free-text notes to record in the manifest")
+    manifest.set_defaults(func=command_manifest)
+
+    evaluate = sub.add_parser(
+        "evaluate",
+        help="score a trained MACE model's energy/force error by charge and multiplicity",
+    )
+    evaluate.add_argument("labeled", help="labeled extxyz from `collect`, e.g. dataset/test.extxyz")
+    evaluate.add_argument("--model", required=True, help="path to a trained MACE model checkpoint")
+    evaluate.add_argument("-o", "--output", default="evaluation")
+    evaluate.add_argument("--device", default="cpu")
+    evaluate.set_defaults(func=command_evaluate)
+
+    select_next_batch = sub.add_parser(
+        "select-next-batch",
+        help="rank unlabeled candidates by committee force disagreement for active-learning DFT labeling",
+    )
+    select_next_batch.add_argument("candidates", help="extxyz of unlabeled candidate structures to rank")
+    select_next_batch.add_argument(
+        "--models", nargs="+", required=True,
+        help="two or more MACE checkpoints trained on different seeds/subsets (a committee)",
+    )
+    select_next_batch.add_argument("-o", "--output", default="next_batch")
+    select_next_batch.add_argument("--top-k", type=int, default=50)
+    select_next_batch.add_argument("--device", default="cpu")
+    select_next_batch.set_defaults(func=command_select_next_batch)
     return parser
 
 

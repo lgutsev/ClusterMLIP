@@ -5,8 +5,8 @@ import hashlib
 import json
 from pathlib import Path
 
-from .io import quote_extxyz
-from .models import LabeledFrame
+from .io import parse_extxyz_info_line, quote_extxyz
+from .models import Atom, LabeledFrame, Record
 
 
 def write_labeled_extxyz(frames: list[LabeledFrame], path: Path) -> None:
@@ -37,6 +37,40 @@ def write_labeled_extxyz(frames: list[LabeledFrame], path: Path) -> None:
                     f"{atom.symbol:3s} {atom.x: .12f} {atom.y: .12f} {atom.z: .12f} "
                     f"{force[0]: .12f} {force[1]: .12f} {force[2]: .12f}\n"
                 )
+
+
+def read_labeled_extxyz(path: Path) -> list[LabeledFrame]:
+    """Read a labeled extxyz written by write_labeled_extxyz (all/train/
+    valid/test.extxyz from `collect`) back into LabeledFrame objects, for
+    `evaluate` and any other consumer of the final training data.
+    """
+    lines = path.read_text(encoding="utf-8").splitlines()
+    frames: list[LabeledFrame] = []
+    i = 0
+    while i < len(lines):
+        if not lines[i].strip():
+            i += 1
+            continue
+        n_atoms = int(lines[i].strip())
+        info = parse_extxyz_info_line(lines[i + 1])
+        atoms: list[Atom] = []
+        forces: list[tuple[float, float, float]] = []
+        for line in lines[i + 2:i + 2 + n_atoms]:
+            parts = line.split()
+            atoms.append(Atom(parts[0], float(parts[1]), float(parts[2]), float(parts[3])))
+            forces.append((float(parts[4]), float(parts[5]), float(parts[6])))
+        record = Record(
+            record_id=info["record_id"],
+            source=info.get("source", ""),
+            atoms=atoms,
+            charge=int(info.get("charge", 0)),
+            multiplicity=int(info.get("multiplicity", info.get("spin", 1))),
+            config_type=info.get("config_type", "unknown"),
+            metadata=json.loads(info["metadata"]) if "metadata" in info else {},
+        )
+        frames.append(LabeledFrame(record, float(info["REF_energy"]), forces, path))
+        i += n_atoms + 2
+    return frames
 
 
 def grouped_split(

@@ -195,6 +195,64 @@ def render_ladder_input(
     return "\n".join(parts) + "\n", rows
 
 
+_FRAGMENT_ORIENTATIONS = (1, -1, "+", "-", "alpha", "beta", "up", "down")
+
+
+def validate_fragment_specification_shape(specifications: object) -> list[str]:
+    """Structural pre-check for a parsed --fragment-spec payload.
+
+    Mirrors examples/spin_fragments.schema.json. This exists so a malformed
+    spec fails once, up front, with every problem listed -- rather than as a
+    bare KeyError/TypeError raised from deep inside _validated_fragments (or
+    from write_spin_jobs's dict-keying) that only reports the first mistake
+    and gives no line to fix it at. It does not check cross-record semantics
+    (atom coverage, spin-sum consistency); that stays in _validated_fragments
+    since it needs the target Record to check against.
+    """
+    errors: list[str] = []
+    if not isinstance(specifications, list):
+        return ["fragment specification must be a list of guesses (or an object with a 'guesses' list)"]
+    for index, spec in enumerate(specifications):
+        label = f"guesses[{index}]"
+        if not isinstance(spec, dict):
+            errors.append(f"{label}: must be an object, got {type(spec).__name__}")
+            continue
+        name = spec.get("name")
+        if name:
+            label = f"guesses[{index}] ({name!r})"
+        for key, kind in (("record_id", str), ("target_multiplicity", int)):
+            if key not in spec:
+                errors.append(f"{label}: missing required key '{key}'")
+            elif not isinstance(spec[key], kind):
+                errors.append(f"{label}: '{key}' must be a {kind.__name__}, got {type(spec[key]).__name__}")
+        fragments = spec.get("fragments")
+        if "fragments" not in spec:
+            errors.append(f"{label}: missing required key 'fragments'")
+        elif not isinstance(fragments, list) or len(fragments) < 2:
+            errors.append(f"{label}: 'fragments' must be a list of at least two fragments")
+        else:
+            for f_index, fragment in enumerate(fragments):
+                f_label = f"{label}.fragments[{f_index}]"
+                if not isinstance(fragment, dict):
+                    errors.append(f"{f_label}: must be an object, got {type(fragment).__name__}")
+                    continue
+                for key in ("atoms", "charge", "multiplicity"):
+                    if key not in fragment:
+                        errors.append(f"{f_label}: missing required key '{key}'")
+                atoms = fragment.get("atoms")
+                if "atoms" in fragment and (not isinstance(atoms, list) or not atoms):
+                    errors.append(f"{f_label}: 'atoms' must be a non-empty list of 1-based indices")
+                for key in ("charge", "multiplicity"):
+                    if key in fragment and not isinstance(fragment[key], int):
+                        errors.append(f"{f_label}: '{key}' must be an integer")
+                orientation = fragment.get("orientation", "alpha")
+                if orientation not in _FRAGMENT_ORIENTATIONS:
+                    errors.append(
+                        f"{f_label}: 'orientation' must be one of {_FRAGMENT_ORIENTATIONS}, got {orientation!r}"
+                    )
+    return errors
+
+
 def _orientation_sign(value: object) -> int:
     if value in (1, "+", "alpha", "up"):
         return 1

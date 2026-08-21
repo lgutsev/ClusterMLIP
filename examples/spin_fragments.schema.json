@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ClusterMLIP fragment AFM guess specification",
+  "description": "Input to `cluster-mlip prepare-spins --fragment-spec`. Editors that support $schema will validate example files like spin_fragments.example.json against this while you edit them. cluster_mlip.spin.validate_fragment_specification_shape() enforces the same shape at runtime, plus the semantic checks (atom coverage, charge/spin consistency) documented in the README.",
+  "type": "object",
+  "required": ["guesses"],
+  "properties": {
+    "guesses": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/guess" }
+    }
+  },
+  "$defs": {
+    "guess": {
+      "type": "object",
+      "required": ["record_id", "target_multiplicity", "fragments"],
+      "properties": {
+        "record_id": {
+          "type": "string",
+          "description": "record_id of a trusted high-spin seed, e.g. from spin-extract's seeds.extxyz"
+        },
+        "name": {
+          "type": "string",
+          "description": "Short label used to build the job_id and .gjf filename"
+        },
+        "target_multiplicity": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "fragments": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/fragment" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "fragment": {
+      "type": "object",
+      "required": ["atoms", "charge", "multiplicity"],
+      "properties": {
+        "atoms": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "integer", "minimum": 1 },
+          "description": "1-based atom indices; every atom in the record must be covered exactly once across all fragments"
+        },
+        "charge": { "type": "integer" },
+        "multiplicity": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Fragment multiplicity; orientation carries the sign, this is always positive"
+        },
+        "orientation": {
+          "enum": ["alpha", "beta", "up", "down", "+", "-", 1, -1],
+          "default": "alpha"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
