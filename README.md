@@ -145,9 +145,10 @@ energies or forces from different electronic-structure methods in one target
 head. `jobs.csv` preserves each job's parent structure; `run_one.sh` is a small
 Gaussian runner to adapt to the local scheduler.
 
-### Generate a batched LONI Slurm array
+### Generate separately monitorable LONI Slurm batches
 
-After `prepare`, turn the campaign into a resumable Slurm array:
+After `prepare`, split the campaign into physical batch directories and create
+one independently submitted Slurm job per directory:
 
 ```bash
 cluster-mlip prepare-slurm gaussian_jobs \
@@ -160,35 +161,43 @@ cluster-mlip prepare-slurm gaussian_jobs \
   --gaussian-module gaussian/g16-c01
 ```
 
-This preserves the useful two-level batching strategy: each array element owns
-one shard of 30 inputs and runs up to four independent 16-core Gaussian jobs
-at once on its node. Unlike the older folder-repacking scripts, it does not
-move inputs or edit `%chk` lines. It reads the authoritative `jobs.csv`, writes
-batch manifests under `slurm_batches/`, and puts `.log`, `.status`, `.rc`, and
-timestamp files under `slurm_outputs/batch_NNNN/`. `collect` already scans
-these output subdirectories recursively.
+This preserves the useful two-level batching strategy: every
+`slurm_batches/batch_NNNN/` directory is a distinct Slurm job containing 30
+input symlinks, while that job runs up to four independent 16-core Gaussian
+calculations at once on its node. Each folder has its own `inputs.txt`,
+`run_batch.sbatch`, `submit.sh`, scheduler stdout/stderr, Gaussian `.log`,
+`.status`, `.rc`, and timestamp files. The original inputs remain unmoved and
+unmodified, and `collect` scans the batch folders recursively.
 
 Submit from anywhere with the generated wrapper:
 
 ```bash
-./gaussian_jobs/submit_gaussian_array.sh
-./gaussian_jobs/gaussian_array_status.sh
+./gaussian_jobs/submit_gaussian_batches.sh
+./gaussian_jobs/gaussian_batch_status.sh
 ```
 
-The wrapper exports the actual campaign directory rather than relying on
-`$PWD` or the Slurm spool directory. A resubmission is safe by default:
-`RUN_POLICY=resume` skips any `.log` containing a normal Gaussian termination
-and reruns missing/incomplete calculations. Force a complete rerun only when
-deliberate:
+Each batch can also be watched or resubmitted on its own:
 
 ```bash
-RUN_POLICY=all ./gaussian_jobs/submit_gaussian_array.sh
+cd gaussian_jobs/slurm_batches/batch_0001
+./submit.sh
+tail -f scheduler-*.stdout
 ```
 
-Use `--array-concurrency N` to cap the number of simultaneously running array
-elements. Gaussian scratch defaults to `/work/$USER/g16-scr`; override it at
-submission time with `GAUSSIAN_SCRATCH_ROOT`. Scratch is removed per completed
-worker unless `KEEP_GAUSSIAN_SCRATCH=1` is exported.
+The wrappers export the actual campaign and batch directories rather than
+relying on `$PWD` or the Slurm spool directory. A resubmission is safe by default:
+`RUN_POLICY=resume` skips any `.log` containing a normal Gaussian termination
+and reruns missing/incomplete calculations. The all-batch submitter skips a
+fully completed batch instead of creating a new Slurm job for it. Force a
+complete rerun only when deliberate:
+
+```bash
+RUN_POLICY=all ./gaussian_jobs/submit_gaussian_batches.sh
+```
+
+Gaussian scratch defaults to `/work/$USER/g16-scr`; override it at submission
+time with `GAUSSIAN_SCRATCH_ROOT`. Scratch is removed per completed worker
+unless `KEEP_GAUSSIAN_SCRATCH=1` is exported.
 
 For Gaussian `External` calculations that need the xTB conda environment and
 wrapper on `PATH`, copy and source the supplied optional initialization hook:

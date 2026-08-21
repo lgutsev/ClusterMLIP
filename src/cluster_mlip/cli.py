@@ -27,7 +27,7 @@ from .spin import (
     write_spin_inventory,
     write_spin_jobs,
 )
-from .slurm import SlurmConfig, prepare_slurm_array
+from .slurm import SlurmConfig, prepare_slurm_batches
 from .stratify import STRATA_FIELDS
 
 
@@ -182,10 +182,9 @@ def command_prepare_slurm(args: argparse.Namespace) -> int:
         gaussian_command=args.gaussian_command,
         job_name=args.job_name,
         memory_per_node=args.memory_per_node,
-        array_concurrency=args.array_concurrency,
         scratch_root=args.scratch_root,
     )
-    plan = prepare_slurm_array(
+    plan = prepare_slurm_batches(
         Path(args.campaign),
         config,
         worker_init=Path(args.worker_init) if args.worker_init else None,
@@ -195,7 +194,7 @@ def command_prepare_slurm(args: argparse.Namespace) -> int:
         f"Prepared {plan['input_count']} Gaussian inputs in {plan['batch_count']} Slurm batches "
         f"({args.jobs_per_batch} inputs/batch, {args.concurrent_jobs} concurrent jobs/node)"
     )
-    print(f"Submit: {Path(args.campaign).resolve() / 'submit_gaussian_array.sh'}")
+    print(f"Submit: {Path(args.campaign).resolve() / 'submit_gaussian_batches.sh'}")
     for warning in plan["warnings"]:
         print(f"WARNING: {warning}", file=sys.stderr)
     return 0
@@ -481,7 +480,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     prepare_slurm = sub.add_parser(
         "prepare-slurm",
-        help="generate a resumable batched Slurm array for a prepared Gaussian campaign",
+        help="generate resumable per-folder Slurm jobs for a prepared Gaussian campaign",
     )
     prepare_slurm.add_argument(
         "campaign", help="directory containing jobs.csv or spin_jobs.csv plus generated inputs"
@@ -489,7 +488,7 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_slurm.add_argument("--jobs-per-batch", type=int, default=30)
     prepare_slurm.add_argument(
         "--concurrent-jobs", type=int, default=4,
-        help="Gaussian jobs multiplexed inside each one-node array task",
+        help="Gaussian jobs multiplexed inside each one-node batch job",
     )
     prepare_slurm.add_argument("--cpus-per-job", type=int, default=16)
     prepare_slurm.add_argument(
@@ -505,10 +504,6 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_slurm.add_argument(
         "--memory-per-node",
         help="optional Slurm --mem value; Gaussian per-job memory remains controlled by the .gjf files",
-    )
-    prepare_slurm.add_argument(
-        "--array-concurrency", type=int,
-        help="optional maximum number of array tasks allowed to run simultaneously",
     )
     prepare_slurm.add_argument(
         "--scratch-root", default="/work/$USER/g16-scr",

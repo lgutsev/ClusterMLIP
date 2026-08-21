@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import os
 import re
 import shlex
 import shutil
@@ -26,7 +27,6 @@ class SlurmConfig:
     gaussian_command: str = "g16"
     job_name: str = "cluster_mlip_g16"
     memory_per_node: str | None = None
-    array_concurrency: int | None = None
     scratch_root: str = "/work/$USER/g16-scr"
 
 
@@ -163,22 +163,18 @@ exit "$command_rc"
 """
 
 
-def _array_script(config: SlurmConfig, batch_count: int) -> str:
-    array = f"1-{batch_count}"
-    if config.array_concurrency is not None:
-        array += f"%{config.array_concurrency}"
+def _batch_script(config: SlurmConfig, batch_index: int) -> str:
     directives = [
         "#!/usr/bin/env bash",
-        f"#SBATCH --job-name={_safe_directive(config.job_name, 'job name')}",
+        f"#SBATCH --job-name={_safe_directive(config.job_name, 'job name')}_{batch_index:04d}",
         "#SBATCH --nodes=1",
         f"#SBATCH --ntasks-per-node={config.concurrent_jobs}",
         f"#SBATCH --cpus-per-task={config.cpus_per_job}",
         f"#SBATCH --time={_safe_directive(config.time_limit, 'time limit')}",
         f"#SBATCH --partition={_safe_directive(config.partition, 'partition')}",
         f"#SBATCH --account={_safe_directive(config.account, 'account')}",
-        f"#SBATCH --array={array}",
-        "#SBATCH --output=slurm_logs/gaussian-%A_%a.out",
-        "#SBATCH --error=slurm_logs/gaussian-%A_%a.err",
+        "#SBATCH --output=scheduler-%j.stdout",
+        "#SBATCH --error=scheduler-%j.stderr",
     ]
     if config.memory_per_node:
         directives.append(f"#SBATCH --mem={_safe_directive(config.memory_per_node, 'memory per node')}")
@@ -189,11 +185,11 @@ def _array_script(config: SlurmConfig, batch_count: int) -> str:
     body = f"""
 set -euo pipefail
 
-campaign_root=${{CLUSTER_MLIP_CAMPAIGN_ROOT:?Use ./submit_gaussian_array.sh so the campaign root is exported}}
+campaign_root=${{CLUSTER_MLIP_CAMPAIGN_ROOT:?Use the generated submit.sh so the campaign root is exported}}
 campaign_root=$(cd -- "$campaign_root" && pwd -P)
-batch_id=$(printf '%04d' "${{SLURM_ARRAY_TASK_ID:?}}")
-batch_file="$campaign_root/slurm_batches/batch_${{batch_id}}.txt"
-output_dir="$campaign_root/slurm_outputs/batch_${{batch_id}}"
+batch_dir=${{CLUSTER_MLIP_BATCH_DIR:?Use the generated submit.sh so the batch directory is exported}}
+batch_dir=$(cd -- "$batch_dir" && pwd -P)
+batch_file="$batch_dir/inputs.txt"
 worker="$campaign_root/run_gaussian_worker.sh"
 run_policy=${{RUN_POLICY:-resume}}
 cpus_per_job=${{SLURM_CPUS_PER_TASK:-{config.cpus_per_job}}}
@@ -207,9 +203,9 @@ case "$run_policy" in
   resume|all) ;;
   *) echo "RUN_POLICY must be 'resume' or 'all', got: $run_policy" >&2; exit 2 ;;
 esac
-[[ -f $batch_file ]] || {{ echo "Missing batch manifest: $batch_file" >&2; exit 2; }}
+[[ -f $batch_file ]] || {{ echo "Missing batch input list: $batch_file" >&2; exit 2; }}
 [[ -x $worker ]] || {{ echo "Missing worker: $worker" >&2; exit 2; }}
-mkdir -p -- "$output_dir" "$scratch_root/${{SLURM_JOB_ID}}"
+mkdir -p -- "$scratch_root/${{SLURM_JOB_ID}}"
 
 {module_line}
 export GAUSSIAN_COMMAND=${{GAUSSIAN_COMMAND:-{shlex.quote(config.gaussian_command)}}}
@@ -217,12 +213,12 @@ export GAUSS_USE_SLASHSCR=1
 ulimit -s unlimited
 
 mapfile -t inputs < "$batch_file"
-echo "Array task $SLURM_ARRAY_TASK_ID: ${{#inputs[@]}} inputs; policy=$run_policy"
+echo "Batch: $(basename -- "$batch_dir"); ${{#inputs[@]}} inputs; policy=$run_policy"
 echo "Campaign: $campaign_root"
 echo "Host: $(hostname)"
 date
 
-fifo="${{TMPDIR:-/tmp}}/cluster_mlip_gaussian.${{SLURM_JOB_ID}}.${{SLURM_ARRAY_TASK_ID}}.fifo"
+fifo="${{TMPDIR:-/tmp}}/cluster_mlip_gaussian.${{SLURM_JOB_ID}}.fifo"
 rm -f -- "$fifo"
 mkfifo "$fifo"
 exec 9<>"$fifo"
@@ -231,17 +227,17 @@ for ((slot=0; slot<{config.concurrent_jobs}; slot++)); do printf '\n' >&9; done
 cleanup() {{ exec 9>&- 9<&- || true; }}
 trap cleanup EXIT
 
-for input_rel in "${{inputs[@]}}"; do
-  [[ -n $input_rel ]] || continue
-  input="$campaign_root/$input_rel"
-  base=$(basename -- "${{input_rel%.*}}")
-  output="$output_dir/${{base}}.log"
-  status="$output_dir/${{base}}.status"
-  rc_file="$output_dir/${{base}}.rc"
+for input_name in "${{inputs[@]}}"; do
+  [[ -n $input_name ]] || continue
+  input="$batch_dir/$input_name"
+  base=$(basename -- "${{input_name%.*}}")
+  output="$batch_dir/${{base}}.log"
+  status="$batch_dir/${{base}}.status"
+  rc_file="$batch_dir/${{base}}.rc"
 
   if [[ $run_policy == resume && -s $output ]] && grep -q 'Normal termination of Gaussian' "$output"; then
     printf 'OK\n' > "$status"
-    echo "SKIP complete: $input_rel"
+    echo "SKIP complete: $input_name"
     continue
   fi
 
@@ -255,7 +251,7 @@ for input_rel in "${{inputs[@]}}"; do
     worker_rc=$?
     set -e
     if (( worker_rc != 0 )); then
-      echo "Worker failed for $input_rel (rc=$worker_rc)" >&2
+      echo "Worker failed for $input_name (rc=$worker_rc)" >&2
     fi
   }} &
 done
@@ -263,11 +259,11 @@ wait
 
 complete=0
 failed=0
-for input_rel in "${{inputs[@]}}"; do
-  [[ -n $input_rel ]] || continue
-  base=$(basename -- "${{input_rel%.*}}")
-  output="$output_dir/${{base}}.log"
-  status="$output_dir/${{base}}.status"
+for input_name in "${{inputs[@]}}"; do
+  [[ -n $input_name ]] || continue
+  base=$(basename -- "${{input_name%.*}}")
+  output="$batch_dir/${{base}}.log"
+  status="$batch_dir/${{base}}.status"
   if [[ -s $output ]] && grep -q 'Normal termination of Gaussian' "$output"; then
     ((complete += 1))
   else
@@ -276,58 +272,101 @@ for input_rel in "${{inputs[@]}}"; do
   fi
 done
 
-echo "Batch $batch_id summary: complete=$complete incomplete=$failed"
+echo "$(basename -- "$batch_dir") summary: complete=$complete incomplete=$failed"
 date
 (( failed == 0 ))
 """
     return "\n".join(directives) + body
 
 
-def _submit_script(worker_init_name: str | None) -> str:
+def _batch_submit_script(worker_init_name: str | None) -> str:
     worker_default = f'"$campaign_root/{worker_init_name}"' if worker_init_name else ""
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 
-campaign_root=$(cd -- "$(dirname -- "${{BASH_SOURCE[0]}}")" && pwd -P)
-mkdir -p -- "$campaign_root/slurm_logs"
+batch_dir=$(cd -- "$(dirname -- "${{BASH_SOURCE[0]}}")" && pwd -P)
+campaign_root=$(cd -- "$batch_dir/../.." && pwd -P)
 run_policy=${{RUN_POLICY:-resume}}
 worker_init=${{GAUSSIAN_WORKER_INIT:-{worker_default}}}
-export_spec="ALL,CLUSTER_MLIP_CAMPAIGN_ROOT=$campaign_root,RUN_POLICY=$run_policy"
+export_spec="ALL,CLUSTER_MLIP_CAMPAIGN_ROOT=$campaign_root,CLUSTER_MLIP_BATCH_DIR=$batch_dir,RUN_POLICY=$run_policy"
 if [[ -n $worker_init ]]; then
   export_spec+=",GAUSSIAN_WORKER_INIT=$worker_init"
 fi
-sbatch "$@" --chdir="$campaign_root" --export="$export_spec" \
-  "$campaign_root/run_gaussian_array.sbatch"
+sbatch "$@" --chdir="$batch_dir" --export="$export_spec" "$batch_dir/run_batch.sbatch"
 """
 
 
-def _status_script() -> str:
-    return """#!/usr/bin/env bash
+def _submit_all_script(batch_count: int) -> str:
+    return f"""#!/usr/bin/env bash
 set -euo pipefail
 
-campaign_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
-planned=$(awk 'NF {count++} END {print count+0}' "$campaign_root"/slurm_batches/batch_*.txt)
-normal=0
-errors=0
-if [[ -d $campaign_root/slurm_outputs ]]; then
-  while IFS= read -r -d '' output; do
-    if grep -q 'Normal termination of Gaussian' "$output"; then ((normal += 1)); fi
-  done < <(find "$campaign_root/slurm_outputs" -type f -name '*.log' -print0)
-  while IFS= read -r -d '' status; do
-    if grep -q '^ERROR' "$status"; then ((errors += 1)); fi
-  done < <(find "$campaign_root/slurm_outputs" -type f -name '*.status' -print0)
-fi
-pending=$((planned - normal))
-(( pending < 0 )) && pending=0
-printf 'planned=%d normal=%d incomplete=%d error_status=%d\n' "$planned" "$normal" "$pending" "$errors"
-if (( errors > 0 )); then
-  echo "Error status files:"
-  grep -l '^ERROR' "$campaign_root"/slurm_outputs/batch_*/*.status 2>/dev/null || true
-fi
+campaign_root=$(cd -- "$(dirname -- "${{BASH_SOURCE[0]}}")" && pwd -P)
+run_policy=${{RUN_POLICY:-resume}}
+submitted=0
+skipped=0
+for batch_number in $(seq 1 {batch_count}); do
+  batch_dir=$(printf '%s/slurm_batches/batch_%04d' "$campaign_root" "$batch_number")
+  if [[ $run_policy == resume ]]; then
+    incomplete=0
+    while IFS= read -r input_name; do
+      [[ -n $input_name ]] || continue
+      base=${{input_name%.*}}
+      output="$batch_dir/${{base}}.log"
+      if [[ ! -s $output ]] || ! grep -q 'Normal termination of Gaussian' "$output"; then
+        incomplete=1
+        break
+      fi
+    done < "$batch_dir/inputs.txt"
+    if (( incomplete == 0 )); then
+      echo "SKIP complete batch: $(basename -- "$batch_dir")"
+      ((skipped += 1))
+      continue
+    fi
+  fi
+  result=$("$batch_dir/submit.sh" "$@")
+  echo "$(basename -- "$batch_dir"): $result"
+  ((submitted += 1))
+done
+echo "Submitted $submitted batch job(s); skipped $skipped complete batch(es)."
 """
 
 
-def prepare_slurm_array(
+def _status_script(batch_count: int) -> str:
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+
+campaign_root=$(cd -- "$(dirname -- "${{BASH_SOURCE[0]}}")" && pwd -P)
+total_planned=0
+total_normal=0
+total_errors=0
+printf '%-12s %8s %8s %10s %8s\n' batch planned normal incomplete errors
+for batch_number in $(seq 1 {batch_count}); do
+  batch_dir=$(printf '%s/slurm_batches/batch_%04d' "$campaign_root" "$batch_number")
+  planned=$(awk 'NF {{count++}} END {{print count+0}}' "$batch_dir/inputs.txt")
+  normal=0
+  errors=0
+  while IFS= read -r input_name; do
+    [[ -n $input_name ]] || continue
+    base=${{input_name%.*}}
+    output="$batch_dir/${{base}}.log"
+    status="$batch_dir/${{base}}.status"
+    if [[ -s $output ]] && grep -q 'Normal termination of Gaussian' "$output"; then
+      ((normal += 1))
+    elif [[ -f $status ]] && grep -q '^ERROR' "$status"; then
+      ((errors += 1))
+    fi
+  done < "$batch_dir/inputs.txt"
+  incomplete=$((planned - normal))
+  printf '%-12s %8d %8d %10d %8d\n' "$(basename -- "$batch_dir")" "$planned" "$normal" "$incomplete" "$errors"
+  total_planned=$((total_planned + planned))
+  total_normal=$((total_normal + normal))
+  total_errors=$((total_errors + errors))
+done
+printf '%-12s %8d %8d %10d %8d\n' TOTAL "$total_planned" "$total_normal" "$((total_planned-total_normal))" "$total_errors"
+"""
+
+
+def prepare_slurm_batches(
     campaign: Path,
     config: SlurmConfig,
     *,
@@ -344,9 +383,6 @@ def prepare_slurm_array(
     ):
         if value < 1:
             raise ValueError(f"{name} must be at least 1")
-    if config.array_concurrency is not None and config.array_concurrency < 1:
-        raise ValueError("array_concurrency must be at least 1")
-
     manifest, inputs = _manifest_inputs(campaign)
     warnings: list[str] = []
     mismatches: list[str] = []
@@ -377,13 +413,21 @@ def prepare_slurm_array(
 
     input_fingerprint = hashlib.sha256("\0".join(inputs).encode()).hexdigest()
     old_plan_path = campaign / "slurm_plan.json"
-    outputs_exist = (campaign / "slurm_outputs").exists() and any(
-        path.is_file() for path in (campaign / "slurm_outputs").rglob("*")
+    old_output_root = campaign / "slurm_outputs"
+    batch_root = campaign / "slurm_batches"
+    outputs_exist = (
+        old_output_root.exists() and any(path.is_file() for path in old_output_root.rglob("*"))
+    ) or (
+        batch_root.exists()
+        and any(
+            path.is_file() and path.suffix in {".log", ".status", ".rc"}
+            for path in batch_root.rglob("*")
+        )
     )
     if outputs_exist:
         if not old_plan_path.exists():
             raise RuntimeError(
-                "slurm_outputs already contains files but no prior slurm_plan.json exists; "
+                "Slurm batch outputs already exist but no prior slurm_plan.json exists; "
                 "move or archive those outputs before generating a new batch map"
             )
         old_plan = json.loads(old_plan_path.read_text(encoding="utf-8"))
@@ -401,13 +445,6 @@ def prepare_slurm_array(
         inputs[start : start + config.jobs_per_batch]
         for start in range(0, len(inputs), config.jobs_per_batch)
     ]
-    batch_dir = campaign / "slurm_batches"
-    batch_dir.mkdir(parents=True, exist_ok=True)
-    for stale in batch_dir.glob("batch_*.txt"):
-        stale.unlink()
-    for index, batch in enumerate(batches, start=1):
-        (batch_dir / f"batch_{index:04d}.txt").write_text("\n".join(batch) + "\n", encoding="utf-8")
-
     worker_init_name = None
     if worker_init is not None:
         worker_init = worker_init.resolve()
@@ -419,16 +456,52 @@ def prepare_slurm_array(
             shutil.copy2(worker_init, destination)
         destination.chmod(0o755)
 
+    batch_root.mkdir(parents=True, exist_ok=True)
+    for index, batch in enumerate(batches, start=1):
+        batch_dir = batch_root / f"batch_{index:04d}"
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        for stale_link in batch_dir.iterdir():
+            if stale_link.is_symlink() and stale_link.suffix.lower() in {".gjf", ".com"}:
+                stale_link.unlink()
+        input_names: list[str] = []
+        for item in batch:
+            source = campaign / item
+            input_name = source.name
+            destination = batch_dir / input_name
+            if destination.exists() or destination.is_symlink():
+                raise FileExistsError(
+                    f"refusing to replace non-generated batch input path: {destination}"
+                )
+            destination.symlink_to(os.path.relpath(source, batch_dir))
+            input_names.append(input_name)
+        (batch_dir / "inputs.txt").write_text(
+            "\n".join(input_names) + "\n", encoding="utf-8"
+        )
+        for name, content in {
+            "run_batch.sbatch": _batch_script(config, index),
+            "submit.sh": _batch_submit_script(worker_init_name),
+        }.items():
+            path = batch_dir / name
+            path.write_text(content, encoding="utf-8")
+            path.chmod(0o755)
+
     generated = {
         "run_gaussian_worker.sh": _worker_script(config.gaussian_command),
-        "run_gaussian_array.sbatch": _array_script(config, len(batches)),
-        "submit_gaussian_array.sh": _submit_script(worker_init_name),
-        "gaussian_array_status.sh": _status_script(),
+        "submit_gaussian_batches.sh": _submit_all_script(len(batches)),
+        "gaussian_batch_status.sh": _status_script(len(batches)),
     }
     for name, content in generated.items():
         path = campaign / name
         path.write_text(content, encoding="utf-8")
         path.chmod(0o755)
+    for obsolete in (
+        "run_gaussian_array.sbatch",
+        "submit_gaussian_array.sh",
+        "gaussian_array_status.sh",
+    ):
+        obsolete_path = campaign / obsolete
+        if obsolete_path.exists():
+            obsolete_path.unlink()
 
     plan: SlurmPlan = {
         "campaign": str(campaign),

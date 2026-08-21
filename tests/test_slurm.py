@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 from cluster_mlip.cli import build_parser
-from cluster_mlip.slurm import SlurmConfig, prepare_slurm_array
+from cluster_mlip.slurm import SlurmConfig, prepare_slurm_batches
 
 
 class SlurmPreparationTests(unittest.TestCase):
@@ -27,35 +27,52 @@ class SlurmPreparationTests(unittest.TestCase):
                 writer.writerow({"job_id": f"job_{index:03d}", "input": name, "output": name[:-4] + ".log"})
         return campaign
 
-    def test_prepares_batched_resumable_array(self):
+    def test_prepares_separate_monitorable_batch_jobs(self):
         with tempfile.TemporaryDirectory() as tmp:
             campaign = self._campaign(Path(tmp))
-            plan = prepare_slurm_array(
+            plan = prepare_slurm_batches(
                 campaign,
                 SlurmConfig(
                     jobs_per_batch=3,
                     concurrent_jobs=2,
                     cpus_per_job=8,
-                    array_concurrency=2,
                 ),
             )
             self.assertEqual(plan["input_count"], 7)
             self.assertEqual(plan["batch_count"], 3)
-            batches = sorted((campaign / "slurm_batches").glob("batch_*.txt"))
-            self.assertEqual([len(path.read_text().splitlines()) for path in batches], [3, 3, 1])
-            array_text = (campaign / "run_gaussian_array.sbatch").read_text()
-            self.assertIn("#SBATCH --array=1-3%2", array_text)
-            self.assertIn("#SBATCH --ntasks-per-node=2", array_text)
-            self.assertIn("#SBATCH --cpus-per-task=8", array_text)
-            self.assertIn("RUN_POLICY:-resume", array_text)
-            self.assertNotIn("sed -i", array_text)
-            for script in (
-                "run_gaussian_array.sbatch",
+            batches = sorted((campaign / "slurm_batches").glob("batch_*"))
+            self.assertEqual(
+                [len((path / "inputs.txt").read_text().splitlines()) for path in batches],
+                [3, 3, 1],
+            )
+            self.assertTrue((batches[0] / "job_000.gjf").is_symlink())
+            first_batch = (batches[0] / "run_batch.sbatch").read_text()
+            second_batch = (batches[1] / "run_batch.sbatch").read_text()
+            self.assertIn("#SBATCH --job-name=cluster_mlip_g16_0001", first_batch)
+            self.assertIn("#SBATCH --job-name=cluster_mlip_g16_0002", second_batch)
+            self.assertNotIn("#SBATCH --array", first_batch)
+            self.assertIn("#SBATCH --ntasks-per-node=2", first_batch)
+            self.assertIn("#SBATCH --cpus-per-task=8", first_batch)
+            self.assertIn("RUN_POLICY:-resume", first_batch)
+            self.assertNotIn("sed -i", first_batch)
+            root_scripts = (
                 "run_gaussian_worker.sh",
-                "submit_gaussian_array.sh",
-                "gaussian_array_status.sh",
-            ):
+                "submit_gaussian_batches.sh",
+                "gaussian_batch_status.sh",
+            )
+            for script in root_scripts:
                 subprocess.run(["bash", "-n", str(campaign / script)], check=True)
+            for batch in batches:
+                subprocess.run(["bash", "-n", str(batch / "run_batch.sbatch")], check=True)
+                subprocess.run(["bash", "-n", str(batch / "submit.sh")], check=True)
+            status = subprocess.run(
+                [str(campaign / "gaussian_batch_status.sh")],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertIn("batch_0001", status.stdout)
+            self.assertIn("TOTAL", status.stdout)
             saved = json.loads((campaign / "slurm_plan.json").read_text())
             self.assertEqual(saved["manifest"], "jobs.csv")
 
@@ -69,14 +86,14 @@ class SlurmPreparationTests(unittest.TestCase):
                 writer.writeheader()
                 writer.writerow({"job_id": "stage0", "stage_index": "0", "input": "ladder.gjf"})
                 writer.writerow({"job_id": "stage1", "stage_index": "1", "input": "ladder.gjf"})
-            plan = prepare_slurm_array(campaign, SlurmConfig())
+            plan = prepare_slurm_batches(campaign, SlurmConfig())
             self.assertEqual(plan["input_count"], 1)
 
     def test_worker_requires_normal_termination(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             campaign = self._campaign(root, count=1)
-            prepare_slurm_array(campaign, SlurmConfig(gaussian_command=str(root / "fake_g16")))
+            prepare_slurm_batches(campaign, SlurmConfig(gaussian_command=str(root / "fake_g16")))
             fake = root / "fake_g16"
             fake.write_text("#!/usr/bin/env bash\necho ' Normal termination of Gaussian 16'\n", encoding="utf-8")
             fake.chmod(0o755)
@@ -108,24 +125,23 @@ class SlurmPreparationTests(unittest.TestCase):
                 writer.writerow({"input": "../outside.gjf"})
             (Path(tmp) / "outside.gjf").write_text("# force\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "escapes the campaign"):
-                prepare_slurm_array(campaign, SlurmConfig())
+                prepare_slurm_batches(campaign, SlurmConfig())
 
     def test_rejects_nproc_mismatch(self):
         with tempfile.TemporaryDirectory() as tmp:
             campaign = self._campaign(Path(tmp), count=1)
             (campaign / "job_000.gjf").write_text("%nprocshared=16\n# force\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "disagrees"):
-                prepare_slurm_array(campaign, SlurmConfig(cpus_per_job=8))
+                prepare_slurm_batches(campaign, SlurmConfig(cpus_per_job=8))
 
     def test_refuses_batch_reshuffle_after_outputs_exist(self):
         with tempfile.TemporaryDirectory() as tmp:
             campaign = self._campaign(Path(tmp), count=4)
-            prepare_slurm_array(campaign, SlurmConfig(jobs_per_batch=2))
-            outputs = campaign / "slurm_outputs" / "batch_0001"
-            outputs.mkdir(parents=True)
+            prepare_slurm_batches(campaign, SlurmConfig(jobs_per_batch=2))
+            outputs = campaign / "slurm_batches" / "batch_0001"
             (outputs / "job_000.log").write_text("Normal termination of Gaussian\n")
             with self.assertRaisesRegex(RuntimeError, "refusing to change"):
-                prepare_slurm_array(campaign, SlurmConfig(jobs_per_batch=3))
+                prepare_slurm_batches(campaign, SlurmConfig(jobs_per_batch=3))
 
 
 if __name__ == "__main__":
