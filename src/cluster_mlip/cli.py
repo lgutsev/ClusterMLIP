@@ -344,6 +344,13 @@ def command_prepare_spins(args: argparse.Namespace) -> int:
         file=sys.stderr,
     )
     records = read_extxyz(Path(args.seeds))
+    if args.record_ids:
+        requested = set(args.record_ids)
+        available = {record.record_id for record in records}
+        unknown = sorted(requested - available)
+        if unknown:
+            raise ValueError(f"--record-id not found in {args.seeds}: {unknown}")
+        records = [record for record in records if record.record_id in requested]
     records = [record for record in records if _record_allowed(record, args)]
     specifications = None
     if args.fragment_spec:
@@ -614,6 +621,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     prepare_spins.add_argument("seeds", help="seeds.extxyz from spin-extract or extract")
     prepare_spins.add_argument("-o", "--output", default="gaussian_spin_jobs")
+    prepare_spins.add_argument(
+        "--record-id", dest="record_ids", action="append",
+        help="exact parent record_id from spin_inventory.csv; repeat to select multiple parents",
+    )
     prepare_spins.add_argument("--high-spin", type=int, required=True, help="trusted high-spin multiplicity")
     prepare_spins.add_argument(
         "--targets", type=_multiplicities, required=True,
