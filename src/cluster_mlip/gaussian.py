@@ -436,7 +436,7 @@ def parse_final_force_frame(text: str, source: Path, seed: Record | None = None)
             fx, fy, fz = map(_float, parts[-3:])
         except ValueError:
             continue
-        forces.append(tuple(v * FORCE_AU_TO_EV_ANG for v in (fx, fy, fz)))
+        forces.append((fx * FORCE_AU_TO_EV_ANG, fy * FORCE_AU_TO_EV_ANG, fz * FORCE_AU_TO_EV_ANG))
 
     tables = _orientation_tables(text[:header.start()])
     if not tables:

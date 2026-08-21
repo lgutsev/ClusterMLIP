@@ -98,6 +98,7 @@ def command_analyze(args: argparse.Namespace) -> int:
             _record_allowed(record, args)
             and (not args.types or record.config_type in args.types)
         ),
+        jobs=args.jobs,
     )
     structures = summary["structures"]
     files = summary["files"]
@@ -128,6 +129,7 @@ def command_audit(args: argparse.Namespace) -> int:
         min_atoms=args.min_atoms,
         max_atoms=args.max_atoms,
         types=set(args.types) if args.types else None,
+        jobs=args.jobs,
     )
     full = result["full"]["structures"]
     print(
@@ -277,6 +279,10 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("--min-atoms", type=int)
     analyze.add_argument("--max-atoms", type=int)
     analyze.add_argument("--types", nargs="+", help="keep selected config_type values")
+    analyze.add_argument(
+        "-j", "--jobs", type=int, default=1,
+        help="parse files in this many worker processes (default: 1, sequential)",
+    )
     analyze.set_defaults(func=command_analyze)
 
     audit = sub.add_parser(
@@ -293,6 +299,10 @@ def build_parser() -> argparse.ArgumentParser:
     audit.add_argument("--min-atoms", type=int)
     audit.add_argument("--max-atoms", type=int)
     audit.add_argument("--types", nargs="+", help="configuration types for the selection")
+    audit.add_argument(
+        "-j", "--jobs", type=int, default=1,
+        help="parse files in this many worker processes (default: 1, sequential)",
+    )
     audit.set_defaults(func=command_audit)
 
     extract = sub.add_parser("extract", help="extract stationary points and explicit IRC points")

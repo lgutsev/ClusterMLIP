@@ -5,9 +5,10 @@ import csv
 import hashlib
 import json
 import statistics
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable, Iterable, TypedDict
 
 from .gaussian import extract_document_records
 from .io import SUPPORTED_SUFFIXES, read_document, source_tree
@@ -24,15 +25,85 @@ class FileResult:
     error: str = ""
 
 
+class FileSummary(TypedDict):
+    total: int
+    compatible: int
+    total_bytes: int
+    by_suffix: dict[str, int]
+    by_status: dict[str, int]
+
+
+class AtomCountSummary(TypedDict):
+    min: int
+    median: float
+    max: int
+
+
+class StructureSummary(TypedDict):
+    records: int
+    unique_geometry_state: int
+    duplicate_records: int
+    duplicate_groups: int
+    largest_duplicate_group: int
+    atom_count: AtomCountSummary
+
+
+class ChemistrySummary(TypedDict):
+    element_atom_counts: dict[str, int]
+    formulas: dict[str, int]
+    charge_multiplicity: dict[str, int]
+    configuration_types: dict[str, int]
+    irc_paths: dict[str, int]
+
+
+class DatabaseSummary(TypedDict):
+    files: FileSummary
+    structures: StructureSummary
+    chemistry: ChemistrySummary
+    legacy_routes: dict[str, int]
+
+
 def geometry_key(record: Record) -> str:
     payload = f"{record.charge}|{record.multiplicity}|{geometry_signature(record.atoms)}"
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
+def _scan_document(args: tuple[Path, Path]) -> tuple[FileResult, list[Record]]:
+    """Parse one file. Module-level and filter-free so it can run in a worker
+    process: record_filter is applied by the caller in the parent process,
+    since an arbitrary closure generally cannot be pickled to a subprocess.
+    """
+    document, root = args
+    relative = (
+        str(document.relative_to(root)) if document.is_relative_to(root) else document.name
+    )
+    suffix = document.suffix.lower()
+    size = document.stat().st_size
+    if suffix not in SUPPORTED_SUFFIXES:
+        return FileResult(relative, suffix or "[none]", size, "unsupported", 0), []
+    try:
+        parsed = extract_document_records(read_document(document), relative)
+        return (
+            FileResult(relative, suffix or "[none]", size, "parsed" if parsed else "no_structure", len(parsed)),
+            parsed,
+        )
+    except Exception as exc:
+        return FileResult(relative, suffix or "[none]", size, "error", 0, str(exc)), []
+
+
 def scan_source(
     source: Path,
     record_filter: Callable[[Record], bool] | None = None,
+    jobs: int = 1,
 ) -> tuple[list[FileResult], list[Record]]:
+    """Inventory and parse every supported file under `source`.
+
+    `jobs` > 1 parses files in a process pool -- parsing is pure-Python
+    regex work over each file's text, so it doesn't release the GIL and
+    genuinely benefits from separate processes on a large (LONI-scale)
+    warehouse. `jobs=1` (the default) runs the original single-process loop
+    unchanged.
+    """
     files: list[FileResult] = []
     records: list[Record] = []
     with source_tree(source) as root:
@@ -44,48 +115,23 @@ def scan_source(
                 if path.is_file() and not path.name.startswith("._")
             ]
         )
-        for document in documents:
-            relative = (
-                str(document.relative_to(root))
-                if document.is_relative_to(root)
-                else document.name
-            )
-            if document.suffix.lower() not in SUPPORTED_SUFFIXES:
-                files.append(
-                    FileResult(
-                        relative,
-                        document.suffix.lower() or "[none]",
-                        document.stat().st_size,
-                        "unsupported",
-                        0,
+        if jobs > 1 and len(documents) > 1:
+            work = [(document, root) for document in documents]
+            with ProcessPoolExecutor(max_workers=jobs) as executor:
+                results = executor.map(_scan_document, work)
+                for file_result, parsed in results:
+                    files.append(file_result)
+                    records.extend(
+                        record for record in parsed
+                        if record_filter is None or record_filter(record)
                     )
-                )
-                continue
-            try:
-                parsed = extract_document_records(read_document(document), relative)
+        else:
+            for document in documents:
+                file_result, parsed = _scan_document((document, root))
+                files.append(file_result)
                 records.extend(
                     record for record in parsed
                     if record_filter is None or record_filter(record)
-                )
-                files.append(
-                    FileResult(
-                        relative,
-                        document.suffix.lower() or "[none]",
-                        document.stat().st_size,
-                        "parsed" if parsed else "no_structure",
-                        len(parsed),
-                    )
-                )
-            except Exception as exc:
-                files.append(
-                    FileResult(
-                        relative,
-                        document.suffix.lower() or "[none]",
-                        document.stat().st_size,
-                        "error",
-                        0,
-                        str(exc),
-                    )
                 )
     return files, records
 
@@ -94,7 +140,7 @@ def _counts(values: Iterable[object]) -> dict[str, int]:
     return dict(sorted(collections.Counter(str(value) for value in values).items()))
 
 
-def summarize(files: list[FileResult], records: list[Record]) -> dict[str, object]:
+def summarize(files: list[FileResult], records: list[Record]) -> DatabaseSummary:
     geometry_counts = collections.Counter(geometry_key(record) for record in records)
     unique = list({geometry_key(record): record for record in records}.values())
     atom_counts = [len(record.atoms) for record in unique]
@@ -148,9 +194,10 @@ def write_analysis(
     source: Path,
     output: Path,
     record_filter: Callable[[Record], bool] | None = None,
-) -> dict[str, object]:
+    jobs: int = 1,
+) -> DatabaseSummary:
     output.mkdir(parents=True, exist_ok=True)
-    files, records = scan_source(source, record_filter=record_filter)
+    files, records = scan_source(source, record_filter=record_filter, jobs=jobs)
     summary = summarize(files, records)
     (output / "summary.json").write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"

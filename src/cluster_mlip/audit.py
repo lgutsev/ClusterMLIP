@@ -5,9 +5,16 @@ import json
 import platform
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TypedDict
 
-from .analysis import write_analysis
+from .analysis import DatabaseSummary, write_analysis
 from .models import Record, composition_allowed
+
+
+class AuditResult(TypedDict):
+    full: DatabaseSummary
+    selection: DatabaseSummary | None
+    provenance: dict[str, object]
 
 
 def _sha256(path: Path) -> str | None:
@@ -29,13 +36,14 @@ def run_private_audit(
     min_atoms: int | None = None,
     max_atoms: int | None = None,
     types: set[str] | None = None,
-) -> dict[str, object]:
+    jobs: int = 1,
+) -> AuditResult:
     """Generate a complete private audit and an optional filtered selection."""
     source = source.resolve()
     output = output.resolve()
     output.mkdir(parents=True, exist_ok=True)
 
-    full = write_analysis(source, output / "full")
+    full = write_analysis(source, output / "full", jobs=jobs)
     constraints = any(
         value is not None
         for value in (elements, required_elements, min_atoms, max_atoms, types)
@@ -52,9 +60,9 @@ def run_private_audit(
                 and (types is None or record.config_type in types)
             )
 
-        selected = write_analysis(source, output / "selection", record_filter=keep)
+        selected = write_analysis(source, output / "selection", record_filter=keep, jobs=jobs)
 
-    provenance = {
+    provenance: dict[str, object] = {
         "generated_utc": datetime.now(timezone.utc).isoformat(),
         "hostname": platform.node(),
         "python": platform.python_version(),
