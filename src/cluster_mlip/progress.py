@@ -9,6 +9,7 @@ from typing import TypedDict
 
 from .gaussian import HARTREE_TO_EV, parse_final_force_frame
 from .models import LabeledFrame, geometry_signature
+from .spin import SpinDiagnostics, parse_spin_diagnostics
 
 
 class ProgressResult(TypedDict):
@@ -37,7 +38,10 @@ def write_campaign_progress(campaign: Path, destination: Path | None = None) -> 
     campaign = campaign.resolve()
     manifest = campaign / "jobs.csv"
     if not manifest.is_file():
-        raise FileNotFoundError(f"jobs.csv not found under {campaign}")
+        manifest = campaign / "spin_jobs.csv"
+    if not manifest.is_file():
+        raise FileNotFoundError(f"jobs.csv or spin_jobs.csv not found under {campaign}")
+    spin_campaign = manifest.name == "spin_jobs.csv"
     with manifest.open(newline="", encoding="utf-8") as handle:
         jobs = list(csv.DictReader(handle))
     if not jobs:
@@ -49,6 +53,7 @@ def write_campaign_progress(campaign: Path, destination: Path | None = None) -> 
             file_index.setdefault(path.name, []).append(path)
 
     rows: list[dict[str, object]] = []
+    spin_cache: dict[Path, list[SpinDiagnostics]] = {}
     for job in jobs:
         output_name = job.get("output") or f"{job['job_id']}.log"
         stem = Path(output_name).stem
@@ -64,17 +69,43 @@ def write_campaign_progress(campaign: Path, destination: Path | None = None) -> 
 
         normal = False
         frame: LabeledFrame | None = None
+        spin_diagnostic: SpinDiagnostics | None = None
+        spin_stage_advanced = False
         parse_error = ""
         if output is not None:
             text = output.read_text(errors="ignore")
-            normal = "Normal termination of Gaussian" in text
-            try:
-                frame = parse_final_force_frame(text, output)
-            except Exception as exc:  # reporting must survive one corrupt output
-                parse_error = str(exc)
+            if spin_campaign:
+                try:
+                    if output not in spin_cache:
+                        spin_cache[output] = parse_spin_diagnostics(text)
+                    diagnostics = spin_cache[output]
+                    intended_charge = int(job["intended_charge"])
+                    intended_multiplicity = int(job["intended_multiplicity"])
+                    matches = [
+                        (index, diagnostic)
+                        for index, diagnostic in enumerate(diagnostics)
+                        if diagnostic.charge == intended_charge
+                        and diagnostic.multiplicity == intended_multiplicity
+                    ]
+                    if matches:
+                        index, spin_diagnostic = matches[-1]
+                        spin_stage_advanced = index < len(diagnostics) - 1
+                        normal = spin_diagnostic.normal_termination or spin_stage_advanced
+                except Exception as exc:  # reporting must survive one corrupt output
+                    parse_error = str(exc)
+            else:
+                normal = "Normal termination of Gaussian" in text
+                try:
+                    frame = parse_final_force_frame(text, output)
+                except Exception as exc:  # reporting must survive one corrupt output
+                    parse_error = str(exc)
 
         if duplicate_output:
             state = "ambiguous_duplicate_output"
+        elif spin_campaign and spin_diagnostic is not None and normal and spin_diagnostic.optimized:
+            state = "complete"
+        elif spin_campaign and spin_diagnostic is not None and normal:
+            state = "terminated_not_optimized"
         elif normal and frame is not None:
             state = "complete"
         elif normal:
@@ -95,6 +126,8 @@ def write_campaign_progress(campaign: Path, destination: Path | None = None) -> 
             output_geometry_sha256 = hashlib.sha256(
                 geometry_signature(frame.record.atoms).encode()
             ).hexdigest()
+        elif spin_diagnostic is not None and spin_diagnostic.energy_hartree is not None:
+            new_energy_hartree = spin_diagnostic.energy_hartree
         legacy_raw = job.get("legacy_energy_hartree", "")
         raw_delta: float | str = ""
         if (
@@ -124,6 +157,19 @@ def write_campaign_progress(campaign: Path, destination: Path | None = None) -> 
                 "output_geometry_sha256": output_geometry_sha256,
                 "new_label_energy_hartree": new_energy_hartree,
                 "raw_new_minus_legacy_hartree": raw_delta,
+                "spin_stage_observed": spin_diagnostic is not None,
+                "spin_stage_advanced_to_successor": spin_stage_advanced,
+                "spin_stage_optimized": (
+                    "" if spin_diagnostic is None else spin_diagnostic.optimized
+                ),
+                "spin_stage_stability": (
+                    "" if spin_diagnostic is None else spin_diagnostic.stability
+                ),
+                "spin_pattern": "" if spin_diagnostic is None else spin_diagnostic.spin_pattern,
+                "spin_root_signature": (
+                    "" if spin_diagnostic is None else spin_diagnostic.root_signature
+                ),
+                "spin_s2_delta": "" if spin_diagnostic is None else spin_diagnostic.s2_delta,
             }
         )
         rows.append(row)
@@ -138,11 +184,13 @@ def write_campaign_progress(campaign: Path, destination: Path | None = None) -> 
         source_counts["total"] = source_counts.get("total", 0) + 1
     summary: dict[str, object] = {
         "campaign": str(campaign),
-        "jobs_csv_sha256": _sha256(manifest),
+        "manifest": manifest.name,
+        "manifest_sha256": _sha256(manifest),
         "total": len(rows),
         "by_state": dict(sorted(counts.items())),
         "by_source": dict(sorted(by_source.items())),
     }
+    summary["spin_jobs_csv_sha256" if spin_campaign else "jobs_csv_sha256"] = _sha256(manifest)
 
     csv_path = (destination or (campaign / "progress.csv")).resolve()
     csv_path.parent.mkdir(parents=True, exist_ok=True)

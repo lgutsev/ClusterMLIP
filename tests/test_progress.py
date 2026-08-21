@@ -8,6 +8,7 @@ from cluster_mlip.dataset import read_labeled_extxyz
 from cluster_mlip.jobs import write_gaussian_jobs
 from cluster_mlip.models import Atom, Record
 from cluster_mlip.progress import write_campaign_progress
+from cluster_mlip.spin import write_spin_jobs
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -88,6 +89,47 @@ class CampaignProgressTests(unittest.TestCase):
             "--record-id", "fe10-a", "--record-id", "fe10-b",
         ])
         self.assertEqual(args.record_ids, ["fe10-a", "fe10-b"])
+
+    def test_spin_campaign_progress_reports_each_link1_stage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign = Path(tmp) / "spin_campaign"
+            record = Record(
+                "fe2-high-spin", "warehouse/fe2_m9.log",
+                [Atom("Fe", 0, 0, 0), Atom("Fe", 2, 0, 0)], 0, 9, "minimum",
+            )
+            write_spin_jobs([record], campaign, 9, [7], strategy="ladder")
+            with (campaign / "spin_jobs.csv").open(newline="", encoding="utf-8") as handle:
+                jobs = list(csv.DictReader(handle))
+            output = campaign / jobs[0]["output"]
+            output.write_text("""
+ Charge = 0 Multiplicity = 9
+ SCF Done: E(UHF) = -100.0 A.U. after 5 cycles
+ S**2 before annihilation 20.0, after 20.0
+ Mulliken charges and spin densities:
+ 1 Fe 0.0 4.0
+ 2 Fe 0.0 4.0
+ Sum of Mulliken charges = 0.0 Sum of Mulliken spin densities = 8.0
+ Stationary point found.
+ The wavefunction is stable under the perturbations considered.
+ Charge = 0 Multiplicity = 7
+ SCF Done: E(UHF) = -100.1 A.U. after 5 cycles
+ S**2 before annihilation 12.0, after 12.0
+ Mulliken charges and spin densities:
+ 1 Fe 0.0 4.0
+ 2 Fe 0.0 2.0
+ Sum of Mulliken charges = 0.0 Sum of Mulliken spin densities = 6.0
+ Stationary point found.
+ The wavefunction is stable under the perturbations considered.
+ Normal termination of Gaussian 16
+ """, encoding="utf-8")
+            progress = write_campaign_progress(campaign)
+            self.assertEqual(progress["summary"]["manifest"], "spin_jobs.csv")
+            self.assertEqual(progress["summary"]["by_state"], {"complete": 2})
+            self.assertEqual(
+                [row["intended_multiplicity"] for row in progress["rows"]], ["9", "7"]
+            )
+            self.assertTrue(progress["rows"][0]["spin_stage_advanced_to_successor"])
+            self.assertEqual(progress["rows"][1]["spin_stage_stability"], "stable")
 
 
 if __name__ == "__main__":

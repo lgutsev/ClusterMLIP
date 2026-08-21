@@ -394,6 +394,22 @@ Preparation also refuses to overwrite a nonempty campaign directory; use a new
 output directory for each attempt so checkpoints, inputs, and audit hashes
 cannot be mixed across runs.
 
+The ordinary Slurm generator accepts a spin campaign and deduplicates the
+multiple Link1 manifest rows into one submitted Gaussian input. Live progress
+still expands that shared output back into individual multiplicity stages:
+
+```bash
+cluster-mlip prepare-slurm gaussian_spin_jobs --jobs-per-batch 30 --concurrent-jobs 4
+./gaussian_spin_jobs/submit_gaussian_batches.sh
+cluster-mlip campaign-status gaussian_spin_jobs
+```
+
+For a 29 -> ... -> 17 ladder, `progress.csv` therefore shows m29, m27, ...,
+m17 separately, including whether each stage was observed, optimized, advanced
+to a successor, stable, and characterized by local spins and `<S^2>`. Scheduler
+completion is not scientific root validation; run `validate-spins` below after
+the outputs are available.
+
 Finally compare the original warehouse against all new outputs:
 
 ```bash
