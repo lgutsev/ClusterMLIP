@@ -305,18 +305,28 @@ def write_spin_jobs(
     nproc: int = 16,
     fragment_specifications: list[dict] | None = None,
 ) -> int:
-    output.mkdir(parents=True, exist_ok=True)
     high_spin_records = [record for record in records if record.multiplicity == high_spin]
     if not high_spin_records:
         raise ValueError(f"no seed has the requested high-spin multiplicity {high_spin}")
     specs_by_record: dict[str, list[dict]] = {}
     for specification in fragment_specifications or []:
         specs_by_record.setdefault(str(specification["record_id"]), []).append(specification)
+    unknown = sorted(set(specs_by_record) - {record.record_id for record in high_spin_records})
+    if unknown:
+        raise ValueError(f"fragment specifications reference unselected records: {unknown}")
+
+    # Render every ladder/fragment job in memory first. render_ladder_input
+    # and render_fragment_input validate as they go (multiplicity parity,
+    # fragment atom coverage, signed-spin consistency, ...); rendering
+    # everything before writing anything means a bad spec later in the list
+    # raises cleanly instead of leaving a half-written job directory with no
+    # spin_jobs.csv to explain what is and is not there.
+    files: list[tuple[str, str]] = []
     rows: list[dict[str, str]] = []
     for record in high_spin_records:
         text, chain_rows = render_ladder_input(record, high_spin, targets, route, memory, nproc)
         filename = f"{chain_rows[0]['chain_id']}.gjf"
-        (output / filename).write_text(text, encoding="utf-8")
+        files.append((filename, text))
         for row in chain_rows:
             row["input"] = filename
             row["output"] = f"{Path(filename).stem}.log"
@@ -324,13 +334,14 @@ def write_spin_jobs(
         for specification in specs_by_record.get(record.record_id, []):
             text, row = render_fragment_input(record, specification, route, memory, nproc)
             filename = f"{row['job_id']}.gjf"
-            (output / filename).write_text(text, encoding="utf-8")
+            files.append((filename, text))
             row["input"] = filename
             row["output"] = f"{Path(filename).stem}.log"
             rows.append(row)
-    unknown = sorted(set(specs_by_record) - {record.record_id for record in high_spin_records})
-    if unknown:
-        raise ValueError(f"fragment specifications reference unselected records: {unknown}")
+
+    output.mkdir(parents=True, exist_ok=True)
+    for filename, text in files:
+        (output / filename).write_text(text, encoding="utf-8")
     columns = [
         "job_id", "chain_id", "stage_index", "pathway", "parent_record_id", "source", "formula",
         "intended_charge", "intended_multiplicity", "predecessor_multiplicity", "checkpoint",
@@ -479,9 +490,9 @@ def write_spin_inventory(source: Path, output: Path) -> int:
     write_extxyz([observation.record for observation in observations], output / "seeds.extxyz")
     columns = [
         "record_id", "source", "formula", "n_atoms", "charge", "multiplicity", "electron_count",
-        "multiplicity_parity_valid", "config_type", "energy_hartree", "expected_s2", "s2_before",
-        "s2_after", "s2_delta", "spin_pattern", "root_signature", "normal_termination", "optimized",
-        "stability",
+        "multiplicity_parity_valid", "config_type", "state_inference", "energy_hartree", "expected_s2",
+        "s2_before", "s2_after", "s2_delta", "spin_pattern", "root_signature", "normal_termination",
+        "optimized", "stability",
     ]
     with (output / "spin_inventory.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=columns)
@@ -497,7 +508,9 @@ def write_spin_inventory(source: Path, output: Path) -> int:
                 "record_id": record.record_id, "source": record.source, "formula": record.formula,
                 "n_atoms": len(record.atoms), "charge": record.charge, "multiplicity": record.multiplicity,
                 "electron_count": electron_count(record), "multiplicity_parity_valid": parity_valid,
-                "config_type": record.config_type, "energy_hartree": diagnostic.energy_hartree,
+                "config_type": record.config_type,
+                "state_inference": record.metadata.get("state_inference", ""),
+                "energy_hartree": diagnostic.energy_hartree,
                 "expected_s2": diagnostic.expected_s2, "s2_before": diagnostic.s2_before,
                 "s2_after": diagnostic.s2_after, "s2_delta": diagnostic.s2_delta,
                 "spin_pattern": diagnostic.spin_pattern, "root_signature": diagnostic.root_signature,

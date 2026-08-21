@@ -5,7 +5,7 @@ import math
 import re
 from pathlib import Path
 
-from .models import Atom, LabeledFrame, Record
+from .models import Atom, LabeledFrame, Record, geometry_signature
 
 
 HARTREE_TO_EV = 27.211386245988
@@ -126,10 +126,7 @@ def _classify(source: str, route: str, imag: int | None, irc: tuple[int, int] | 
 
 
 def _geometry_hash(atoms: list[Atom]) -> str:
-    canonical = ";".join(
-        f"{a.symbol}:{a.x:.6f},{a.y:.6f},{a.z:.6f}" for a in atoms
-    )
-    return hashlib.sha1(canonical.encode()).hexdigest()[:16]
+    return hashlib.sha1(geometry_signature(atoms).encode()).hexdigest()[:16]
 
 
 def extract_records(text: str, source: str) -> list[Record]:
@@ -205,7 +202,15 @@ def _native_coordinate_lines(text: str) -> list[Atom]:
     atom_re = re.compile(
         rf"^\s*([A-Z][a-z]?)\s+({number})\s+({number})\s+({number})(?:\s|$)"
     )
-    normalized = text.replace("\r", "\n")
+    # Collapse CRLF pairs to a single \n before handling lone \r (old Mac
+    # line endings). Replacing bare "\r" first would turn every "\r\n" into
+    # "\n\n", inserting a spurious blank line after each real line; the
+    # MOLDAT/TITLE readers below count a fixed number of *lines* for the atom
+    # block, so that extra blank line silently discards every other atom.
+    # read_document() reads raw bytes with no universal-newline translation,
+    # so this matters for any real CRLF-encoded (Windows-authored) warehouse
+    # file, even though Path.read_text() in a quick script would hide it.
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     lines = normalized.splitlines()
     start = 0
     stop = len(lines)
@@ -237,7 +242,7 @@ def _native_coordinate_lines(text: str) -> list[Atom]:
     return atoms
 
 
-def _filename_state(source: str) -> tuple[int, int]:
+def _filename_state(source: str) -> tuple[int, int, bool]:
     name = Path(source).name.lower()
     charge = 0
     qmatch = re.search(r"(?:^|[_-])q([+-]?\d+)(?:[_-]|\.)", name)
@@ -259,7 +264,7 @@ def _filename_state(source: str) -> tuple[int, int]:
         mmatch = re.search(r"fe\d+o\d+[+-]?[_-](\d{1,3})(?:[_-]|\.)", name)
     if mmatch:
         multiplicity = int(mmatch.group(1))
-    return charge, multiplicity
+    return charge, multiplicity, mmatch is not None
 
 
 def extract_warehouse_record(text: str, source: str) -> list[Record]:
@@ -272,8 +277,13 @@ def extract_warehouse_record(text: str, source: str) -> list[Record]:
     warehouse_name = bool(re.search(r"[A-Za-z]+\d+[A-Za-z]+\d+[_-]\d+", Path(source).name))
     if not re.search(r"^\s*(?:TITLE|\S*MOLDAT)\b", text, re.I | re.M) and not warehouse_name:
         return []
-    charge, multiplicity = _filename_state(source)
-    state_inference = "filename"
+    charge, multiplicity, multiplicity_matched = _filename_state(source)
+    # A record whose filename does not match the multiplicity convention still
+    # gets a singlet default so downstream code has a value, but that default
+    # must never be reported as if it came from the filename convention -- an
+    # unflagged wrong guess here is exactly what the spin-safety workflow
+    # exists to prevent.
+    state_inference = "filename" if multiplicity_matched else "default_unmatched_singlet"
     if multiplicity > 100:
         electron_count = sum(next(z for z, symbol in ATOMIC_SYMBOLS.items() if symbol == a.symbol) for a in atoms) - charge
         multiplicity = 1 if electron_count % 2 == 0 else 2

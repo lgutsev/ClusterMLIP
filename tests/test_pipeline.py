@@ -5,8 +5,13 @@ import zipfile
 
 from cluster_mlip.analysis import write_analysis
 from cluster_mlip.audit import run_private_audit
-from cluster_mlip.gaussian import extract_document_records, extract_records, parse_final_force_frame
-from cluster_mlip.io import read_extxyz, write_extxyz
+from cluster_mlip.gaussian import (
+    extract_document_records,
+    extract_records,
+    extract_warehouse_record,
+    parse_final_force_frame,
+)
+from cluster_mlip.io import read_document, read_extxyz, write_extxyz
 from cluster_mlip.jobs import expanded_records, write_gaussian_jobs
 from cluster_mlip.models import Atom, Record
 from cluster_mlip.spin import (
@@ -15,6 +20,7 @@ from cluster_mlip.spin import (
     render_fragment_input,
     render_ladder_input,
     validate_spin_campaign,
+    write_spin_jobs,
 )
 
 
@@ -61,6 +67,46 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(records[0].formula, "Fe2O2")
         self.assertEqual(records[0].multiplicity, 5)
         self.assertEqual(records[0].config_type, "warehouse_structure")
+
+    def test_native_warehouse_survives_crlf_line_endings(self):
+        # read_document() reads raw bytes with no universal-newline
+        # translation, so a CRLF-encoded warehouse file must be exercised
+        # through it directly -- Path.read_text() would silently normalize
+        # the endings and hide a regression here.
+        crlf_text = (FIXTURES / "warehouse.txt").read_text().replace("\n", "\r\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "fe2o2_5_12345_LB.txt"
+            path.write_bytes(crlf_text.encode("utf-8"))
+            text = read_document(path)
+            records = extract_document_records(text, path.name)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].formula, "Fe2O2")
+        self.assertEqual(len(records[0].atoms), 4)
+
+    def test_native_warehouse_unmatched_filename_is_flagged_not_guessed_silently(self):
+        text = (FIXTURES / "warehouse.txt").read_text()
+        matched = extract_warehouse_record(text, "fe2o2_5_12345_LB.txt")
+        self.assertEqual(matched[0].multiplicity, 5)
+        self.assertEqual(matched[0].metadata["state_inference"], "filename")
+
+        unmatched = extract_warehouse_record(text, "no_convention_here.txt")
+        # A filename that does not match the multiplicity convention still
+        # gets a usable default, but it must never be mislabeled as if it
+        # came from the filename convention -- that would hide a silent
+        # wrong-multiplicity guess from anyone auditing the dataset.
+        self.assertEqual(unmatched[0].multiplicity, 1)
+        self.assertEqual(unmatched[0].metadata["state_inference"], "default_unmatched_singlet")
+
+    def test_metadata_roundtrips_through_extxyz_and_manifest(self):
+        text = (FIXTURES / "warehouse.txt").read_text()
+        records = extract_warehouse_record(text, "no_convention_here.txt")
+        with tempfile.TemporaryDirectory() as tmp:
+            xyz = Path(tmp) / "seeds.extxyz"
+            write_extxyz(records, xyz)
+            loaded = read_extxyz(xyz)
+            self.assertEqual(
+                loaded[0].metadata["state_inference"], "default_unmatched_singlet"
+            )
 
     def test_formatted_checkpoint(self):
         text = (FIXTURES / "example.fchk").read_text()
@@ -165,6 +211,34 @@ class PipelineTests(unittest.TestCase):
         }
         with self.assertRaisesRegex(ValueError, "inconsistent with the total multiplicity"):
             render_fragment_input(record, inconsistent)
+
+    def test_prepare_spins_bad_fragment_spec_writes_nothing(self):
+        record = Record("fe2", "legacy", [Atom("Fe", 0, 0, 0), Atom("Fe", 2, 0, 0)], 0, 9, "minimum")
+        good = {
+            "record_id": "fe2",
+            "name": "good",
+            "target_multiplicity": 1,
+            "fragments": [
+                {"atoms": [1], "charge": 0, "multiplicity": 5, "orientation": "alpha"},
+                {"atoms": [2], "charge": 0, "multiplicity": 5, "orientation": "beta"},
+            ],
+        }
+        bad = {
+            "record_id": "fe2",
+            "name": "bad",
+            "target_multiplicity": 1,
+            "fragments": [
+                {"atoms": [1], "charge": 0, "multiplicity": 5, "orientation": "alpha"},
+                {"atoms": [2], "charge": 0, "multiplicity": 5, "orientation": "alpha"},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "jobs"
+            with self.assertRaises(ValueError):
+                write_spin_jobs([record], output, 9, [1], fragment_specifications=[good, bad])
+            # A malformed spec later in the list must not leave a half-written
+            # job directory with no manifest to explain what is/isn't there.
+            self.assertFalse(output.exists())
 
     def test_spin_diagnostics_distinguish_afm_root(self):
         text = """

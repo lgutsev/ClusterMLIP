@@ -12,7 +12,7 @@ from .dataset import grouped_split, read_jobs_manifest, write_labeled_extxyz
 from .gaussian import extract_document_records, parse_final_force_frame
 from .io import iter_documents, read_document, read_extxyz, source_tree, write_extxyz, write_manifest
 from .jobs import DEFAULT_ROUTE, expanded_records, write_gaussian_jobs
-from .models import Record, composition_allowed
+from .models import Record, composition_allowed, geometry_signature
 from .spin import (
     DEFAULT_SPIN_ROUTE,
     validate_spin_campaign,
@@ -66,7 +66,7 @@ def command_extract(args: argparse.Namespace) -> int:
     unique: dict[tuple, Record] = {}
     for record in records:
         key = (
-            tuple((a.symbol, round(a.x, 6), round(a.y, 6), round(a.z, 6)) for a in record.atoms),
+            geometry_signature(record.atoms),
             record.charge,
             record.multiplicity,
             record.config_type,

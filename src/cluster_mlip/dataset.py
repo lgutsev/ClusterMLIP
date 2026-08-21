@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import json
 from pathlib import Path
 
 from .io import quote_extxyz
@@ -28,6 +29,8 @@ def write_labeled_extxyz(frames: list[LabeledFrame], path: Path) -> None:
             parent = rec.metadata.get("parent_record_id")
             if parent:
                 fields.append(f"parent_record_id={quote_extxyz(parent)}")
+            if rec.metadata:
+                fields.append(f"metadata={quote_extxyz(json.dumps(rec.metadata, sort_keys=True))}")
             handle.write(f"{len(rec.atoms)}\n{' '.join(fields)}\n")
             for atom, force in zip(rec.atoms, frame.forces_ev_ang):
                 handle.write(
@@ -58,4 +61,3 @@ def read_jobs_manifest(path: Path) -> dict[str, dict[str, str]]:
         return {}
     with path.open(newline="", encoding="utf-8") as handle:
         return {row["job_id"]: row for row in csv.DictReader(handle)}
-

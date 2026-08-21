@@ -56,3 +56,14 @@ class LabeledFrame:
 
 def composition_allowed(atoms: Iterable[Atom], allowed: set[str] | None) -> bool:
     return allowed is None or {a.symbol for a in atoms}.issubset(allowed)
+
+
+def geometry_signature(atoms: Iterable[Atom]) -> str:
+    """Canonical geometry identity string, coordinates rounded to 1e-6 Angstrom.
+
+    This is the single source of truth for "same geometry" used across the
+    pipeline (duplicate detection in analysis/audit, record-id derivation in
+    gaussian parsing, seed de-duplication in the extract command). Keeping
+    one implementation avoids the three copies silently drifting apart.
+    """
+    return ";".join(f"{a.symbol}:{a.x:.6f},{a.y:.6f},{a.z:.6f}" for a in atoms)

@@ -11,6 +11,9 @@ analysis/
 private_audits/
 extracted*/
 gaussian_jobs/
+gaussian_spin_jobs/
+spin_inventory/
+spin_validation/
 dataset*/
 checkpoints/
 results/

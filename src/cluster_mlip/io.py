@@ -43,7 +43,9 @@ def read_document(path: Path) -> str:
             )
         with tempfile.TemporaryDirectory(prefix="cluster_mlip_formchk_") as tmp:
             output = Path(tmp) / f"{path.stem}.fchk"
-            subprocess.run([formchk, str(path), str(output)], check=True, capture_output=True)
+            subprocess.run(
+                [formchk, str(path), str(output)], check=True, capture_output=True, timeout=120
+            )
             return _decode_bytes(output.read_bytes())
     if suffix == ".docx":
         with zipfile.ZipFile(path) as archive:
@@ -64,6 +66,7 @@ def read_document(path: Path) -> str:
             ["strings", "-n", "4", str(path)],
             check=True,
             capture_output=True,
+            timeout=60,
         )
         return _decode_bytes(result.stdout)
     return _decode_bytes(path.read_bytes())
@@ -179,6 +182,12 @@ def write_extxyz(records: list[Record], path: Path) -> None:
                 fields.append(f"irc_point={rec.irc_point}")
             if rec.route:
                 fields.append(f"legacy_route={quote_extxyz(rec.route)}")
+            if rec.metadata:
+                # Provenance such as how a charge/multiplicity was determined
+                # (state_inference) must survive to every downstream file --
+                # dropping it here would silently discard the audit trail the
+                # rest of the pipeline promises.
+                fields.append(f"metadata={quote_extxyz(json.dumps(rec.metadata, sort_keys=True))}")
             handle.write(f"{len(rec.atoms)}\n{' '.join(fields)}\n")
             for atom in rec.atoms:
                 handle.write(f"{atom.symbol:3s} {atom.x: .12f} {atom.y: .12f} {atom.z: .12f}\n")
@@ -188,7 +197,7 @@ def write_manifest(records: list[Record], path: Path) -> None:
     columns = [
         "record_id", "source", "formula", "n_atoms", "charge", "multiplicity",
         "total_spin", "config_type", "legacy_energy_hartree",
-        "imaginary_frequencies", "irc_path", "irc_point", "route",
+        "imaginary_frequencies", "irc_path", "irc_point", "route", "state_inference",
     ]
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=columns)
@@ -208,10 +217,26 @@ def write_manifest(records: list[Record], path: Path) -> None:
                 "irc_path": rec.irc_path,
                 "irc_point": rec.irc_point,
                 "route": rec.route,
+                # Blank means the charge/multiplicity came directly from an
+                # explicit Gaussian "Charge = x Multiplicity = y" line, not a
+                # filename convention or fallback guess.
+                "state_inference": rec.metadata.get("state_inference", ""),
             })
 
 
 _INFO_RE = re.compile(r'(\w+)=("(?:[^"\\]|\\.)*"|\S+)')
+
+
+def parse_extxyz_info_line(line: str) -> dict[str, str]:
+    """Parse one extxyz comment/info line into a {key: value} dict.
+
+    Shared by read_extxyz here and dataset.read_labeled_extxyz, so the two
+    readers can't drift apart on how quoting/escaping is handled.
+    """
+    info: dict[str, str] = {}
+    for key, raw in _INFO_RE.findall(line):
+        info[key] = json.loads(raw) if raw.startswith('"') else raw
+    return info
 
 
 def read_extxyz(path: Path) -> list[Record]:
@@ -225,10 +250,7 @@ def read_extxyz(path: Path) -> list[Record]:
             i += 1
             continue
         n_atoms = int(lines[i].strip())
-        info_line = lines[i + 1]
-        info: dict[str, str] = {}
-        for key, raw in _INFO_RE.findall(info_line):
-            info[key] = json.loads(raw) if raw.startswith('"') else raw
+        info = parse_extxyz_info_line(lines[i + 1])
         atoms = []
         for line in lines[i + 2:i + 2 + n_atoms]:
             parts = line.split()
@@ -245,6 +267,7 @@ def read_extxyz(path: Path) -> list[Record]:
             imaginary_frequencies=int(info["imaginary_frequencies"]) if "imaginary_frequencies" in info else None,
             irc_path=int(info["irc_path"]) if "irc_path" in info else None,
             irc_point=int(info["irc_point"]) if "irc_point" in info else None,
+            metadata=json.loads(info["metadata"]) if "metadata" in info else {},
         ))
         i += n_atoms + 2
     return records

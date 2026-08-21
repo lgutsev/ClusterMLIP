@@ -132,7 +132,12 @@ converged SCF root, and local-spin pattern separate.
 First extract a state inventory from the original warehouse. This records
 electron-count parity, multiplicity, `<S^2>`, Mulliken atomic spin densities,
 normal termination, optimization status, stability-test evidence, and a local-
-spin root signature when the source contains them:
+spin root signature when the source contains them. Every record also carries
+a `state_inference` provenance tag (`filename`, `electron_parity_fallback`,
+`default_unmatched_singlet`, or blank for a charge/multiplicity read directly
+off an explicit Gaussian `Charge =`/`Multiplicity =` line) in `manifest.csv`,
+`records.csv`, and `spin_inventory.csv`, so a defaulted guess is never
+indistinguishable from a validated state:
 
 ```bash
 cluster-mlip spin-extract Warehouse2.zip -o spin_inventory

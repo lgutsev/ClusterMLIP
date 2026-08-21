@@ -11,7 +11,7 @@ from typing import Callable, Iterable
 
 from .gaussian import extract_document_records
 from .io import SUPPORTED_SUFFIXES, read_document, source_tree
-from .models import Record
+from .models import Record, geometry_signature
 
 
 @dataclass
@@ -25,16 +25,7 @@ class FileResult:
 
 
 def geometry_key(record: Record) -> str:
-    payload = "|".join(
-        [
-            str(record.charge),
-            str(record.multiplicity),
-            *(
-                f"{atom.symbol}:{atom.x:.6f},{atom.y:.6f},{atom.z:.6f}"
-                for atom in record.atoms
-            ),
-        ]
-    )
+    payload = f"{record.charge}|{record.multiplicity}|{geometry_signature(record.atoms)}"
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -172,7 +163,7 @@ def write_analysis(
         columns = [
             "record_id", "source", "formula", "n_atoms", "charge", "multiplicity",
             "config_type", "irc_path", "irc_point", "legacy_energy_hartree", "route",
-            "geometry_state_sha256",
+            "geometry_state_sha256", "state_inference",
         ]
         writer = csv.DictWriter(handle, fieldnames=columns)
         writer.writeheader()
@@ -190,6 +181,10 @@ def write_analysis(
                 "legacy_energy_hartree": record.legacy_energy_hartree,
                 "route": record.route,
                 "geometry_state_sha256": geometry_key(record),
+                # Blank means the state came directly from an explicit Gaussian
+                # "Charge = x Multiplicity = y" line, not a filename convention
+                # or fallback guess -- see gaussian.extract_warehouse_record.
+                "state_inference": record.metadata.get("state_inference", ""),
             })
     file_summary = summary["files"]
     structure_summary = summary["structures"]
