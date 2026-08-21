@@ -31,6 +31,7 @@ from .spin import (
     DEFAULT_SPIN_ROUTE,
     validate_fragment_specification_shape,
     validate_spin_campaign,
+    write_automatic_fe_spin_jobs,
     write_spin_inventory,
     write_spin_jobs,
 )
@@ -344,6 +345,10 @@ def command_prepare_spins(args: argparse.Namespace) -> int:
         file=sys.stderr,
     )
     records = read_extxyz(Path(args.seeds))
+    if args.auto_from_data and args.record_ids:
+        raise ValueError(
+            "--auto-from-data needs complete formula/charge groups; do not combine it with --record-id"
+        )
     if args.record_ids:
         requested = set(args.record_ids)
         available = {record.record_id for record in records}
@@ -362,17 +367,34 @@ def command_prepare_spins(args: argparse.Namespace) -> int:
                 f"{args.fragment_spec} does not match the expected shape "
                 "(see examples/spin_fragments.schema.json):\n  - " + "\n  - ".join(shape_errors)
             )
-    stages = write_spin_jobs(
-        records=records,
-        output=Path(args.output),
-        high_spin=args.high_spin,
-        targets=args.targets,
-        route=args.route,
-        memory=args.memory,
-        nproc=args.nproc,
-        fragment_specifications=specifications,
-        strategy=args.strategy,
-    )
+    if args.auto_from_data:
+        if args.high_spin is not None or args.targets is not None:
+            raise ValueError("--auto-from-data infers --high-spin and --targets; do not pass them")
+        if specifications is not None or args.strategy not in {"auto", "ladder"}:
+            raise ValueError("--auto-from-data prepares ladders only and cannot infer fragment guesses")
+        stages = write_automatic_fe_spin_jobs(
+            records=records,
+            output=Path(args.output),
+            route=args.route,
+            memory=args.memory,
+            nproc=args.nproc,
+        )
+        print(f"Plan: {Path(args.output).resolve() / 'spin_plan.csv'}")
+        print(f"Plan summary: {Path(args.output).resolve() / 'spin_plan_summary.json'}")
+    else:
+        if args.high_spin is None or args.targets is None:
+            raise ValueError("manual spin preparation requires both --high-spin and --targets")
+        stages = write_spin_jobs(
+            records=records,
+            output=Path(args.output),
+            high_spin=args.high_spin,
+            targets=args.targets,
+            route=args.route,
+            memory=args.memory,
+            nproc=args.nproc,
+            fragment_specifications=specifications,
+            strategy=args.strategy,
+        )
     print(f"Prepared {stages} traceable spin stages")
     print(f"Manifest: {Path(args.output).resolve() / 'spin_jobs.csv'}")
     return 0
@@ -624,12 +646,19 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_spins.add_argument("seeds", help="seeds.extxyz from spin-extract or extract")
     prepare_spins.add_argument("-o", "--output", default="gaussian_spin_jobs")
     prepare_spins.add_argument(
+        "--auto-from-data", action="store_true",
+        help=(
+            "plan every Fe oxide from archived Fe spin densities or, when absent, the highest "
+            "of multiple observed multiplicities; unsupported groups are skipped"
+        ),
+    )
+    prepare_spins.add_argument(
         "--record-id", dest="record_ids", action="append",
         help="exact parent record_id from spin_inventory.csv; repeat to select multiple parents",
     )
-    prepare_spins.add_argument("--high-spin", type=int, required=True, help="trusted high-spin multiplicity")
+    prepare_spins.add_argument("--high-spin", type=int, help="trusted high-spin multiplicity")
     prepare_spins.add_argument(
-        "--targets", type=_multiplicities, required=True,
+        "--targets", type=_multiplicities,
         help="comma-separated low-spin multiplicities; skipped intermediate values are inserted",
     )
     prepare_spins.add_argument(

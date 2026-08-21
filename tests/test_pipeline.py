@@ -1,4 +1,5 @@
 import csv
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -26,11 +27,14 @@ from cluster_mlip.spin import (
     DEFAULT_SPIN_ROUTE,
     _fragment_spin_alignment,
     _spin_manifest_audit,
+    fe_spin_summary,
     geometry_distance,
+    infer_automatic_fe_spin_plans,
     parse_spin_diagnostics,
     render_fragment_input,
     render_ladder_input,
     validate_spin_campaign,
+    write_automatic_fe_spin_jobs,
     write_spin_jobs,
 )
 
@@ -285,6 +289,73 @@ class PipelineTests(unittest.TestCase):
                 skipped = list(csv.DictReader(handle))
             self.assertEqual(skipped[0]["record_id"], "fe10-direct-m17")
             self.assertEqual(skipped[0]["reason"], "direct_low_spin_initialization_prohibited")
+
+    def test_automatic_oxide_plan_uses_real_fe10_m29_not_idealized_m41(self):
+        atoms = [Atom("Fe", float(index), 0.0, 0.0) for index in range(10)] + [
+            Atom("O", float(index), 2.0, 0.0) for index in range(10)
+        ]
+        high = Record(
+            "fe10o10-m29", "warehouse/fe10o10_29_10000.txt", atoms, 0, 29,
+            "warehouse_structure", metadata={"state_inference": "filename"},
+        )
+        low = Record(
+            "fe10o10-m17", "warehouse/fe10o10_17_10001.txt", atoms, 0, 17,
+            "warehouse_structure", metadata={"state_inference": "filename"},
+        )
+        plans, skipped = infer_automatic_fe_spin_plans([high, low])
+        self.assertEqual(skipped, [])
+        self.assertEqual({plan.high_spin_multiplicity for plan in plans}, {29})
+        self.assertEqual(
+            {plan.inference for plan in plans}, {"highest_observed_group_multiplicity"}
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "auto"
+            stages = write_automatic_fe_spin_jobs([high, low], output)
+            self.assertEqual(stages, 8)  # one m29 reference + the seven-stage 29 -> 17 ladder
+            with (output / "spin_plan.csv").open(newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+            low_plan = next(row for row in rows if row["record_id"] == low.record_id)
+            self.assertEqual(low_plan["inferred_high_spin_multiplicity"], "29")
+            self.assertEqual(low_plan["observed_group_multiplicities"], "29;17")
+            self.assertNotIn("41", low_plan.values())
+            summary = json.loads((output / "spin_plan_summary.json").read_text())
+            self.assertEqual(summary["by_ladder"], {"m29->m17": 1, "m29->m29": 1})
+            self.assertEqual(summary["skipped_records"], 0)
+            _, statuses, errors = _spin_manifest_audit(output / "spin_jobs.csv")
+            self.assertEqual(errors, [])
+            self.assertEqual(set(statuses.values()), {"verified"})
+
+    def test_automatic_oxide_plan_skips_unsupported_singleton(self):
+        record = Record(
+            "fe10o10-only-m17", "warehouse/fe10o10_17_10001.txt",
+            [Atom("Fe", float(index), 0.0, 0.0) for index in range(10)]
+            + [Atom("O", float(index), 2.0, 0.0) for index in range(10)],
+            0, 17, "warehouse_structure", metadata={"state_inference": "filename"},
+        )
+        plans, skipped = infer_automatic_fe_spin_plans([record])
+        self.assertEqual(plans, [])
+        self.assertEqual(skipped[0].reason, "insufficient_real_data_no_parallel_reference")
+
+    def test_actual_parallel_fe_moments_can_support_singleton_reference(self):
+        record = Record(
+            "fe2o2-m9", "fe2o2.log",
+            [Atom("Fe", 0, 0, 0), Atom("Fe", 2, 0, 0), Atom("O", 0, 2, 0), Atom("O", 2, 2, 0)],
+            0, 9, "minimum",
+        )
+        diagnostic = parse_spin_diagnostics("""
+ Charge = 0 Multiplicity = 9
+ Mulliken charges and spin densities:
+ 1 Fe 0.0 3.7
+ 2 Fe 0.0 3.6
+ 3 O  0.0 0.3
+ 4 O  0.0 0.4
+ Sum of Mulliken charges = 0.0 Sum of Mulliken spin densities = 8.0
+ """)[0]
+        record.metadata.update(fe_spin_summary(record, diagnostic))
+        plans, skipped = infer_automatic_fe_spin_plans([record])
+        self.assertEqual(skipped, [])
+        self.assertEqual(plans[0].high_spin_multiplicity, 9)
+        self.assertEqual(plans[0].inference, "observed_all_resolved_fe_parallel")
 
     def test_manual_fragment_pathway_is_locked_and_auditable(self):
         record = Record(

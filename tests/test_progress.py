@@ -90,6 +90,14 @@ class CampaignProgressTests(unittest.TestCase):
         ])
         self.assertEqual(args.record_ids, ["fe10-a", "fe10-b"])
 
+    def test_prepare_spins_auto_from_data_needs_no_manual_multiplicities(self):
+        args = build_parser().parse_args([
+            "prepare-spins", "seeds.extxyz", "--auto-from-data",
+        ])
+        self.assertTrue(args.auto_from_data)
+        self.assertIsNone(args.high_spin)
+        self.assertIsNone(args.targets)
+
     def test_spin_campaign_progress_reports_each_link1_stage(self):
         with tempfile.TemporaryDirectory() as tmp:
             campaign = Path(tmp) / "spin_campaign"
