@@ -82,6 +82,13 @@ class CampaignProgressTests(unittest.TestCase):
         command = parser._subparsers._group_actions[0].choices["campaign-status"]
         self.assertIn("progress CSV", command.format_help())
 
+    def test_prepare_spins_accepts_exact_repeatable_record_ids(self):
+        args = build_parser().parse_args([
+            "prepare-spins", "seeds.extxyz", "--high-spin", "29", "--targets", "17",
+            "--record-id", "fe10-a", "--record-id", "fe10-b",
+        ])
+        self.assertEqual(args.record_ids, ["fe10-a", "fe10-b"])
+
 
 if __name__ == "__main__":
     unittest.main()

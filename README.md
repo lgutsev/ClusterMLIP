@@ -297,6 +297,7 @@ automatically. For Fe10, the following produces
 ```bash
 cluster-mlip prepare-spins spin_inventory/seeds.extxyz \
   -o gaussian_spin_jobs \
+  --record-id REPLACE_WITH_FE10_M29_RECORD_ID \
   --high-spin 29 \
   --targets 17 \
   --strategy ladder \
@@ -360,6 +361,7 @@ Choose the manual fragment pathway by itself:
 ```bash
 cluster-mlip prepare-spins spin_inventory/seeds.extxyz \
   -o gaussian_spin_jobs \
+  --record-id REPLACE_WITH_FE10_M29_RECORD_ID \
   --high-spin 29 \
   --targets 17 \
   --strategy fragment \
@@ -370,6 +372,9 @@ Use `--strategy both` to prepare independent ladder and fragment candidates;
 `auto` (the default) selects both when `--fragment-spec` is supplied and the
 ladder otherwise. Fragment-only mode refuses to proceed unless every requested
 record/multiplicity has an explicit fragment definition.
+Copy the exact high-spin parent `record_id` from `spin_inventory.csv` and pass
+it with `--record-id`; repeat the option only when you intentionally want more
+than one parent in the same campaign. An unknown ID fails immediately.
 
 `spin_jobs.csv` records, for every state, its initialization and audit
 classification, parent state, stage, intended charge/multiplicity, predecessor
