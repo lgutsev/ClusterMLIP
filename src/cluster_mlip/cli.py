@@ -609,7 +609,9 @@ def build_parser() -> argparse.ArgumentParser:
         "campaign-status",
         help="write a job-by-job progress/provenance table for a Gaussian campaign",
     )
-    campaign_status.add_argument("campaign", help="prepared Gaussian campaign containing jobs.csv")
+    campaign_status.add_argument(
+        "campaign", help="prepared Gaussian campaign containing jobs.csv or spin_jobs.csv"
+    )
     campaign_status.add_argument(
         "-o", "--output", help="progress CSV path (default: CAMPAIGN/progress.csv)"
     )
