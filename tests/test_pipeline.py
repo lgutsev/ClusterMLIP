@@ -35,6 +35,7 @@ from cluster_mlip.spin import (
     render_ladder_input,
     validate_spin_campaign,
     write_automatic_fe_spin_jobs,
+    write_spin_inventory,
     write_spin_jobs,
 )
 
@@ -151,6 +152,17 @@ class PipelineTests(unittest.TestCase):
         # wrong-multiplicity guess from anyone auditing the dataset.
         self.assertEqual(unmatched[0].multiplicity, 1)
         self.assertEqual(unmatched[0].metadata["state_inference"], "default_unmatched_singlet")
+
+    def test_spin_inventory_preserves_multiplicity_validation_in_extxyz(self):
+        text = (FIXTURES / "warehouse.txt").read_text()
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "fe2o2_4_12345_LB.txt"
+            source.write_text(text, encoding="utf-8")
+            output = Path(tmp) / "inventory"
+            self.assertEqual(write_spin_inventory(source, output), 1)
+            record = read_extxyz(output / "seeds.extxyz")[0]
+        self.assertEqual(record.metadata["electron_count"], "68")
+        self.assertEqual(record.metadata["multiplicity_parity_valid"], "false")
 
     def test_metadata_roundtrips_through_extxyz_and_manifest(self):
         text = (FIXTURES / "warehouse.txt").read_text()
@@ -335,6 +347,39 @@ class PipelineTests(unittest.TestCase):
         plans, skipped = infer_automatic_fe_spin_plans([record])
         self.assertEqual(plans, [])
         self.assertEqual(skipped[0].reason, "insufficient_real_data_no_parallel_reference")
+
+    def test_automatic_oxide_plan_skips_invalid_filename_multiplicity_without_aborting(self):
+        atoms = [Atom("Fe", float(index), 0.0, 0.0) for index in range(10)] + [
+            Atom("O", float(index), 2.0, 0.0) for index in range(10)
+        ]
+        high = Record(
+            "fe10o10-m39", "warehouse/fe10o10_39_10000.txt", atoms, 0, 39,
+            "warehouse_structure", metadata={"state_inference": "filename"},
+        )
+        low = Record(
+            "fe10o10-m17", "warehouse/fe10o10_17_10002.txt", atoms, 0, 17,
+            "warehouse_structure", metadata={"state_inference": "filename"},
+        )
+        invalid = Record(
+            "fe10o10-m16", "warehouse/fe10o10_16_10001.txt", atoms, 0, 16,
+            "warehouse_structure", metadata={"state_inference": "filename"},
+        )
+        plans, skipped = infer_automatic_fe_spin_plans([high, low, invalid])
+        self.assertEqual(
+            [plan.record.record_id for plan in plans], [high.record_id, low.record_id]
+        )
+        self.assertEqual(skipped[0].record.record_id, invalid.record_id)
+        self.assertIn("target_multiplicity_not_physically_valid", skipped[0].reason)
+        self.assertIn("wrong parity", skipped[0].reason)
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "auto"
+            stages = write_automatic_fe_spin_jobs([high, low, invalid], output)
+            self.assertEqual(stages, 13)
+            with (output / "spin_plan.csv").open(newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+            invalid_row = next(row for row in rows if row["record_id"] == invalid.record_id)
+            self.assertEqual(invalid_row["status"], "skipped")
+            self.assertIn("wrong parity", invalid_row["reason"])
 
     def test_actual_parallel_fe_moments_can_support_singleton_reference(self):
         record = Record(
