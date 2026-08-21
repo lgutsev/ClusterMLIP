@@ -19,6 +19,7 @@ from .label_report import write_label_report
 from .mace_glue import MaceUnavailable
 from .manifest import write_experiment_manifest
 from .models import Record, composition_allowed, geometry_signature
+from .physical_checks import write_physical_checks_report
 from .spin import (
     DEFAULT_SPIN_ROUTE,
     validate_fragment_specification_shape,
@@ -26,6 +27,7 @@ from .spin import (
     write_spin_inventory,
     write_spin_jobs,
 )
+from .stratify import STRATA_FIELDS
 
 
 def _elements(value: str | None) -> set[str] | None:
@@ -197,7 +199,9 @@ def command_collect(args: argparse.Namespace) -> int:
         except Exception as exc:
             failures.append((str(path), str(exc)))
     write_labeled_extxyz(frames, destination / "all.extxyz")
-    splits = grouped_split(frames, args.valid_fraction, args.test_fraction, args.seed)
+    splits = grouped_split(
+        frames, args.valid_fraction, args.test_fraction, args.seed, stratify_by=args.stratify_by
+    )
     for name, subset in splits.items():
         write_labeled_extxyz(subset, destination / f"{name}.extxyz")
     with (destination / "failed_outputs.tsv").open("w", encoding="utf-8") as handle:
@@ -206,12 +210,25 @@ def command_collect(args: argparse.Namespace) -> int:
     print(f"Collected {len(frames)} labeled frames; rejected {len(failures)} outputs")
     print("Split: " + ", ".join(f"{name}={len(values)}" for name, values in splits.items()))
     if frames:
-        label_summary = write_label_report(frames, destination, args.force_outlier_threshold)
+        label_summary = write_label_report(
+            frames, destination, args.force_outlier_threshold,
+            splits=splits, stratify_by=args.stratify_by,
+        )
         print(
             f"Label report: {len(label_summary['outliers'])} force-RMS outliers "
             f"(> {args.force_outlier_threshold} eV/Angstrom) -- see {destination / 'label_report.md'}"
         )
     return 0
+
+
+def _stratify_by(value: str) -> tuple[str, ...]:
+    fields = tuple(item.strip() for item in value.split(",") if item.strip())
+    unknown = [field for field in fields if field not in STRATA_FIELDS]
+    if unknown:
+        raise argparse.ArgumentTypeError(
+            f"unknown --stratify-by field(s) {unknown}; choose from {STRATA_FIELDS}"
+        )
+    return fields
 
 
 def _multiplicities(value: str) -> list[int]:
@@ -322,6 +339,12 @@ def command_evaluate(args: argparse.Namespace) -> int:
         f"force MAE {overall['force_mae_ev_ang']:.4f} eV/Angstrom"
     )
     print(f"Report: {Path(args.output).resolve() / 'report.md'}")
+    if not args.skip_physical_checks:
+        checks = write_physical_checks_report(frames, predictions, Path(args.output))
+        for check in checks:
+            status = "n/a" if check["passed"] is None else ("pass" if check["passed"] else "FAIL")
+            print(f"  [{status}] {check['name']} ({check['n_frames_considered']} considered)")
+        print(f"Physical checks: {Path(args.output).resolve() / 'physical_checks.md'}")
     return 0
 
 
@@ -458,6 +481,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--force-outlier-threshold", type=float, default=5.0,
         help="flag frames whose force RMS (eV/Angstrom) exceeds this in label_report.md/json",
     )
+    collect.add_argument(
+        "--stratify-by", type=_stratify_by, default="pes_region,charge_spin_class",
+        help=(
+            "comma-separated axes from stratify.STRATA_FIELDS to split on so a small "
+            "class (e.g. a handful of transition states) isn't left to chance -- "
+            f"choose from {', '.join(STRATA_FIELDS)}; empty string falls back to one "
+            "pseudo-stratum containing everything"
+        ),
+    )
     collect.set_defaults(func=command_collect)
 
     validate_spins = sub.add_parser(
@@ -493,12 +525,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     evaluate = sub.add_parser(
         "evaluate",
-        help="score a trained MACE model's energy/force error by charge and multiplicity",
+        help="score a trained MACE model's energy/force error by geometry class, charge, and multiplicity",
     )
     evaluate.add_argument("labeled", help="labeled extxyz from `collect`, e.g. dataset/test.extxyz")
     evaluate.add_argument("--model", required=True, help="path to a trained MACE model checkpoint")
     evaluate.add_argument("-o", "--output", default="evaluation")
     evaluate.add_argument("--device", default="cpu")
+    evaluate.add_argument(
+        "--skip-physical-checks", action="store_true",
+        help="skip the five stratify-class physical sanity checks (they're cheap, but this is a fast path)",
+    )
     evaluate.set_defaults(func=command_evaluate)
 
     select_next_batch = sub.add_parser(

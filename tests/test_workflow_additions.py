@@ -8,7 +8,7 @@ from cluster_mlip.active_learning import (
     write_next_batch,
 )
 from cluster_mlip.analysis import scan_source
-from cluster_mlip.dataset import read_labeled_extxyz, write_labeled_extxyz
+from cluster_mlip.dataset import grouped_split, read_labeled_extxyz, split_coverage, write_labeled_extxyz
 from cluster_mlip.doctor import MISSING_OPTIONAL, OK, run_checks
 from cluster_mlip.evaluate import summarize_evaluation
 from cluster_mlip.label_report import summarize_labels
@@ -34,6 +34,13 @@ def _uniform_frame(record_id: str, charge: int, multiplicity: int, energy: float
         record_id, "src.log", [Atom("Fe", 0, 0, 0), Atom("O", 1.5, 0, 0)], charge, multiplicity, "minimum"
     )
     return LabeledFrame(record, energy, [(force, force, force), (-force, -force, -force)], Path("src.log"))
+
+
+def _config_type_frame(record_id: str, config_type: str) -> LabeledFrame:
+    record = Record(
+        record_id, "src.log", [Atom("Fe", 0, 0, 0), Atom("O", 1.5, 0, 0)], 0, 1, config_type
+    )
+    return LabeledFrame(record, -10.0, [(0.1, 0.0, 0.0), (-0.1, 0.0, 0.0)], Path("src.log"))
 
 
 class DoctorTests(unittest.TestCase):
@@ -86,6 +93,66 @@ class LabelReportTests(unittest.TestCase):
         self.assertEqual(loaded[0].record.multiplicity, 1)
         self.assertAlmostEqual(loaded[0].forces_ev_ang[0][0], 0.1, places=6)
 
+    def test_summarize_labels_reports_by_stratum_and_split_coverage(self):
+        frames = [_frame(f"min{i}", 0, 1, -10.0, 0.1) for i in range(4)]
+        frames += [_config_type_frame(f"ts{i}", "transition_state") for i in range(2)]
+        splits = grouped_split(frames, 0.25, 0.25, 20260811, stratify_by=("pes_region",))
+        summary = summarize_labels(frames, splits=splits, stratify_by=("pes_region",))
+        pes_groups = {row["group"] for row in summary["by_stratum"]["pes_region"]}
+        self.assertEqual(pes_groups, {"minimum", "saddle"})
+        strata = {row["stratum"] for row in summary["split_coverage"]}
+        self.assertEqual(strata, {"minimum", "saddle"})
+
+    def test_split_coverage_matches_grouped_split_output(self):
+        frames = [_frame(f"min{i}", 0, 1, -10.0, 0.1) for i in range(10)]
+        splits = grouped_split(frames, 0.2, 0.2, 20260811, stratify_by=("pes_region",))
+        coverage = split_coverage(splits, ("pes_region",))
+        self.assertEqual(len(coverage), 1)
+        row = coverage[0]
+        self.assertEqual(row["stratum"], "minimum")
+        self.assertEqual(row["train"] + row["valid"] + row["test"], 10)
+
+
+class GroupedSplitStratifiedTests(unittest.TestCase):
+    def test_unstratified_default_is_unchanged(self):
+        frames = [_frame(f"a{i}", 0, 1, -10.0, 0.1) for i in range(20)]
+        old_style = grouped_split(frames, 0.1, 0.1, 20260811)
+        explicit_none = grouped_split(frames, 0.1, 0.1, 20260811, stratify_by=None)
+        self.assertEqual(
+            [f.record.record_id for f in old_style["train"]],
+            [f.record.record_id for f in explicit_none["train"]],
+        )
+
+    def test_small_stratum_is_not_silently_dropped_from_every_split(self):
+        # 20 minima (plenty) + 4 saddles (a small stratum) at 10%/10%.
+        # Unstratified global hashing has a real chance of putting all 4
+        # saddles in "train" by chance; stratified splitting must not.
+        frames = [_frame(f"min{i}", 0, 1, -10.0, 0.1) for i in range(20)]
+        frames += [_config_type_frame(f"ts{i}", "transition_state") for i in range(4)]
+        splits = grouped_split(frames, 0.25, 0.25, 20260811, stratify_by=("pes_region",))
+        saddle_ids = {f.record.record_id for f in frames if f.record.config_type == "transition_state"}
+        train_saddles = sum(1 for f in splits["train"] if f.record.record_id in saddle_ids)
+        valid_saddles = sum(1 for f in splits["valid"] if f.record.record_id in saddle_ids)
+        test_saddles = sum(1 for f in splits["test"] if f.record.record_id in saddle_ids)
+        self.assertEqual(train_saddles + valid_saddles + test_saddles, 4)
+        # 4 groups at 25%/25% rounds to exactly 1 in valid and 1 in test.
+        self.assertEqual(valid_saddles, 1)
+        self.assertEqual(test_saddles, 1)
+        self.assertEqual(train_saddles, 2)
+
+    def test_parent_group_siblings_stay_together_when_stratified(self):
+        parent = Record("p1", "s", [Atom("Fe", 0, 0, 0), Atom("O", 1.5, 0, 0)], 0, 1, "minimum")
+        parent_frame = LabeledFrame(parent, -10.0, [(0.0, 0, 0), (0.0, 0, 0)], Path("s.log"))
+        child = Record(
+            "p1-r01", "s", [Atom("Fe", 0, 0, 0), Atom("O", 1.5, 0, 0)], 0, 1, "minimum_rattled",
+            metadata={"parent_record_id": "p1"},
+        )
+        child_frame = LabeledFrame(child, -9.9, [(0.1, 0, 0), (-0.1, 0, 0)], Path("s.log"))
+        splits = grouped_split([parent_frame, child_frame], 0.3, 0.3, 1, stratify_by=("pes_region",))
+        for bucket in splits.values():
+            ids = {f.record.record_id for f in bucket}
+            self.assertIn(len(ids & {"p1", "p1-r01"}), (0, 2))
+
 
 class EvaluateTests(unittest.TestCase):
     def test_summarize_evaluation_computes_known_errors(self):
@@ -101,6 +168,16 @@ class EvaluateTests(unittest.TestCase):
         self.assertAlmostEqual(summary["overall"]["energy_mae_ev_per_atom"], 0.5, places=6)
         self.assertAlmostEqual(summary["overall"]["force_mae_ev_ang"], 0.5, places=6)
         self.assertEqual(len(summary["by_charge_multiplicity"]), 2)
+
+    def test_summarize_evaluation_reports_by_stratum(self):
+        frames = [_uniform_frame("a", 0, 1, -10.0, 1.0), _uniform_frame("b", 0, 2, -20.0, 1.0)]
+        predictions = [
+            (-9.0, [(1.5, 1.5, 1.5), (-1.5, -1.5, -1.5)]),
+            (-21.0, [(1.5, 1.5, 1.5), (-1.5, -1.5, -1.5)]),
+        ]
+        summary = summarize_evaluation(frames, predictions)
+        self.assertIn("pes_region", summary["by_stratum"])
+        self.assertIn("charge_spin_class", summary["by_stratum"])
 
     def test_summarize_evaluation_rejects_length_mismatch(self):
         frames = [_frame("a", 0, 1, -10.0, 1.0)]

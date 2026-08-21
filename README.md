@@ -258,11 +258,29 @@ The collector converts Gaussian energies and forces to eV and eV/Å and writes
 `all.extxyz`, `train.extxyz`, `valid.extxyz`, and `test.extxyz`. All rattles from
 one parent remain in one split, preventing near-duplicate leakage.
 
-It also writes `label_report.md`/`label_report.json`: energy and force-RMS
-statistics grouped by charge/multiplicity, plus every frame whose force RMS
-exceeds `--force-outlier-threshold` (default 5 eV/Å, adjust for your route
-and system). A non-converged SCF root or a rattle that blew up a geometry
-shows up here before it ever reaches training, which nothing checked before.
+The split is geometry-stratified by default (`--stratify-by
+pes_region,charge_spin_class`): every parent-record group is classified (see
+`cluster_mlip.stratify`) into which PES region it's from (minimum/saddle/irc/
+other) and which charge/spin regime it's in, and each resulting stratum is cut
+into train/valid/test at the requested proportions *independently*. Plain
+per-group hashing (the old, still-available behavior via the Python API's
+`stratify_by=None`) is unbiased in aggregate, but a small class -- say four
+transition-state groups in the whole warehouse -- has a real chance of landing
+entirely in `train` by chance alone with nothing in `valid`/`test` to catch a
+model that's bad at exactly that class. `--stratify-by` (comma-separated,
+choose from `pes_region`, `displacement_class`, `coordination_class`,
+`compactness_class`, `charge_spin_class`, `provenance_tier`) controls which
+axes are used; pass an empty string to fall back to one pseudo-stratum
+containing everything.
+
+`collect` also writes `label_report.md`/`label_report.json`: energy and
+force-RMS statistics grouped by charge/multiplicity and by every stratify axis,
+split coverage (how many groups per stratum landed in each split -- a stratum
+showing 0 in valid/test didn't have enough groups to round up to one at the
+requested fractions, and now you can see that instead of finding out later),
+and every frame whose force RMS exceeds `--force-outlier-threshold` (default
+5 eV/Å, adjust for your route and system). A non-converged SCF root or a
+rattle that blew up a geometry shows up here before it ever reaches training.
 
 ## 5. Train from scratch
 
@@ -298,11 +316,27 @@ cluster-mlip evaluate dataset/test.extxyz --model checkpoints/model.model -o eva
 ```
 
 Runs the model over a labeled `extxyz` (from `collect`) and reports energy
-(eV/atom) and force (eV/Å) MAE/RMSE overall and broken out by charge and
-multiplicity, in `evaluation.json`, `by_charge_multiplicity.csv`, and
-`report.md`. This implements the first bullet of "Validation priorities"
-below; the rest of that list is still open. Needs the training extra
-(`pip install -e '.[train]'`).
+(eV/atom) and force (eV/Å) MAE/RMSE overall, by charge/multiplicity, and by
+every `stratify` axis (PES region, rattled vs. relaxed, coordination class,
+compactness, charge/spin class, provenance tier) -- in `evaluation.json`, a
+`by_*.csv` per axis, and `report.md`. A model that's fine on average but bad
+at saddle points or under-coordinated atoms no longer hides behind one number.
+This implements the first bullet of "Validation priorities" below.
+
+It then runs five cheap, first-pass physical sanity checks, one per
+structural class (`--skip-physical-checks` to opt out): near-zero predicted
+force at labeled minima/saddles, force-direction agreement on rattled
+displacements, force-error concentration on low-coordination atoms, net-force
+direction agreement between the pieces of a fragmenting cluster, and whether
+the model agrees with DFT on which spin state is the ground state for
+matched-geometry multiplicity groups (reusing `spin.geometry_distance`).
+Results go to `physical_checks.md`/`.json`. These are sanity checks, not a
+certification -- thresholds are first-pass defaults (see
+`cluster_mlip.physical_checks`) meant to be recalibrated once you have real
+error distributions, and a check reports "n/a" rather than a number when
+nothing in the dataset matches its class.
+
+Needs the training extra (`pip install -e '.[train]'`).
 
 ## 7. Active learning: pick what to label next
 
@@ -343,11 +377,25 @@ opinion on where your object storage lives.
 ## Validation priorities
 
 - energy and force errors by charge and multiplicity -- implemented, see
-  `cluster-mlip evaluate` above;
-- isomer ordering within composition/state groups -- not yet implemented;
-- held-out reaction families and cluster sizes -- not yet implemented;
-- barrier errors once genuine TS/IRC labels are available -- not yet implemented;
-- fragmentation curves and short trajectory stability -- not yet implemented;
+  `cluster-mlip evaluate` above, now broken out by PES region, displacement
+  class, coordination class, compactness, and provenance tier too (see
+  `cluster_mlip.stratify`), not just charge/multiplicity;
+- isomer ordering within composition/state groups -- partially covered: the
+  `spin_state_ordering` physical check compares DFT vs. model agreement on
+  which spin state is lowest-energy for matched-geometry multiplicity groups,
+  which is one specific case of isomer ordering (same geometry, different
+  electronic state); ordering across genuinely different isomer geometries at
+  the same composition is not covered;
+- held-out reaction families and cluster sizes -- not yet implemented (no
+  reaction-family labels exist yet to hold out by; cluster-size stratification
+  could be added as a `stratify` axis if it turns out to matter);
+- barrier errors once genuine TS/IRC labels are available -- not yet
+  implemented (needs TS-to-IRC-endpoint pairing this pipeline doesn't track);
+- fragmentation curves and short trajectory stability -- the
+  `fragmenting_force_direction` physical check is a static, single-frame
+  proxy (does the model push/pull separating fragments the right way in one
+  labeled geometry); an actual dissociation curve or MD trajectory stability
+  check is not implemented;
 - explicit checks for inconsistent broken-symmetry SCF roots -- not yet
   implemented as a validation-priority check (`validate-spins` already flags
   `alternative_root` states during spin-campaign preparation, which is a
@@ -374,6 +422,11 @@ python -m pip install -e '.[dev]' && mypy src
 
 The fixtures exercise minimum, TS, IRC, checkpoint, warehouse, force-table,
 grouped job, nested-ZIP analysis, label-report, evaluation, active-learning
-disagreement-ranking, fragment-spec shape-validation, and parallel-scan
+disagreement-ranking, fragment-spec shape-validation, parallel-scan,
+geometry-stratification (bonding graph/coordination/compactness/PES-region/
+charge-spin classification, stratified `grouped_split`), and physical-check
 paths. CI (`.github/workflows/tests.yml`) runs the unit tests on Python
-3.10/3.11/3.12 and `mypy` separately; the package is fully type-hinted.
+3.10/3.11/3.12 and `mypy` separately; the package is fully type-hinted. None
+of this needs `mace-torch` installed -- the stratification, reporting, and
+physical-check logic is plain Python over data already in hand; only the
+CLI's actual model inference calls need the training extra, same as before.

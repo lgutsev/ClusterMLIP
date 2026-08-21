@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .io import parse_extxyz_info_line, quote_extxyz
 from .models import Atom, LabeledFrame, Record
+from .stratify import classify_record, stratum_key
 
 
 def write_labeled_extxyz(frames: list[LabeledFrame], path: Path) -> None:
@@ -73,21 +74,103 @@ def read_labeled_extxyz(path: Path) -> list[LabeledFrame]:
     return frames
 
 
+def _parent_group(frame: LabeledFrame) -> str:
+    return frame.record.metadata.get("parent_record_id", frame.record.record_id)
+
+
 def grouped_split(
-    frames: list[LabeledFrame], valid_fraction: float, test_fraction: float, seed: int
+    frames: list[LabeledFrame],
+    valid_fraction: float,
+    test_fraction: float,
+    seed: int,
+    stratify_by: tuple[str, ...] | None = None,
 ) -> dict[str, list[LabeledFrame]]:
+    """Split frames into train/valid/test, keeping every parent-record's
+    rattled siblings in one split.
+
+    `stratify_by=None` (default) is the original algorithm, unchanged: each
+    parent-group gets one SHA-256-derived value in [0, 1) and is thresholded
+    against the requested fractions. That's unbiased in expectation but has
+    high variance for a *small* group of groups -- e.g. a stratum with 3
+    groups and test_fraction=0.1 has roughly a 73% chance none of them land
+    in "test" by chance alone, silently vanishing that stratum from
+    evaluation.
+
+    `stratify_by=("pes_region", "charge_spin_class", ...)` classifies one
+    representative frame per parent-group (stratify.classify_record) and,
+    *within each resulting stratum*, deterministically ranks its groups by a
+    seeded hash and cuts them at the requested proportions (rounded) --
+    proportional allocation by rank, not another per-group random draw, so a
+    stratum's split composition no longer depends on chance. See
+    split_coverage() to see the result per stratum.
+    """
     result: dict[str, list[LabeledFrame]] = {"train": [], "valid": [], "test": []}
+    if stratify_by is None:
+        # Original algorithm, byte-for-byte: per-frame (not per-group) so
+        # relative frame order within each split bucket is preserved exactly
+        # as before, even though the hash value only ever depends on the
+        # frame's parent group.
+        for frame in frames:
+            digest = hashlib.sha256(f"{seed}|{_parent_group(frame)}".encode()).digest()
+            value = int.from_bytes(digest[:8], "big") / 2**64
+            if value < test_fraction:
+                result["test"].append(frame)
+            elif value < test_fraction + valid_fraction:
+                result["valid"].append(frame)
+            else:
+                result["train"].append(frame)
+        return result
+
+    groups: dict[str, list[LabeledFrame]] = {}
     for frame in frames:
-        group = frame.record.metadata.get("parent_record_id", frame.record.record_id)
-        digest = hashlib.sha256(f"{seed}|{group}".encode()).digest()
-        value = int.from_bytes(digest[:8], "big") / 2**64
-        if value < test_fraction:
-            result["test"].append(frame)
-        elif value < test_fraction + valid_fraction:
-            result["valid"].append(frame)
-        else:
-            result["train"].append(frame)
+        groups.setdefault(_parent_group(frame), []).append(frame)
+
+    strata_groups: dict[str, list[str]] = {}
+    for group_id, members in groups.items():
+        representative = next(
+            (member for member in members if member.record.record_id == group_id),
+            members[0],
+        )
+        key = stratum_key(classify_record(representative.record), stratify_by)
+        strata_groups.setdefault(key, []).append(group_id)
+
+    for key, group_ids in strata_groups.items():
+        ordered = sorted(
+            group_ids,
+            key=lambda gid: hashlib.sha256(f"{seed}|{key}|{gid}".encode()).digest(),
+        )
+        n = len(ordered)
+        n_test = min(round(n * test_fraction), n)
+        n_valid = min(round(n * valid_fraction), n - n_test)
+        test_ids = set(ordered[:n_test])
+        valid_ids = set(ordered[n_test:n_test + n_valid])
+        for group_id in ordered:
+            bucket = "test" if group_id in test_ids else "valid" if group_id in valid_ids else "train"
+            result[bucket].extend(groups[group_id])
     return result
+
+
+def split_coverage(
+    splits: dict[str, list[LabeledFrame]], stratify_by: tuple[str, ...]
+) -> list[dict[str, object]]:
+    """Per-stratum *group* counts (not frame counts) in each split, so a
+    stratum with zero groups in valid/test is visible instead of silently
+    absent. `stratify_by` should match what was passed to grouped_split for
+    the breakdown to correspond to how the split was actually made.
+    """
+    counts: dict[str, dict[str, set[str]]] = {}
+    for split_name, members in splits.items():
+        for frame in members:
+            key = stratum_key(classify_record(frame.record), stratify_by)
+            counts.setdefault(key, {"train": set(), "valid": set(), "test": set()})
+            counts[key][split_name].add(_parent_group(frame))
+    rows: list[dict[str, object]] = []
+    for key in sorted(counts):
+        row: dict[str, object] = {"stratum": key}
+        for split_name in ("train", "valid", "test"):
+            row[split_name] = len(counts[key][split_name])
+        rows.append(row)
+    return rows
 
 
 def read_jobs_manifest(path: Path) -> dict[str, dict[str, str]]:
