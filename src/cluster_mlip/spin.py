@@ -1521,8 +1521,8 @@ def validate_spin_campaign(
             return complete_by_job[job_id]
 
         for row in manifest_rows:
-            observation = observation_by_job.get(row.get("job_id", ""))
-            diagnostic = None if observation is None else observation.diagnostics
+            row_observation = observation_by_job.get(row.get("job_id", ""))
+            row_diagnostic = None if row_observation is None else row_observation.diagnostics
             predecessor_id = row.get("predecessor_job_id", "")
             predecessor_complete = (
                 True if not predecessor_id else pathway_complete(predecessor_id)
@@ -1530,26 +1530,29 @@ def validate_spin_campaign(
             complete = pathway_complete(row.get("job_id", ""))
             fragment_alignment = (
                 "not_applicable"
-                if row.get("pathway") != "fragment_guess" or diagnostic is None
+                if row.get("pathway") != "fragment_guess" or row_diagnostic is None
                 else _fragment_spin_alignment(
-                    diagnostic,
+                    row_diagnostic,
                     fragment_specs_by_hash.get(row.get("fragment_spec_sha256", "")),
                 )
             )
             planned_rows.append({
                 **{column: row.get(column, "") for column in SPIN_MANIFEST_COLUMNS},
                 "lineage_status": lineage_by_job.get(row.get("job_id", ""), "invalid"),
-                "observed": observation is not None,
-                "normal_termination": False if diagnostic is None else diagnostic.normal_termination,
-                "optimized": False if diagnostic is None else diagnostic.optimized,
-                "stability": "" if diagnostic is None else diagnostic.stability,
-                "spin_pattern": "" if diagnostic is None else diagnostic.spin_pattern,
-                "root_signature": "" if diagnostic is None else diagnostic.root_signature,
-                "s2_delta": "" if diagnostic is None else diagnostic.s2_delta,
+                "observed": row_observation is not None,
+                "normal_termination": False if row_diagnostic is None else row_diagnostic.normal_termination,
+                "optimized": False if row_diagnostic is None else row_diagnostic.optimized,
+                "stability": "" if row_diagnostic is None else row_diagnostic.stability,
+                "spin_pattern": "" if row_diagnostic is None else row_diagnostic.spin_pattern,
+                "root_signature": "" if row_diagnostic is None else row_diagnostic.root_signature,
+                "s2_delta": "" if row_diagnostic is None else row_diagnostic.s2_delta,
                 "electronic_root_characterized": bool(
-                    diagnostic is not None
-                    and diagnostic.root_signature
-                    and (diagnostic.s2_before is not None or diagnostic.s2_after is not None)
+                    row_diagnostic is not None
+                    and row_diagnostic.root_signature
+                    and (
+                        row_diagnostic.s2_before is not None
+                        or row_diagnostic.s2_after is not None
+                    )
                 ),
                 "fragment_spin_alignment": fragment_alignment,
                 "predecessor_complete": predecessor_complete,
