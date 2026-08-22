@@ -9,6 +9,7 @@ from pathlib import Path
 from .active_learning import predict_committee_forces, write_next_batch
 from .analysis import write_analysis
 from .audit import run_private_audit
+from .batch_inventory import build_inventory
 from .dataset import grouped_split, read_jobs_manifest, read_labeled_extxyz, write_labeled_extxyz
 from .doctor import MISSING_REQUIRED, format_report, run_checks
 from .evaluate import predict_with_mace, write_evaluation_report
@@ -22,6 +23,7 @@ from .jobs import (
     write_gaussian_jobs,
 )
 from .label_report import write_label_report
+from .literature import DEFAULT_AUTHOR_IDS, DEFAULT_KEYWORDS, run_literature_gap
 from .mace_glue import MaceUnavailable
 from .manifest import write_experiment_manifest
 from .models import Record, composition_allowed, geometry_signature
@@ -503,6 +505,40 @@ def command_select_next_batch(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_inventory(args: argparse.Namespace) -> int:
+    result = build_inventory(
+        Path(args.folder).resolve(), Path(args.output).resolve(),
+        recursive=args.recursive, jobs=args.jobs,
+    )
+    print(f"Inventoried {len(result['zips'])} ZIP files")
+    print(f"Unique formula/charge/multiplicity/state combinations: {len(result['master'])}")
+    print(f"Inventory: {Path(args.output).resolve() / 'inventory.md'}")
+    return 0
+
+
+def command_literature_gap(args: argparse.Namespace) -> int:
+    try:
+        summary = run_literature_gap(
+            Path(args.source).resolve(), Path(args.output).resolve(),
+            author_ids=args.author_id or DEFAULT_AUTHOR_IDS,
+            keywords=args.keywords or DEFAULT_KEYWORDS,
+            contact_email=args.contact_email, jobs=args.jobs,
+        )
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    counts = summary["counts"]
+    assert isinstance(counts, dict)
+    print(f"Checked {summary['n_papers']} papers")
+    print(
+        f"On file: {counts.get('on_file', 0)}  |  "
+        f"May be missing: {counts.get('possible_gap', 0)}  |  "
+        f"Not sure: {counts.get('unclear', 0)}"
+    )
+    print(f"Audit list for Gennady: {Path(args.output).resolve() / 'literature_gap.md'}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="cluster-mlip", description="Legacy Gaussian cluster-to-MACE pipeline")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -760,6 +796,51 @@ def build_parser() -> argparse.ArgumentParser:
     select_next_batch.add_argument("--top-k", type=int, default=50)
     select_next_batch.add_argument("--device", default="cpu")
     select_next_batch.set_defaults(func=command_select_next_batch)
+
+    inventory = sub.add_parser(
+        "inventory",
+        help="inventory every ZIP in a folder of warehouse deliveries, plus one merged master list",
+    )
+    inventory.add_argument("folder", help="folder containing warehouse ZIP files")
+    inventory.add_argument("-o", "--output", default="inventory")
+    inventory.add_argument(
+        "--recursive", action="store_true", help="also search subfolders for ZIP files"
+    )
+    inventory.add_argument(
+        "-j", "--jobs", type=int, default=1,
+        help="parse each ZIP's files in this many worker processes (default: 1, sequential)",
+    )
+    inventory.set_defaults(func=command_inventory)
+
+    literature_gap = sub.add_parser(
+        "literature-gap",
+        help="compare a warehouse inventory against an author's published cluster papers (needs internet)",
+    )
+    literature_gap.add_argument(
+        "source",
+        help="an `inventory` output directory, or a raw folder of warehouse ZIPs to inventory inline",
+    )
+    literature_gap.add_argument("-o", "--output", default="literature_gap")
+    literature_gap.add_argument(
+        "--author-id", dest="author_id", action="append",
+        help=(
+            "OpenAlex author id, e.g. A5029253658 (repeat for multiple ids); default is the "
+            "verified match for Gennady L. Gutsev -- pass your own if you have a better one"
+        ),
+    )
+    literature_gap.add_argument(
+        "--keywords", nargs="+",
+        help="title/abstract keywords to search for (default: iron/iron-oxide/transition-metal cluster terms)",
+    )
+    literature_gap.add_argument(
+        "--contact-email",
+        help="added to the OpenAlex request as its documented 'polite pool' contact (optional, better rate limits)",
+    )
+    literature_gap.add_argument(
+        "-j", "--jobs", type=int, default=1,
+        help="if `source` is a raw ZIP folder, parse it with this many worker processes",
+    )
+    literature_gap.set_defaults(func=command_literature_gap)
     return parser
 
 

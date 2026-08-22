@@ -198,6 +198,18 @@ def write_analysis(
 ) -> DatabaseSummary:
     output.mkdir(parents=True, exist_ok=True)
     files, records = scan_source(source, record_filter=record_filter, jobs=jobs)
+    return summarize_and_write(source, files, records, output)
+
+
+def summarize_and_write(
+    source: Path, files: list[FileResult], records: list[Record], output: Path
+) -> DatabaseSummary:
+    """The write side of write_analysis, split out so a caller that already
+    has to scan a source for its own purposes (batch_inventory scanning many
+    ZIPs for a merged cross-source list) can write the per-source report
+    without a second, redundant scan of a potentially large archive.
+    """
+    output.mkdir(parents=True, exist_ok=True)
     summary = summarize(files, records)
     (output / "summary.json").write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"

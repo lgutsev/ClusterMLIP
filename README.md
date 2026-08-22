@@ -109,6 +109,66 @@ on LONI or another controlled storage system; they are not repository
 documentation. `scripts/generate_private_audit.sh` remains as a thin wrapper
 using the same Fe/N/O defaults.
 
+## Inventory a folder of many deliveries, then audit against the literature
+
+Two commands for a different situation than `analyze`/`audit` above: instead
+of one warehouse ZIP, you have a *folder* of deliveries collected over time
+(from Gennady or anyone else) and want to know what you actually have across
+all of them, and what published work might still be missing.
+
+```bash
+cluster-mlip inventory /path/to/deliveries -o inventory
+```
+
+Finds every `*.zip` directly under the folder (`--recursive` to also search
+subfolders), analyzes each one exactly like `analyze` does
+(`inventory/by_source/<zip-name>/report.md`, one per ZIP), and additionally
+writes one **merged master list**: every unique formula/charge/multiplicity/
+structure-type combination found *anywhere*, with which ZIP(s) it came from --
+`inventory/inventory.md` and `inventory/inventory.json`. `-j N`/`--jobs N`
+parses each ZIP's files across `N` worker processes, same as `analyze`.
+
+```bash
+cluster-mlip literature-gap inventory --contact-email you@example.edu -o gap
+```
+
+Fetches every paper by a given author about iron/iron-oxide (or other
+transition-metal) clusters from [OpenAlex](https://openalex.org) -- a free,
+open scholarly database, not a search-engine scrape -- and checks which
+formulas mentioned in each paper's title/abstract are and are not present in
+the inventory above. `literature-gap`'s first argument can be an existing
+`inventory` output directory (as above) or a raw folder of ZIPs, in which case
+the inventory is built inline into `<output>/inventory/`.
+
+**This is the one command in the whole pipeline that needs live internet
+access** -- run it from your laptop or an HPC login node, not an offline
+compute node, since nothing else in ClusterMLIP makes a network call.
+`--contact-email` is optional and only improves OpenAlex's rate-limit
+priority (their documented "polite pool"); nothing is sent anywhere else.
+
+The default author is **Gennady L. Gutsev** (Florida A&M University),
+resolved via OpenAlex author id `A5029253658` -- verified by hand (292 works,
+h-index 46, centrally about iron/iron-oxide cluster DFT) before being made the
+default, not guessed from the name string alone. A second, much smaller,
+likely-duplicate OpenAlex profile for the same person also exists
+(`A5140774346`); pass `--author-id` (repeatable) to add it, override the
+default entirely, or search a different author or institute.
+
+The output, `gap/literature_gap.md`, is written to be read directly by a
+person, not parsed: a short plain-English count at the top, then papers
+grouped as **"please send these"** (a formula was mentioned that isn't in the
+inventory) first, **"not sure, please check"** (no specific formula could be
+picked out of the title/abstract -- still listed, never silently dropped)
+second, and **"already have"** last -- each paper as one short numbered block
+(title, year, formulas mentioned, link), not a dense table. This is meant to
+be handed directly to Gennady as a plain reading list, e.g. as-is or pasted
+into an email -- it deliberately doesn't assume the reader wants to parse
+JSON or a spreadsheet. Formula matching is a text-mining heuristic (a
+paper's title/abstract rarely states charge or multiplicity, so matching is
+by formula only, and general "Fe_n"-style series notation without a specific
+number isn't extracted as a composition) -- treat every row as a starting
+point for a human to confirm, not an authoritative claim.
+
 ## 2. Extract structures
 
 ```bash
