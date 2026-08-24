@@ -113,7 +113,7 @@ using the same Fe/N/O defaults.
 
 Two commands for a different situation than `analyze`/`audit` above: instead
 of one warehouse ZIP, you have a *folder* of deliveries collected over time
-(from Gennady or anyone else) and want to know what you actually have across
+(from one or more collaborators) and want to know what you actually have across
 all of them, and what published work might still be missing.
 
 ```bash
@@ -129,7 +129,11 @@ structure-type combination found *anywhere*, with which ZIP(s) it came from --
 parses each ZIP's files across `N` worker processes, same as `analyze`.
 
 ```bash
-cluster-mlip literature-gap inventory --contact-email you@example.edu -o gap
+cluster-mlip literature-gap inventory \
+  --orcid 0000-0002-1825-0097 \
+  --author-name "Researcher Name" \
+  --contact-email you@example.edu \
+  -o gap
 ```
 
 Fetches every paper by a given author about iron/iron-oxide (or other
@@ -146,13 +150,21 @@ compute node, since nothing else in ClusterMLIP makes a network call.
 `--contact-email` is optional and only improves OpenAlex's rate-limit
 priority (their documented "polite pool"); nothing is sent anywhere else.
 
-The default author is **Gennady L. Gutsev** (Florida A&M University),
-resolved via OpenAlex author id `A5029253658` -- verified by hand (292 works,
-h-index 46, centrally about iron/iron-oxide cluster DFT) before being made the
-default, not guessed from the name string alone. A second, much smaller,
-likely-duplicate OpenAlex profile for the same person also exists
-(`A5140774346`); pass `--author-id` (repeatable) to add it, override the
-default entirely, or search a different author or institute.
+There is deliberately **no default author**. Identify the researcher with a
+verified ORCID using `--orcid`, or with an OpenAlex author ID using
+`--author-id`; both options are repeatable and may be combined. ORCID URLs and
+bare hyphenated iDs are accepted, and their check digits are validated before
+the inventory is scanned or any network request is made. `--author-name` is an
+optional display label for the report and is never used for identity
+resolution. This keeps author disambiguation explicit and makes the command
+equally applicable to any researcher. For example, Gennady L. Gutsev's
+verified primary OpenAlex profile is `A5029253658`; his smaller,
+likely-duplicate profile is `A5140774346` and can be included with a second
+`--author-id`.
+
+The default topic terms remain `iron cluster`, `iron oxide cluster`, and
+`transition metal cluster`. Replace them for another literature domain, for
+example `--keywords "nickel cluster" "nickel oxide cluster"`.
 
 The output, `gap/literature_gap.md`, is written to be read directly by a
 person, not parsed: a short plain-English count at the top, then papers
@@ -161,13 +173,14 @@ inventory) first, **"not sure, please check"** (no specific formula could be
 picked out of the title/abstract -- still listed, never silently dropped)
 second, and **"already have"** last -- each paper as one short numbered block
 (title, year, formulas mentioned, link), not a dense table. This is meant to
-be handed directly to Gennady as a plain reading list, e.g. as-is or pasted
-into an email -- it deliberately doesn't assume the reader wants to parse
-JSON or a spreadsheet. Formula matching is a text-mining heuristic (a
-paper's title/abstract rarely states charge or multiplicity, so matching is
-by formula only, and general "Fe_n"-style series notation without a specific
-number isn't extracted as a composition) -- treat every row as a starting
-point for a human to confirm, not an authoritative claim.
+be handed directly to the researcher or data provider as a plain reading list,
+e.g. as-is or pasted into an email -- it deliberately doesn't assume the reader wants to parse
+JSON or a spreadsheet. The optional `--author-name` makes the heading suitable
+for handing directly to that author. Formula matching is a text-mining
+heuristic (a paper's title/abstract rarely states charge or multiplicity, so
+matching is by formula only, and general "Fe_n"-style series notation without
+a specific number isn't extracted as a composition) -- treat every row as a
+starting point for a human to confirm, not an authoritative claim.
 
 ## 2. Extract structures
 
