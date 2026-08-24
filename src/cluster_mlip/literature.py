@@ -57,6 +57,34 @@ def normalize_author_ids(author_ids: Iterable[str]) -> tuple[str, ...]:
     return tuple(normalized)
 
 
+def normalize_orcids(orcids: Iterable[str]) -> tuple[str, ...]:
+    """Return unique ORCID iDs in canonical hyphenated form.
+
+    Both bare iDs and ``https://orcid.org/...`` URLs are accepted. In
+    addition to checking the shape, validate the ISO 7064 MOD 11-2 check
+    digit so a typo cannot silently produce an empty literature query.
+    """
+    normalized: list[str] = []
+    for value in orcids:
+        orcid = value.strip().rstrip("/").rsplit("/", 1)[-1].upper()
+        if not re.fullmatch(r"\d{4}-\d{4}-\d{4}-\d{3}[\dX]", orcid):
+            raise ValueError(
+                f"invalid ORCID {value!r}; expected 0000-0000-0000-0000 "
+                "(the final character may be X)"
+            )
+        digits = orcid.replace("-", "")
+        total = 0
+        for digit in digits[:-1]:
+            total = (total + int(digit)) * 2
+        result = (12 - total % 11) % 11
+        expected = "X" if result == 10 else str(result)
+        if digits[-1] != expected:
+            raise ValueError(f"invalid ORCID {value!r}; check digit does not match")
+        if orcid not in normalized:
+            normalized.append(orcid)
+    return tuple(normalized)
+
+
 def extract_compositions(text: str) -> list[str]:
     """Heuristic chemical-formula extraction from free text (paper titles/
     abstracts). Deliberately conservative: a bare single element symbol with
@@ -101,49 +129,84 @@ def _reconstruct_abstract(inverted_index: object) -> str:
 
 
 def fetch_openalex_works(
-    author_ids: Iterable[str],
+    author_ids: Iterable[str] = (),
+    orcids: Iterable[str] = (),
     keywords: Iterable[str] = DEFAULT_KEYWORDS,
     contact_email: str | None = None,
     per_page: int = 100,
     timeout: float = 30.0,
 ) -> list[dict[str, object]]:
-    """One GET against the free, keyless OpenAlex Works API. The only
-    function in this package that talks to the network, isolated here the
+    """Query the free, keyless OpenAlex Works API. The only function in this
+    package that talks to the network, isolated here the
     same way mace_glue.py isolates the one function needing torch, so
     everything else (extraction, classification, report writing) is
     unit-testable without a real network call. `contact_email` fills
     OpenAlex's documented "polite pool" `mailto` parameter for better rate
     limits; omit it and the request still works, just at a lower priority.
     """
-    normalized_author_ids = normalize_author_ids(author_ids)
-    params = {
-        "filter": (
-            f"authorships.author.id:{'|'.join(normalized_author_ids)},"
-            f"title_and_abstract.search:{'|'.join(keywords)}"
-        ),
-        "per-page": str(per_page),
-        "select": "id,title,publication_year,doi,abstract_inverted_index",
-    }
-    if contact_email:
-        params["mailto"] = contact_email
-    url = f"{OPENALEX_WORKS_URL}?{urllib.parse.urlencode(params)}"
-    request = urllib.request.Request(url, headers={"User-Agent": "cluster-mlip literature-gap (mailto: none)"})
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 -- fixed https API host
-            payload = json.loads(response.read().decode("utf-8"))
-    except urllib.error.URLError as exc:
-        # This is the one command in the pipeline that needs live internet --
-        # give a clear message instead of a raw urllib/ssl traceback, since
-        # every other command in this project is designed to run fully
-        # offline on an HPC compute node that may have no route out at all.
-        raise RuntimeError(
-            f"could not reach {OPENALEX_WORKS_URL}: {exc}. This command needs internet "
-            "access -- run it from a login node or local machine, not an offline HPC "
-            "compute node. If this is a TLS/certificate error, it may be your local "
-            "network's proxy rather than this tool."
-        ) from exc
-    results = payload.get("results", [])
-    return results if isinstance(results, list) else []
+    author_id_values = tuple(author_ids)
+    orcid_values = tuple(orcids)
+    keyword_values = tuple(keywords)
+    normalized_author_ids = normalize_author_ids(author_id_values) if author_id_values else ()
+    normalized_orcids = normalize_orcids(orcid_values)
+    if not normalized_author_ids and not normalized_orcids:
+        raise ValueError("at least one OpenAlex author id or ORCID is required")
+    if not keyword_values:
+        raise ValueError("at least one literature keyword is required")
+
+    author_filters: list[str] = []
+    if normalized_author_ids:
+        author_filters.append(f"authorships.author.id:{'|'.join(normalized_author_ids)}")
+    if normalized_orcids:
+        canonical_orcids = [f"https://orcid.org/{orcid}" for orcid in normalized_orcids]
+        author_filters.append(f"authorships.author.orcid:{'|'.join(canonical_orcids)}")
+
+    works: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for author_filter in author_filters:
+        params = {
+            "filter": (
+                f"{author_filter},"
+                f"title_and_abstract.search:{'|'.join(keyword_values)}"
+            ),
+            "per-page": str(per_page),
+            "select": "id,title,publication_year,doi,abstract_inverted_index",
+        }
+        if contact_email:
+            params["mailto"] = contact_email
+        url = f"{OPENALEX_WORKS_URL}?{urllib.parse.urlencode(params)}"
+        request = urllib.request.Request(
+            url, headers={"User-Agent": "cluster-mlip literature-gap (mailto: none)"}
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 -- fixed https API host
+                payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.URLError as exc:
+            # This is the one command in the pipeline that needs live internet --
+            # give a clear message instead of a raw urllib/ssl traceback, since
+            # every other command in this project is designed to run fully
+            # offline on an HPC compute node that may have no route out at all.
+            raise RuntimeError(
+                f"could not reach {OPENALEX_WORKS_URL}: {exc}. This command needs internet "
+                "access -- run it from a login node or local machine, not an offline HPC "
+                "compute node. If this is a TLS/certificate error, it may be your local "
+                "network's proxy rather than this tool."
+            ) from exc
+        results = payload.get("results", [])
+        if not isinstance(results, list):
+            continue
+        for work in results:
+            if not isinstance(work, dict):
+                continue
+            identity = str(
+                work.get("id")
+                or work.get("doi")
+                or (work.get("title"), work.get("publication_year"))
+            )
+            if identity not in seen:
+                seen.add(identity)
+                works.append(work)
+    return works
 
 
 def classify_paper(work: dict[str, object], known_formulas: set[str]) -> Paper:
@@ -193,6 +256,7 @@ def write_gap_report(
     output: Path,
     *,
     author_ids: Iterable[str] = (),
+    orcids: Iterable[str] = (),
     keywords: Iterable[str] = (),
     author_name: str | None = None,
 ) -> dict[str, object]:
@@ -205,6 +269,7 @@ def write_gap_report(
         "author_ids": list(author_ids),
         "author_name": author_name,
         "keywords": list(keywords),
+        "orcids": list(orcids),
     }
     (output / "literature_gap.json").write_text(
         json.dumps(
@@ -266,21 +331,33 @@ def write_gap_report(
 def run_literature_gap(
     source: Path,
     output: Path,
-    author_ids: Iterable[str],
+    author_ids: Iterable[str] = (),
+    orcids: Iterable[str] = (),
     keywords: Iterable[str] = DEFAULT_KEYWORDS,
     contact_email: str | None = None,
     jobs: int = 1,
     author_name: str | None = None,
 ) -> dict[str, object]:
-    normalized_author_ids = normalize_author_ids(author_ids)
+    author_id_values = tuple(author_ids)
+    orcid_values = tuple(orcids)
+    normalized_author_ids = normalize_author_ids(author_id_values) if author_id_values else ()
+    normalized_orcids = normalize_orcids(orcid_values)
+    if not normalized_author_ids and not normalized_orcids:
+        raise ValueError("at least one OpenAlex author id or ORCID is required")
     normalized_keywords = tuple(keywords)
     known_formulas = load_known_formulas(source, output, jobs=jobs)
-    works = fetch_openalex_works(normalized_author_ids, normalized_keywords, contact_email)
+    works = fetch_openalex_works(
+        normalized_author_ids,
+        normalized_orcids,
+        normalized_keywords,
+        contact_email,
+    )
     papers = build_gap_report(works, known_formulas)
     return write_gap_report(
         papers,
         output,
         author_ids=normalized_author_ids,
+        orcids=normalized_orcids,
         keywords=normalized_keywords,
         author_name=author_name,
     )
