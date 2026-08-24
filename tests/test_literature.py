@@ -4,19 +4,37 @@ import io
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
+import urllib.parse
 
 from cluster_mlip.batch_inventory import build_inventory
-from cluster_mlip.cli import build_parser
+from cluster_mlip.cli import build_parser, main
 from cluster_mlip.literature import (
     build_gap_report,
     classify_paper,
     extract_compositions,
+    fetch_openalex_works,
     load_known_formulas,
     normalize_author_ids,
+    normalize_orcids,
     write_gap_report,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+class _FakeResponse:
+    def __init__(self, payload: dict[str, object]):
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def read(self) -> bytes:
+        return json.dumps(self.payload).encode("utf-8")
 
 
 class AuthorIdTests(unittest.TestCase):
@@ -34,15 +52,56 @@ class AuthorIdTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid OpenAlex author id"):
             normalize_author_ids(["Gennady Gutsev"])
 
+    def test_normalizes_and_validates_orcid(self):
+        self.assertEqual(
+            normalize_orcids(
+                ["https://orcid.org/0000-0002-1825-0097/", "0000-0002-1825-0097"]
+            ),
+            ("0000-0002-1825-0097",),
+        )
+        with self.assertRaisesRegex(ValueError, "check digit"):
+            normalize_orcids(["0000-0002-1825-0098"])
+
     def test_cli_has_no_implicit_author(self):
         parser = build_parser()
         with contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit):
-                parser.parse_args(["literature-gap", "inventory"])
+                main(["literature-gap", "inventory"])
         args = parser.parse_args(
             ["literature-gap", "inventory", "--author-id", "A123"]
         )
         self.assertEqual(args.author_id, ["A123"])
+        args = parser.parse_args(
+            ["literature-gap", "inventory", "--orcid", "0000-0002-1825-0097"]
+        )
+        self.assertEqual(args.orcid, ["0000-0002-1825-0097"])
+
+    def test_orcid_is_sent_as_the_documented_openalex_authorship_filter(self):
+        payload = {
+            "results": [
+                {
+                    "id": "https://openalex.org/W1",
+                    "title": "Ni4 cluster",
+                    "publication_year": 2024,
+                    "doi": None,
+                }
+            ]
+        }
+        with patch(
+            "cluster_mlip.literature.urllib.request.urlopen",
+            return_value=_FakeResponse(payload),
+        ) as urlopen:
+            works = fetch_openalex_works(
+                orcids=("0000-0002-1825-0097",),
+                keywords=("nickel cluster",),
+            )
+        self.assertEqual(len(works), 1)
+        request = urlopen.call_args.args[0]
+        decoded_url = urllib.parse.unquote(request.full_url)
+        self.assertIn(
+            "authorships.author.orcid:https://orcid.org/0000-0002-1825-0097",
+            decoded_url,
+        )
 
 
 class ExtractCompositionsTests(unittest.TestCase):
@@ -164,6 +223,7 @@ class GapReportTests(unittest.TestCase):
                 author_ids=("A123",),
                 author_name="Example Researcher",
                 keywords=("nickel cluster",),
+                orcids=("0000-0002-1825-0097",),
             )
             text = (output / "literature_gap.md").read_text(encoding="utf-8")
             self.assertIn("# Literature gap report for Example Researcher", text)
@@ -171,6 +231,7 @@ class GapReportTests(unittest.TestCase):
             data = json.loads((output / "literature_gap.json").read_text(encoding="utf-8"))
             self.assertEqual(data["query"]["author_ids"], ["A123"])
             self.assertEqual(data["query"]["keywords"], ["nickel cluster"])
+            self.assertEqual(data["query"]["orcids"], ["0000-0002-1825-0097"])
 
 
 class LoadKnownFormulasTests(unittest.TestCase):
