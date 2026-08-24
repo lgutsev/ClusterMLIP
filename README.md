@@ -130,7 +130,7 @@ parses each ZIP's files across `N` worker processes, same as `analyze`.
 
 ```bash
 cluster-mlip literature-gap inventory \
-  --author-id OPENALEX_AUTHOR_ID \
+  --orcid 0000-0002-1825-0097 \
   --author-name "Researcher Name" \
   --contact-email you@example.edu \
   -o gap
@@ -150,12 +150,15 @@ compute node, since nothing else in ClusterMLIP makes a network call.
 `--contact-email` is optional and only improves OpenAlex's rate-limit
 priority (their documented "polite pool"); nothing is sent anywhere else.
 
-There is deliberately **no default author**. Pass a verified OpenAlex author
-ID with `--author-id`; repeat the option when one person has duplicate OpenAlex
-profiles. `--author-name` is an optional display label for the report and is
-never used for identity resolution. This keeps author disambiguation explicit
-and makes the command equally applicable to any researcher. The example above
-uses Gennady L. Gutsev's verified primary profile (`A5029253658`); his smaller,
+There is deliberately **no default author**. Identify the researcher with a
+verified ORCID using `--orcid`, or with an OpenAlex author ID using
+`--author-id`; both options are repeatable and may be combined. ORCID URLs and
+bare hyphenated iDs are accepted, and their check digits are validated before
+the inventory is scanned or any network request is made. `--author-name` is an
+optional display label for the report and is never used for identity
+resolution. This keeps author disambiguation explicit and makes the command
+equally applicable to any researcher. For example, Gennady L. Gutsev's
+verified primary OpenAlex profile is `A5029253658`; his smaller,
 likely-duplicate profile is `A5140774346` and can be included with a second
 `--author-id`.
 
