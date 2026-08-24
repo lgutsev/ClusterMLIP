@@ -23,7 +23,7 @@ from .jobs import (
     write_gaussian_jobs,
 )
 from .label_report import write_label_report
-from .literature import DEFAULT_AUTHOR_IDS, DEFAULT_KEYWORDS, run_literature_gap
+from .literature import DEFAULT_KEYWORDS, run_literature_gap
 from .mace_glue import MaceUnavailable
 from .manifest import write_experiment_manifest
 from .models import Record, composition_allowed, geometry_signature
@@ -520,11 +520,12 @@ def command_literature_gap(args: argparse.Namespace) -> int:
     try:
         summary = run_literature_gap(
             Path(args.source).resolve(), Path(args.output).resolve(),
-            author_ids=args.author_id or DEFAULT_AUTHOR_IDS,
+            author_ids=args.author_id,
             keywords=args.keywords or DEFAULT_KEYWORDS,
             contact_email=args.contact_email, jobs=args.jobs,
+            author_name=args.author_name,
         )
-    except RuntimeError as exc:
+    except (RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     counts = summary["counts"]
@@ -535,7 +536,7 @@ def command_literature_gap(args: argparse.Namespace) -> int:
         f"May be missing: {counts.get('possible_gap', 0)}  |  "
         f"Not sure: {counts.get('unclear', 0)}"
     )
-    print(f"Audit list for Gennady: {Path(args.output).resolve() / 'literature_gap.md'}")
+    print(f"Literature gap report: {Path(args.output).resolve() / 'literature_gap.md'}")
     return 0
 
 
@@ -822,11 +823,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     literature_gap.add_argument("-o", "--output", default="literature_gap")
     literature_gap.add_argument(
-        "--author-id", dest="author_id", action="append",
+        "--author-id", dest="author_id", action="append", required=True,
         help=(
-            "OpenAlex author id, e.g. A5029253658 (repeat for multiple ids); default is the "
-            "verified match for Gennady L. Gutsev -- pass your own if you have a better one"
+            "verified OpenAlex author id, e.g. A5029253658 (required; repeat for duplicate "
+            "profiles belonging to the same person)"
         ),
+    )
+    literature_gap.add_argument(
+        "--author-name",
+        help="optional human-readable author name for the report heading (never used to resolve identity)",
     )
     literature_gap.add_argument(
         "--keywords", nargs="+",
