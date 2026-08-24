@@ -520,7 +520,8 @@ def command_literature_gap(args: argparse.Namespace) -> int:
     try:
         summary = run_literature_gap(
             Path(args.source).resolve(), Path(args.output).resolve(),
-            author_ids=args.author_id,
+            author_ids=args.author_id or (),
+            orcids=args.orcid or (),
             keywords=args.keywords or DEFAULT_KEYWORDS,
             contact_email=args.contact_email, jobs=args.jobs,
             author_name=args.author_name,
@@ -823,11 +824,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     literature_gap.add_argument("-o", "--output", default="literature_gap")
     literature_gap.add_argument(
-        "--author-id", dest="author_id", action="append", required=True,
+        "--author-id", dest="author_id", action="append",
         help=(
-            "verified OpenAlex author id, e.g. A5029253658 (required; repeat for duplicate "
-            "profiles belonging to the same person)"
+            "verified OpenAlex author id, e.g. A5029253658 (repeat for duplicate profiles)"
         ),
+    )
+    literature_gap.add_argument(
+        "--orcid", action="append",
+        help="ORCID iD or URL, e.g. 0000-0002-1825-0097 (repeatable; alternative to --author-id)",
     )
     literature_gap.add_argument(
         "--author-name",
@@ -852,6 +856,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command == "literature-gap" and not args.author_id and not args.orcid:
+        parser.error("literature-gap requires at least one --author-id or --orcid")
     if getattr(args, "valid_fraction", 0) + getattr(args, "test_fraction", 0) >= 1:
         parser.error("valid_fraction + test_fraction must be < 1")
     return args.func(args)
