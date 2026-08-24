@@ -15,15 +15,6 @@ from .gaussian import ATOMIC_SYMBOLS
 
 OPENALEX_WORKS_URL = "https://api.openalex.org/works"
 
-# Verified via a live OpenAlex author search before this module was written:
-# "G. L. Gutsev" / "Gennady L. Gutsev", Florida A&M University, 292 works,
-# h-index 46, centrally about iron/iron-oxide cluster DFT -- a strong match
-# for "Gennady Gutsev" studying Fe_n/Fe_nO_m clusters. A second, smaller,
-# likely-duplicate OpenAlex profile (A5140774346, 1 work, same institution)
-# also exists; --author-id is repeatable so both (or a different id
-# entirely, e.g. a known ORCID-derived one) can be supplied instead of
-# trusting this default alone.
-DEFAULT_AUTHOR_IDS = ("A5029253658",)
 DEFAULT_KEYWORDS = ("iron cluster", "iron oxide cluster", "transition metal cluster")
 
 _ELEMENT_SYMBOLS = set(ATOMIC_SYMBOLS.values())
@@ -42,6 +33,28 @@ class Paper(TypedDict):
     doi: str | None
     compositions: list[str]
     status: str  # "on_file" | "possible_gap" | "unclear"
+
+
+def normalize_author_ids(author_ids: Iterable[str]) -> tuple[str, ...]:
+    """Return unique OpenAlex author IDs in canonical ``A<digits>`` form.
+
+    Accept full OpenAlex author URLs as a convenience, but never resolve a
+    person from a name: author disambiguation is a scientific/provenance
+    decision and must remain explicit at the command line.
+    """
+    normalized: list[str] = []
+    for value in author_ids:
+        author_id = value.strip().rstrip("/").rsplit("/", 1)[-1].upper()
+        if not re.fullmatch(r"A\d+", author_id):
+            raise ValueError(
+                f"invalid OpenAlex author id {value!r}; expected A followed by digits "
+                "(for example A5029253658)"
+            )
+        if author_id not in normalized:
+            normalized.append(author_id)
+    if not normalized:
+        raise ValueError("at least one OpenAlex author id is required")
+    return tuple(normalized)
 
 
 def extract_compositions(text: str) -> list[str]:
@@ -88,7 +101,7 @@ def _reconstruct_abstract(inverted_index: object) -> str:
 
 
 def fetch_openalex_works(
-    author_ids: Iterable[str] = DEFAULT_AUTHOR_IDS,
+    author_ids: Iterable[str],
     keywords: Iterable[str] = DEFAULT_KEYWORDS,
     contact_email: str | None = None,
     per_page: int = 100,
@@ -102,9 +115,10 @@ def fetch_openalex_works(
     OpenAlex's documented "polite pool" `mailto` parameter for better rate
     limits; omit it and the request still works, just at a lower priority.
     """
+    normalized_author_ids = normalize_author_ids(author_ids)
     params = {
         "filter": (
-            f"authorships.author.id:{'|'.join(author_ids)},"
+            f"authorships.author.id:{'|'.join(normalized_author_ids)},"
             f"title_and_abstract.search:{'|'.join(keywords)}"
         ),
         "per-page": str(per_page),
@@ -174,14 +188,30 @@ def load_known_formulas(source: Path, output: Path, jobs: int = 1) -> set[str]:
     return inventory_known_formulas(result)
 
 
-def write_gap_report(papers: list[Paper], output: Path) -> dict[str, object]:
+def write_gap_report(
+    papers: list[Paper],
+    output: Path,
+    *,
+    author_ids: Iterable[str] = (),
+    keywords: Iterable[str] = (),
+    author_name: str | None = None,
+) -> dict[str, object]:
     """Written for a human reader who is not going to parse a dense table --
     a plain-English count up top, then one short numbered block per paper,
     grouped with the actionable "please send these" group first."""
     output.mkdir(parents=True, exist_ok=True)
     counts = collections.Counter(paper["status"] for paper in papers)
+    query = {
+        "author_ids": list(author_ids),
+        "author_name": author_name,
+        "keywords": list(keywords),
+    }
     (output / "literature_gap.json").write_text(
-        json.dumps({"papers": papers, "counts": dict(counts)}, indent=2, sort_keys=True) + "\n",
+        json.dumps(
+            {"papers": papers, "counts": dict(counts), "query": query},
+            indent=2,
+            sort_keys=True,
+        ) + "\n",
         encoding="utf-8",
     )
 
@@ -197,10 +227,15 @@ def write_gap_report(papers: list[Paper], output: Path) -> dict[str, object]:
         block.append("")
         return block
 
+    heading = (
+        f"# Literature gap report for {author_name}"
+        if author_name
+        else "# Literature gap report"
+    )
     lines = [
-        "# Papers by Gennady Gutsev we may need data for",
+        heading,
         "",
-        f"We looked at {len(papers)} papers about iron and iron-oxide clusters.",
+        f"We looked at {len(papers)} cluster papers returned by OpenAlex for the requested author query.",
         "",
         f"- We already have data for **{counts.get('on_file', 0)}** of them.",
         f"- We may be **missing data for {counts.get('possible_gap', 0)}** of them -- see below.",
@@ -231,12 +266,21 @@ def write_gap_report(papers: list[Paper], output: Path) -> dict[str, object]:
 def run_literature_gap(
     source: Path,
     output: Path,
-    author_ids: Iterable[str] = DEFAULT_AUTHOR_IDS,
+    author_ids: Iterable[str],
     keywords: Iterable[str] = DEFAULT_KEYWORDS,
     contact_email: str | None = None,
     jobs: int = 1,
+    author_name: str | None = None,
 ) -> dict[str, object]:
+    normalized_author_ids = normalize_author_ids(author_ids)
+    normalized_keywords = tuple(keywords)
     known_formulas = load_known_formulas(source, output, jobs=jobs)
-    works = fetch_openalex_works(author_ids, keywords, contact_email)
+    works = fetch_openalex_works(normalized_author_ids, normalized_keywords, contact_email)
     papers = build_gap_report(works, known_formulas)
-    return write_gap_report(papers, output)
+    return write_gap_report(
+        papers,
+        output,
+        author_ids=normalized_author_ids,
+        keywords=normalized_keywords,
+        author_name=author_name,
+    )
