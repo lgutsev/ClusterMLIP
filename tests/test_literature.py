@@ -207,6 +207,67 @@ class ExtractCompositionsTests(unittest.TestCase):
         self.assertEqual(extract_compositions("Structural properties of FenO and FenO- clusters"), [])
 
 
+class OpenAccessTests(unittest.TestCase):
+    def test_oa_url_present_when_openalex_reports_is_oa(self):
+        work = {
+            "title": "Fe6O20 revisited",
+            "publication_year": 2020,
+            "doi": "10.1/x",
+            "open_access": {"is_oa": True, "oa_url": "https://example.edu/repo/fe6o20.pdf"},
+        }
+        paper = classify_paper(work, set())
+        self.assertEqual(paper["oa_url"], "https://example.edu/repo/fe6o20.pdf")
+
+    def test_oa_url_is_none_when_closed_access(self):
+        # Most of this literature predates open-access norms and has no
+        # free copy at all -- must report that honestly as None, not fall
+        # back to a paywalled link mislabeled as free.
+        work = {
+            "title": "Fe6O20 revisited",
+            "doi": "10.1/x",
+            "open_access": {"is_oa": False, "oa_url": None},
+        }
+        self.assertIsNone(classify_paper(work, set())["oa_url"])
+
+    def test_oa_url_is_none_when_field_is_absent(self):
+        # Real OpenAlex payloads always include open_access, but every
+        # existing hand-built test work dict in this file predates that
+        # field -- must not crash on a missing key.
+        paper = classify_paper({"title": "Fe6O20", "doi": "10.1/x"}, set())
+        self.assertIsNone(paper["oa_url"])
+
+    def test_free_pdf_line_appears_before_publisher_page_when_open_access(self):
+        papers = build_gap_report(
+            [
+                {
+                    "title": "Ni4O4 clusters",
+                    "publication_year": 2024,
+                    "doi": "10.1/oa",
+                    "open_access": {"is_oa": True, "oa_url": "https://example.edu/ni4o4.pdf"},
+                }
+            ],
+            set(),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "gap"
+            write_gap_report(papers, output)
+            text = (output / "literature_gap.md").read_text(encoding="utf-8")
+            self.assertIn("Free PDF: https://example.edu/ni4o4.pdf", text)
+            self.assertIn("Publisher page: https://doi.org/10.1/oa", text)
+            self.assertLess(text.index("Free PDF"), text.index("Publisher page"))
+
+    def test_publisher_page_notes_possible_paywall_when_no_free_copy(self):
+        papers = build_gap_report(
+            [{"title": "Fe6O20 clusters", "publication_year": 2016, "doi": "10.1/x"}], set()
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "gap"
+            write_gap_report(papers, output)
+            text = (output / "literature_gap.md").read_text(encoding="utf-8")
+            self.assertNotIn("Free PDF", text)
+            self.assertIn("may require a subscription or the author directly", text)
+
+
 class ClassifyPaperTests(unittest.TestCase):
     def test_all_compositions_known_is_on_file(self):
         work = {"title": "Fe6O20 revisited", "publication_year": 2020, "doi": "10.1/x"}

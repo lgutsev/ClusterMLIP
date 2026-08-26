@@ -40,6 +40,7 @@ class Paper(TypedDict):
     title: str
     year: int | None
     doi: str | None
+    oa_url: str | None
     compositions: list[str]
     status: str  # "on_file" | "possible_gap" | "unclear"
 
@@ -250,7 +251,7 @@ def fetch_openalex_works(
                 "filter": filter_value,
                 "per-page": str(per_page),
                 "page": str(page),
-                "select": "id,title,publication_year,doi,abstract_inverted_index",
+                "select": "id,title,publication_year,doi,abstract_inverted_index,open_access",
             }
             if contact_email:
                 params["mailto"] = contact_email
@@ -291,6 +292,21 @@ def fetch_openalex_works(
     return works
 
 
+def _open_access_url(work: dict[str, object]) -> str | None:
+    """A genuinely free copy of the paper (green/gold open access, e.g. an
+    institutional repository or a fully-OA journal), per OpenAlex's own
+    open_access tracking -- not the publisher's DOI, which is frequently
+    paywalled. Most of this literature predates open-access norms and
+    simply has no free copy anywhere; this returns None in that case rather
+    than falling back to a paywalled link mislabeled as free.
+    """
+    oa = work.get("open_access")
+    if not isinstance(oa, dict) or not oa.get("is_oa"):
+        return None
+    url = oa.get("oa_url")
+    return str(url) if url else None
+
+
 def classify_paper(work: dict[str, object], known_formulas: set[str]) -> Paper:
     title = str(work.get("title") or "(untitled)")
     abstract = _reconstruct_abstract(work.get("abstract_inverted_index"))
@@ -310,6 +326,7 @@ def classify_paper(work: dict[str, object], known_formulas: set[str]) -> Paper:
         "title": title,
         "year": year if isinstance(year, int) else None,
         "doi": str(doi) if doi else None,
+        "oa_url": _open_access_url(work),
         "compositions": compositions,
         "status": status,
     }
@@ -377,8 +394,13 @@ def write_gap_report(
             block.append(f"   - Formulas mentioned: {', '.join(paper['compositions'])}")
         else:
             block.append("   - No specific formula found in the title/abstract -- worth a quick look.")
+        if paper["oa_url"]:
+            block.append(f"   - Free PDF: {paper['oa_url']}")
         if paper["doi"]:
-            block.append(f"   - Link: https://doi.org/{paper['doi'].removeprefix('https://doi.org/')}")
+            note = "" if paper["oa_url"] else " (may require a subscription or the author directly)"
+            block.append(
+                f"   - Publisher page{note}: https://doi.org/{paper['doi'].removeprefix('https://doi.org/')}"
+            )
         block.append("")
         return block
 

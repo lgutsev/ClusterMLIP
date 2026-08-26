@@ -195,8 +195,14 @@ grouped as **"please send these"** (a formula was mentioned that isn't in the
 inventory) first, **"not sure, please check"** (no specific formula could be
 picked out of the title/abstract -- still listed, never silently dropped)
 second, and **"already have"** last -- each paper as one short numbered block
-(title, year, formulas mentioned, link), not a dense table. This is meant to
-be handed directly to the researcher or data provider as a plain reading list,
+(title, year, formulas mentioned, link), not a dense table. When OpenAlex
+reports a genuinely free copy of a paper (its own `open_access` tracking --
+an institutional repository, a fully-OA journal, etc.), the block links that
+first as "Free PDF"; otherwise the DOI is labeled plainly as the publisher's
+page, which may be paywalled. Most literature from before open-access norms
+existed has no free copy anywhere regardless of institutional subscriptions
+-- this reports that honestly rather than pointing at a paywall labeled as
+free. This is meant to be handed directly to the researcher or data provider as a plain reading list,
 e.g. as-is or pasted into an email -- it deliberately doesn't assume the reader wants to parse
 JSON or a spreadsheet. The optional `--author-name` makes the heading suitable
 for handing directly to that author. Formula matching is a text-mining
