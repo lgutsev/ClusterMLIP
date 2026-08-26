@@ -5,7 +5,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --time=08:00:00
 #SBATCH --partition=checkpt
-#SBATCH --account=loni_dspm_25
+#SBATCH --account=loni_perovsk27
 #SBATCH --output=inventory-%j.stdout
 #SBATCH --error=inventory-%j.stderr
 set -euo pipefail

@@ -22,7 +22,7 @@ class SlurmConfig:
     cpus_per_job: int = 16
     time_limit: str = "72:00:00"
     partition: str = "checkpt"
-    account: str = "loni_dspm_25"
+    account: str = "loni_perovsk27"
     gaussian_module: str = "gaussian/g16-c01"
     gaussian_command: str = "g16"
     job_name: str = "cluster_mlip_g16"

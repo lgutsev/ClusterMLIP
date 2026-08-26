@@ -130,7 +130,7 @@ parses each ZIP's files across `N` worker processes, same as `analyze`.
 
 A folder of many/large deliveries can take hours to parse --
 `scripts/run_inventory_slurm.sh` is a ready-to-submit single-node sbatch
-script (16 CPUs, 8-hour default, LONI `checkpt`/`loni_dspm_25` defaults,
+script (16 CPUs, 8-hour default, LONI `checkpt`/`loni_perovsk27` defaults,
 both overridable on the `sbatch` command line without editing the file):
 `cd` into the folder of ZIPs, then `sbatch
 /path/to/scripts/run_inventory_slurm.sh`. `literature-gap` is deliberately
@@ -288,7 +288,7 @@ cluster-mlip prepare-slurm gaussian_jobs \
   --cpus-per-job 16 \
   --time 72:00:00 \
   --partition checkpt \
-  --account loni_dspm_25 \
+  --account loni_perovsk27 \
   --gaussian-module gaussian/g16-c01
 ```
 
