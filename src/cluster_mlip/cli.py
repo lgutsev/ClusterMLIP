@@ -531,7 +531,11 @@ def command_literature_gap(args: argparse.Namespace) -> int:
         return 1
     counts = summary["counts"]
     assert isinstance(counts, dict)
-    print(f"Checked {summary['n_papers']} papers")
+    n_fetched = summary.get("n_fetched")
+    if isinstance(n_fetched, int) and n_fetched != summary["n_papers"]:
+        print(f"OpenAlex returned {n_fetched} papers by this author; {summary['n_papers']} look relevant")
+    else:
+        print(f"Checked {summary['n_papers']} papers")
     print(
         f"On file: {counts.get('on_file', 0)}  |  "
         f"May be missing: {counts.get('possible_gap', 0)}  |  "
@@ -839,7 +843,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     literature_gap.add_argument(
         "--keywords", nargs="+",
-        help="title/abstract keywords to search for (default: iron/iron-oxide/transition-metal cluster terms)",
+        help=(
+            "fallback relevance words checked locally against title/abstract text when a paper's "
+            "formulas don't overlap the local warehouse's elements (default: cluster, iron, oxide) "
+            "-- this does not restrict the OpenAlex query itself, since this field's titles are "
+            "usually chemical formulas rather than English phrases"
+        ),
     )
     literature_gap.add_argument(
         "--contact-email",

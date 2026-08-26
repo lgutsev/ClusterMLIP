@@ -128,6 +128,15 @@ structure-type combination found *anywhere*, with which ZIP(s) it came from --
 `inventory/inventory.md` and `inventory/inventory.json`. `-j N`/`--jobs N`
 parses each ZIP's files across `N` worker processes, same as `analyze`.
 
+A folder of many/large deliveries can take hours to parse --
+`scripts/run_inventory_slurm.sh` is a ready-to-submit single-node sbatch
+script (16 CPUs, 8-hour default, LONI `checkpt`/`loni_dspm_25` defaults,
+both overridable on the `sbatch` command line without editing the file):
+`cd` into the folder of ZIPs, then `sbatch
+/path/to/scripts/run_inventory_slurm.sh`. `literature-gap` is deliberately
+not bundled into this job -- it needs live internet, which compute nodes
+typically do not have; run it separately afterward from a login node.
+
 ```bash
 cluster-mlip literature-gap inventory \
   --orcid 0000-0002-1825-0097 \
@@ -162,9 +171,23 @@ verified primary OpenAlex profile is `A5029253658`; his smaller,
 likely-duplicate profile is `A5140774346` and can be included with a second
 `--author-id`.
 
-The default topic terms remain `iron cluster`, `iron oxide cluster`, and
-`transition metal cluster`. Replace them for another literature domain, for
-example `--keywords "nickel cluster" "nickel oxide cluster"`.
+`literature-gap` fetches the author's **entire** OpenAlex bibliography
+(fully paginated -- a prolific author's papers are not silently truncated to
+one page) and narrows it to relevant papers itself, client-side. It does
+*not* restrict the OpenAlex query by keyword: an earlier version did, and it
+silently dropped most of a cluster-science author's papers, because this
+field's titles are almost always written as formulas ("Fe6O20", "Fe2O4-6+
+Clusters") rather than the English phrases a query-level filter needs
+("iron oxide cluster") -- confirmed against a real author query that
+returned far fewer papers than the author's true output. Instead, a fetched
+paper is kept if either (a) a formula extracted from its title/abstract
+shares an element with the local warehouse's own inventory (the precise
+signal), or (b) as a fallback when no formula could be extracted, its
+title/abstract contains one of `--keywords` (default `cluster`, `iron`,
+`oxide`) as a plain substring. Replace the keywords for another element/
+literature domain, e.g. `--keywords "nickel" "cluster"`. When the two counts
+differ, the report states the funnel plainly: "OpenAlex returned N papers by
+this author; M of them mention a relevant formula or keyword."
 
 The output, `gap/literature_gap.md`, is written to be read directly by a
 person, not parsed: a short plain-English count at the top, then papers

@@ -14,9 +14,11 @@ from cluster_mlip.literature import (
     classify_paper,
     extract_compositions,
     fetch_openalex_works,
+    filter_relevant_works,
     load_known_formulas,
     normalize_author_ids,
     normalize_orcids,
+    target_elements_from_formulas,
     write_gap_report,
 )
 
@@ -102,6 +104,76 @@ class AuthorIdTests(unittest.TestCase):
             "authorships.author.orcid:https://orcid.org/0000-0002-1825-0097",
             decoded_url,
         )
+
+
+class FetchPaginationAndFilterTests(unittest.TestCase):
+    def test_fetch_does_not_restrict_the_query_by_keyword_by_default(self):
+        # The earlier default filtered the OpenAlex query itself by literal
+        # English phrases ("iron cluster", "iron oxide cluster"), which
+        # silently dropped most papers in this field since their titles are
+        # written as formulas ("Fe6O20"), not those phrases -- confirmed
+        # against a real author query returning far fewer papers than the
+        # author's true output. Fetching must not filter by keyword unless
+        # explicitly asked to.
+        payload = {"results": [{"id": "https://openalex.org/W1", "title": "Fe6O20 structure"}]}
+        with patch(
+            "cluster_mlip.literature.urllib.request.urlopen", return_value=_FakeResponse(payload)
+        ) as urlopen:
+            works = fetch_openalex_works(author_ids=("A5029253658",))
+        self.assertEqual(len(works), 1)
+        decoded_url = urllib.parse.unquote(urlopen.call_args.args[0].full_url)
+        self.assertNotIn("title_and_abstract.search", decoded_url)
+
+    def test_fetch_paginates_through_a_large_bibliography(self):
+        # per_page below is deliberately small so two pages are exercised
+        # without needing to fabricate 200 fake works.
+        page1 = {"results": [{"id": f"https://openalex.org/W{i}", "title": f"Fe{i}"} for i in range(3)]}
+        page2 = {"results": [{"id": "https://openalex.org/W3", "title": "Fe3"}]}
+        page3 = {"results": []}
+        responses = [_FakeResponse(page1), _FakeResponse(page2), _FakeResponse(page3)]
+        with patch(
+            "cluster_mlip.literature.urllib.request.urlopen", side_effect=responses
+        ):
+            works = fetch_openalex_works(author_ids=("A5029253658",), per_page=3)
+        self.assertEqual(len(works), 4)
+
+    def test_fetch_deduplicates_across_author_id_and_orcid_pages(self):
+        payload = {"results": [{"id": "https://openalex.org/W1", "title": "Fe6O20"}]}
+        with patch(
+            "cluster_mlip.literature.urllib.request.urlopen", return_value=_FakeResponse(payload)
+        ):
+            works = fetch_openalex_works(
+                author_ids=("A5029253658",), orcids=("0000-0002-1825-0097",)
+            )
+        self.assertEqual(len(works), 1)
+
+
+class RelevanceFilterTests(unittest.TestCase):
+    def test_target_elements_from_formulas(self):
+        self.assertEqual(target_elements_from_formulas({"Fe2O2", "FeN"}), {"Fe", "O", "N"})
+        self.assertEqual(target_elements_from_formulas(set()), set())
+
+    def test_keeps_a_paper_whose_formula_shares_a_local_element(self):
+        # This is the exact case the earlier keyword filter missed: a title
+        # that never says "iron" at all.
+        works = [{"title": "Structure of Fe6O20 clusters", "publication_year": 2016}]
+        relevant = filter_relevant_works(works, known_formulas={"FeO", "Fe2O2"})
+        self.assertEqual(len(relevant), 1)
+
+    def test_drops_a_paper_about_unrelated_chemistry(self):
+        works = [{"title": "Vibrational spectroscopy of calcium fluoride complexes"}]
+        relevant = filter_relevant_works(works, known_formulas={"FeO"}, keywords=("cluster",))
+        self.assertEqual(relevant, [])
+
+    def test_keyword_is_a_fallback_when_no_formula_is_extracted(self):
+        works = [{"title": "A general survey of iron cluster chemistry"}]
+        relevant = filter_relevant_works(works, known_formulas={"FeO"}, keywords=("cluster",))
+        self.assertEqual(len(relevant), 1)
+
+    def test_any_composition_counts_when_local_inventory_is_empty(self):
+        works = [{"title": "NiO nanoclusters"}]
+        relevant = filter_relevant_works(works, known_formulas=set(), keywords=())
+        self.assertEqual(len(relevant), 1)
 
 
 class ExtractCompositionsTests(unittest.TestCase):

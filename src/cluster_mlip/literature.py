@@ -15,7 +15,16 @@ from .gaussian import ATOMIC_SYMBOLS
 
 OPENALEX_WORKS_URL = "https://api.openalex.org/works"
 
-DEFAULT_KEYWORDS = ("iron cluster", "iron oxide cluster", "transition metal cluster")
+# Used only as a *local*, secondary relevance signal now (see
+# filter_relevant_works) -- never as the OpenAlex query filter. An earlier
+# version filtered the API query by these literal English phrases, which
+# silently dropped most of a prolific cluster-science author's papers:
+# titles in this field are overwhelmingly written as formulas ("Fe6O20",
+# "Fe2O4-6+ Clusters") rather than the words "iron cluster"/"iron oxide
+# cluster", so the phrase filter never saw them. Confirmed against a real
+# author query: the phrase filter returned 41 works when the true count of
+# relevant papers is known to be much larger.
+DEFAULT_KEYWORDS = ("cluster", "iron", "oxide")
 
 _ELEMENT_SYMBOLS = set(ATOMIC_SYMBOLS.values())
 # A run of 1-4 element-symbol(+count) tokens, anchored on word boundaries so
@@ -111,6 +120,62 @@ def extract_compositions(text: str) -> list[str]:
     return results
 
 
+def _elements_in_token(token: str) -> set[str]:
+    return {part.rstrip("0123456789") for part in _PART_RE.findall(token)}
+
+
+def target_elements_from_formulas(known_formulas: Iterable[str]) -> set[str]:
+    """Which elements the *local* warehouse actually contains -- used to
+    decide whether a fetched paper is topically relevant, since we no longer
+    ask OpenAlex to pre-filter by topic (see fetch_openalex_works)."""
+    elements: set[str] = set()
+    for formula in known_formulas:
+        elements |= _elements_in_token(formula)
+    return elements
+
+
+def is_relevant_work(
+    title: str, abstract: str, compositions: list[str], target_elements: set[str], keywords: Iterable[str]
+) -> bool:
+    """Decide whether a fetched paper belongs in the report at all.
+
+    An author with a large body of work (hundreds of papers, in Gutsev's
+    case) writes about plenty of things other than the clusters this
+    warehouse cares about; showing every one of them would bury the
+    actionable list in noise. A paper is kept if it mentions a formula built
+    from an element the local warehouse actually has (the precise signal),
+    or -- when that can't be determined, e.g. an empty local inventory, or
+    the paper's formula didn't parse -- if the plain keyword list matches
+    anywhere in the title/abstract (the loose fallback signal). Both checks
+    run client-side, over the full fetched bibliography; see
+    fetch_openalex_works for why this isn't done as an OpenAlex query filter.
+    """
+    composition_elements = {element for composition in compositions for element in _elements_in_token(composition)}
+    if target_elements and composition_elements & target_elements:
+        return True
+    if compositions and not target_elements:
+        return True
+    lowered = f"{title} {abstract}".lower()
+    return any(keyword.lower() in lowered for keyword in keywords)
+
+
+def filter_relevant_works(
+    works: list[dict[str, object]],
+    known_formulas: set[str],
+    keywords: Iterable[str] = DEFAULT_KEYWORDS,
+) -> list[dict[str, object]]:
+    target_elements = target_elements_from_formulas(known_formulas)
+    keyword_values = tuple(keywords)
+    relevant = []
+    for work in works:
+        title = str(work.get("title") or "")
+        abstract = _reconstruct_abstract(work.get("abstract_inverted_index"))
+        compositions = extract_compositions(title) + extract_compositions(abstract)
+        if is_relevant_work(title, abstract, compositions, target_elements, keyword_values):
+            relevant.append(work)
+    return relevant
+
+
 def _reconstruct_abstract(inverted_index: object) -> str:
     """OpenAlex represents an abstract as {word: [positions]} rather than
     plain text (a side effect of how they're allowed to redistribute
@@ -131,18 +196,33 @@ def _reconstruct_abstract(inverted_index: object) -> str:
 def fetch_openalex_works(
     author_ids: Iterable[str] = (),
     orcids: Iterable[str] = (),
-    keywords: Iterable[str] = DEFAULT_KEYWORDS,
+    keywords: Iterable[str] = (),
     contact_email: str | None = None,
-    per_page: int = 100,
+    per_page: int = 200,
     timeout: float = 30.0,
+    max_pages: int = 50,
 ) -> list[dict[str, object]]:
-    """Query the free, keyless OpenAlex Works API. The only function in this
-    package that talks to the network, isolated here the
-    same way mace_glue.py isolates the one function needing torch, so
-    everything else (extraction, classification, report writing) is
-    unit-testable without a real network call. `contact_email` fills
-    OpenAlex's documented "polite pool" `mailto` parameter for better rate
-    limits; omit it and the request still works, just at a lower priority.
+    """Fetch every work by the given author(s) from the free, keyless
+    OpenAlex Works API, fully paginated (an author with a large body of
+    work -- Gutsev has ~300 -- would otherwise be silently truncated to one
+    page). `keywords`, if given, additionally restricts the *query itself*
+    to works whose title/abstract match one of the phrases; the default is
+    no such restriction, since the earlier default did exactly this and
+    silently dropped most of a prolific author's cluster papers -- this
+    field's titles are overwhelmingly written as formulas ("Fe6O20") rather
+    than the English phrases a keyword filter needs ("iron oxide cluster").
+    Topic relevance is decided client-side instead, see
+    filter_relevant_works, which runs over this function's full, unfiltered
+    result and is what actually keeps the report focused.
+
+    The only function in this package that talks to the network, isolated
+    here the same way mace_glue.py isolates the one function needing torch,
+    so everything else (extraction, relevance, classification, report
+    writing) is unit-testable without a real network call. `contact_email`
+    fills OpenAlex's documented "polite pool" `mailto` parameter for better
+    rate limits; omit it and the request still works, just at a lower
+    priority. `max_pages` (default 50, i.e. 10,000 works at per_page=200) is
+    a safety cap matching OpenAlex's basic-pagination limit.
     """
     author_id_values = tuple(author_ids)
     orcid_values = tuple(orcids)
@@ -151,8 +231,6 @@ def fetch_openalex_works(
     normalized_orcids = normalize_orcids(orcid_values)
     if not normalized_author_ids and not normalized_orcids:
         raise ValueError("at least one OpenAlex author id or ORCID is required")
-    if not keyword_values:
-        raise ValueError("at least one literature keyword is required")
 
     author_filters: list[str] = []
     if normalized_author_ids:
@@ -164,48 +242,52 @@ def fetch_openalex_works(
     works: list[dict[str, object]] = []
     seen: set[str] = set()
     for author_filter in author_filters:
-        params = {
-            "filter": (
-                f"{author_filter},"
-                f"title_and_abstract.search:{'|'.join(keyword_values)}"
-            ),
-            "per-page": str(per_page),
-            "select": "id,title,publication_year,doi,abstract_inverted_index",
-        }
-        if contact_email:
-            params["mailto"] = contact_email
-        url = f"{OPENALEX_WORKS_URL}?{urllib.parse.urlencode(params)}"
-        request = urllib.request.Request(
-            url, headers={"User-Agent": "cluster-mlip literature-gap (mailto: none)"}
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 -- fixed https API host
-                payload = json.loads(response.read().decode("utf-8"))
-        except urllib.error.URLError as exc:
-            # This is the one command in the pipeline that needs live internet --
-            # give a clear message instead of a raw urllib/ssl traceback, since
-            # every other command in this project is designed to run fully
-            # offline on an HPC compute node that may have no route out at all.
-            raise RuntimeError(
-                f"could not reach {OPENALEX_WORKS_URL}: {exc}. This command needs internet "
-                "access -- run it from a login node or local machine, not an offline HPC "
-                "compute node. If this is a TLS/certificate error, it may be your local "
-                "network's proxy rather than this tool."
-            ) from exc
-        results = payload.get("results", [])
-        if not isinstance(results, list):
-            continue
-        for work in results:
-            if not isinstance(work, dict):
-                continue
-            identity = str(
-                work.get("id")
-                or work.get("doi")
-                or (work.get("title"), work.get("publication_year"))
+        filter_value = author_filter
+        if keyword_values:
+            filter_value += f",title_and_abstract.search:{'|'.join(keyword_values)}"
+        for page in range(1, max_pages + 1):
+            params = {
+                "filter": filter_value,
+                "per-page": str(per_page),
+                "page": str(page),
+                "select": "id,title,publication_year,doi,abstract_inverted_index",
+            }
+            if contact_email:
+                params["mailto"] = contact_email
+            url = f"{OPENALEX_WORKS_URL}?{urllib.parse.urlencode(params)}"
+            request = urllib.request.Request(
+                url, headers={"User-Agent": "cluster-mlip literature-gap (mailto: none)"}
             )
-            if identity not in seen:
-                seen.add(identity)
-                works.append(work)
+            try:
+                with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 -- fixed https API host
+                    payload = json.loads(response.read().decode("utf-8"))
+            except urllib.error.URLError as exc:
+                # This is the one command in the pipeline that needs live internet --
+                # give a clear message instead of a raw urllib/ssl traceback, since
+                # every other command in this project is designed to run fully
+                # offline on an HPC compute node that may have no route out at all.
+                raise RuntimeError(
+                    f"could not reach {OPENALEX_WORKS_URL}: {exc}. This command needs internet "
+                    "access -- run it from a login node or local machine, not an offline HPC "
+                    "compute node. If this is a TLS/certificate error, it may be your local "
+                    "network's proxy rather than this tool."
+                ) from exc
+            results = payload.get("results", [])
+            if not isinstance(results, list) or not results:
+                break
+            for work in results:
+                if not isinstance(work, dict):
+                    continue
+                identity = str(
+                    work.get("id")
+                    or work.get("doi")
+                    or (work.get("title"), work.get("publication_year"))
+                )
+                if identity not in seen:
+                    seen.add(identity)
+                    works.append(work)
+            if len(results) < per_page:
+                break
     return works
 
 
@@ -259,10 +341,18 @@ def write_gap_report(
     orcids: Iterable[str] = (),
     keywords: Iterable[str] = (),
     author_name: str | None = None,
+    n_fetched: int | None = None,
 ) -> dict[str, object]:
     """Written for a human reader who is not going to parse a dense table --
     a plain-English count up top, then one short numbered block per paper,
-    grouped with the actionable "please send these" group first."""
+    grouped with the actionable "please send these" group first.
+
+    `n_fetched`, when given, is the number of papers OpenAlex returned for
+    the author *before* the local relevance filter -- shown so a reader can
+    see the funnel (e.g. "292 papers by this author, 63 mention a relevant
+    formula") rather than only ever seeing the narrowed count and wondering
+    whether something was missed.
+    """
     output.mkdir(parents=True, exist_ok=True)
     counts = collections.Counter(paper["status"] for paper in papers)
     query = {
@@ -273,7 +363,7 @@ def write_gap_report(
     }
     (output / "literature_gap.json").write_text(
         json.dumps(
-            {"papers": papers, "counts": dict(counts), "query": query},
+            {"papers": papers, "counts": dict(counts), "query": query, "n_fetched": n_fetched},
             indent=2,
             sort_keys=True,
         ) + "\n",
@@ -297,10 +387,17 @@ def write_gap_report(
         if author_name
         else "# Literature gap report"
     )
+    if n_fetched is not None and n_fetched != len(papers):
+        summary_line = (
+            f"OpenAlex returned {n_fetched} papers by this author; {len(papers)} of them "
+            "mention a relevant formula or keyword and are listed below."
+        )
+    else:
+        summary_line = f"We looked at {len(papers)} cluster papers returned by OpenAlex for the requested author query."
     lines = [
         heading,
         "",
-        f"We looked at {len(papers)} cluster papers returned by OpenAlex for the requested author query.",
+        summary_line,
         "",
         f"- We already have data for **{counts.get('on_file', 0)}** of them.",
         f"- We may be **missing data for {counts.get('possible_gap', 0)}** of them -- see below.",
@@ -325,7 +422,7 @@ def write_gap_report(
         for index, paper in enumerate(group, start=1):
             lines.extend(paper_block(paper, index))
     (output / "literature_gap.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return {"counts": dict(counts), "n_papers": len(papers)}
+    return {"counts": dict(counts), "n_papers": len(papers), "n_fetched": n_fetched}
 
 
 def run_literature_gap(
@@ -346,13 +443,14 @@ def run_literature_gap(
         raise ValueError("at least one OpenAlex author id or ORCID is required")
     normalized_keywords = tuple(keywords)
     known_formulas = load_known_formulas(source, output, jobs=jobs)
-    works = fetch_openalex_works(
-        normalized_author_ids,
-        normalized_orcids,
-        normalized_keywords,
-        contact_email,
-    )
-    papers = build_gap_report(works, known_formulas)
+    # Fetch the author's full bibliography unfiltered by topic -- a
+    # query-level keyword filter silently drops most cluster papers in this
+    # field, since their titles are written as formulas, not English phrases
+    # (see fetch_openalex_works) -- then narrow to relevant papers
+    # client-side against the local warehouse's own elements.
+    works = fetch_openalex_works(normalized_author_ids, normalized_orcids, contact_email=contact_email)
+    relevant_works = filter_relevant_works(works, known_formulas, keywords=normalized_keywords)
+    papers = build_gap_report(relevant_works, known_formulas)
     return write_gap_report(
         papers,
         output,
@@ -360,4 +458,5 @@ def run_literature_gap(
         orcids=normalized_orcids,
         keywords=normalized_keywords,
         author_name=author_name,
+        n_fetched=len(works),
     )
