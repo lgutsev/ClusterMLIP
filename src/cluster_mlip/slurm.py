@@ -461,7 +461,14 @@ def prepare_slurm_batches(
         batch_dir = batch_root / f"batch_{index:04d}"
         batch_dir.mkdir(parents=True, exist_ok=True)
         for stale_link in batch_dir.iterdir():
-            if stale_link.is_symlink() and stale_link.suffix.lower() in {".gjf", ".com"}:
+            # Symlink on Linux/LONI; a real copy on Windows when unprivileged
+            # symlink creation isn't available (see the copy2 fallback
+            # below) -- either way, this directory only ever holds inputs
+            # this function itself generated, so both are safe to clear
+            # before repopulating.
+            if stale_link.suffix.lower() in {".gjf", ".com"} and (
+                stale_link.is_symlink() or stale_link.is_file()
+            ):
                 stale_link.unlink()
         input_names: list[str] = []
         for item in batch:
@@ -472,7 +479,17 @@ def prepare_slurm_batches(
                 raise FileExistsError(
                     f"refusing to replace non-generated batch input path: {destination}"
                 )
-            destination.symlink_to(os.path.relpath(source, batch_dir))
+            try:
+                destination.symlink_to(os.path.relpath(source, batch_dir))
+            except OSError:
+                # Unprivileged symlink creation is disabled by default on
+                # Windows (no admin rights / Developer Mode) -- harmless to
+                # fall back to a real copy there, since this is purely a
+                # local-development convenience: the target deployment
+                # platform (Linux/LONI) always supports symlinks for a
+                # regular user, so this path is never exercised in
+                # production and never silently changes production behavior.
+                shutil.copy2(source, destination)
             input_names.append(input_name)
         (batch_dir / "inputs.txt").write_text(
             "\n".join(input_names) + "\n", encoding="utf-8"

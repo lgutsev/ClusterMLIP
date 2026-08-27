@@ -670,7 +670,6 @@ def write_spin_jobs(
             files.append((filename, text))
             for row in chain_rows:
                 row["input"] = filename
-                row["input_sha256"] = hashlib.sha256(text.encode()).hexdigest()
                 row["output"] = f"{Path(filename).stem}.log"
             rows.extend(chain_rows)
         if strategy in {"fragment", "both"}:
@@ -682,7 +681,6 @@ def write_spin_jobs(
                 )
                 files.append((filename, text))
                 row["input"] = filename
-                row["input_sha256"] = hashlib.sha256(text.encode()).hexdigest()
                 row["output"] = f"{Path(filename).stem}.log"
                 rows.append(row)
 
@@ -698,6 +696,16 @@ def write_spin_jobs(
     output.mkdir(parents=True, exist_ok=True)
     for filename, text in files:
         (output / filename).write_text(text, encoding="utf-8")
+    # Hash what was actually written, not the pre-write string: write_text's
+    # universal-newline translation turns "\n" into the platform line
+    # separator on disk (a no-op on Linux, but "\r\n" on Windows), which
+    # would silently desync a hash computed from the in-memory string
+    # beforehand from what _spin_manifest_audit reads back later. Reading
+    # the file back after writing, like jobs.py's _file_sha256 already does,
+    # is correct by construction on every platform.
+    written_hashes = {filename: hashlib.sha256((output / filename).read_bytes()).hexdigest() for filename, _ in files}
+    for row in rows:
+        row["input_sha256"] = written_hashes[row["input"]]
     with (output / "spin_jobs.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=SPIN_MANIFEST_COLUMNS)
         writer.writeheader()
@@ -791,7 +799,6 @@ def write_automatic_fe_spin_jobs(
             f"{readable}__auto-spin-m{plan.high_spin_multiplicity}"
             f"-to-m{plan.target_multiplicity}.gjf"
         )
-        input_hash = hashlib.sha256(text.encode()).hexdigest()
         evidence_ids = ";".join(plan.evidence_record_ids)
         for row in chain_rows:
             row.update({
@@ -801,7 +808,6 @@ def write_automatic_fe_spin_jobs(
                 "high_spin_inference": plan.inference,
                 "high_spin_evidence_record_ids": evidence_ids,
                 "input": filename,
-                "input_sha256": input_hash,
                 "output": f"{Path(filename).stem}.log",
             })
             if row["stage_index"] == "0":
@@ -855,6 +861,11 @@ def write_automatic_fe_spin_jobs(
     output.mkdir(parents=True, exist_ok=True)
     for filename, text in files:
         (output / filename).write_text(text, encoding="utf-8")
+    # See write_spin_jobs for why this hashes the file after writing rather
+    # than the pre-write string.
+    written_hashes = {filename: hashlib.sha256((output / filename).read_bytes()).hexdigest() for filename, _ in files}
+    for row in rows:
+        row["input_sha256"] = written_hashes[row["input"]]
     with (output / "spin_jobs.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=SPIN_MANIFEST_COLUMNS)
         writer.writeheader()

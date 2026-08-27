@@ -1,5 +1,6 @@
 import csv
 import json
+import platform
 from pathlib import Path
 import subprocess
 import tempfile
@@ -45,7 +46,14 @@ class SlurmPreparationTests(unittest.TestCase):
                 [len((path / "inputs.txt").read_text().splitlines()) for path in batches],
                 [3, 3, 1],
             )
-            self.assertTrue((batches[0] / "job_000.gjf").is_symlink())
+            # A symlink on Linux/LONI; prepare_slurm_batches falls back to a
+            # real copy where unprivileged symlink creation isn't available
+            # (default on Windows without admin rights/Developer Mode) --
+            # either way the batch directory must have a working, correct
+            # copy of the input.
+            linked_input = batches[0] / "job_000.gjf"
+            self.assertTrue(linked_input.is_symlink() or linked_input.is_file())
+            self.assertEqual(linked_input.read_text(), (campaign / "job_000.gjf").read_text())
             first_batch = (batches[0] / "run_batch.sbatch").read_text()
             second_batch = (batches[1] / "run_batch.sbatch").read_text()
             self.assertIn("#SBATCH --job-name=cluster_mlip_g16_0001", first_batch)
@@ -65,8 +73,14 @@ class SlurmPreparationTests(unittest.TestCase):
             for batch in batches:
                 subprocess.run(["bash", "-n", str(batch / "run_batch.sbatch")], check=True)
                 subprocess.run(["bash", "-n", str(batch / "submit.sh")], check=True)
+            # Invoke via `bash` explicitly rather than relying on the
+            # shebang line + executable bit: that's how Linux/LONI runs it
+            # too (nothing here depends on native OS exec of "#!"), and it
+            # also works from a native Windows Python process where a
+            # direct CreateProcess of a shell script is not a valid Win32
+            # executable regardless of the shebang.
             status = subprocess.run(
-                [str(campaign / "gaussian_batch_status.sh")],
+                ["bash", str(campaign / "gaussian_batch_status.sh")],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -89,6 +103,12 @@ class SlurmPreparationTests(unittest.TestCase):
             plan = prepare_slurm_batches(campaign, SlurmConfig())
             self.assertEqual(plan["input_count"], 1)
 
+    @unittest.skipIf(
+        platform.system() == "Windows",
+        "exercises real POSIX exec/PATH/scratch-cleanup semantics (a Unix-style PATH override, "
+        "a fake executable relying on native shebang exec, bash trap-based cleanup) matching the "
+        "real LONI runtime -- not a meaningful thing to emulate under native Windows CreateProcess",
+    )
     def test_worker_requires_normal_termination(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
