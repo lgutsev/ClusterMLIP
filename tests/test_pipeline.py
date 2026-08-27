@@ -92,9 +92,13 @@ class PipelineTests(unittest.TestCase):
             for text in (seed_input, rattle_input):
                 self.assertEqual(text.count("--Link1--"), 1)
                 self.assertIn(DEFAULT_LINK1_ROUTE, text)
-                self.assertIn("UBPW91/6-311++G* Force", text)
+                self.assertIn("UBPW91/Gen Force", text)
                 self.assertIn("Guess=Read Geom=Checkpoint", text)
                 self.assertNotIn("wB97M-V", text)
+                self.assertEqual(text.count("Fe     0"), 2)
+                self.assertEqual(text.count("6-31G*"), 2)
+                self.assertNotIn("6-311G*", text)
+                self.assertNotIn("6-311++G*", text)
 
     def test_rattles_are_stable_when_seed_order_changes(self):
         first = Record("first", "archive/first.log", [Atom("H", 0, 0, 0)], 0, 1, "minimum")
@@ -248,9 +252,12 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(text.count("--Link1--"), 4)
         self.assertIn("Geom=Checkpoint Guess=(Read,Always)", text)
         self.assertIn("%oldchk=fe2-ladder-m9-m1-s00-m9.chk", text)
-        self.assertIn("UBPW91/6-311G*", DEFAULT_SPIN_ROUTE)
+        self.assertIn("UBPW91/Gen", DEFAULT_SPIN_ROUTE)
         self.assertIn("VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc", DEFAULT_SPIN_ROUTE)
         self.assertNotIn("wB97M-V", DEFAULT_SPIN_ROUTE)
+        self.assertEqual(text.count("Fe     0"), 5)
+        self.assertNotIn("6-31G*", text)
+        self.assertNotIn("6-311G*", text)
 
     def test_fe10_spin_flip_ladder_has_complete_checkpoint_lineage(self):
         record = Record(

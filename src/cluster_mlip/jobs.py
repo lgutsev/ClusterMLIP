@@ -8,6 +8,7 @@ import re
 from dataclasses import replace
 from pathlib import Path
 
+from .basis import render_gen_basis
 from .models import Atom, Record
 
 
@@ -18,14 +19,18 @@ _LEGACY_IOP = "IOP(5/13=1,5/36=1,8/11=1)"
 # calculations.  The unperturbed records may be reoptimized and checked by a
 # frequency calculation, whereas rattled records must retain their displaced
 # geometry so that they contribute useful nonzero forces.
+#
+# The basis is Gen (see basis.py): 6-31G* for light elements, an explicit
+# def2-TZVP-without-f contraction for Fe. Every route below reads it from
+# the input body rather than naming a basis keyword.
 DEFAULT_ROUTE = (
-    f"#p UBPW91/6-311G* {_LEGACY_SCF} NoSymm Opt Freq {_LEGACY_IOP} Int=UltraFine"
+    f"#p UBPW91/Gen {_LEGACY_SCF} NoSymm Opt Freq {_LEGACY_IOP} Int=UltraFine"
 )
 DEFAULT_RATTLE_ROUTE = (
-    f"#p UBPW91/6-311G* SP {_LEGACY_SCF} NoSymm {_LEGACY_IOP} Int=UltraFine"
+    f"#p UBPW91/Gen SP {_LEGACY_SCF} NoSymm {_LEGACY_IOP} Int=UltraFine"
 )
 DEFAULT_LINK1_ROUTE = (
-    f"#p UBPW91/6-311++G* Force {_LEGACY_SCF} NoSymm "
+    f"#p UBPW91/Gen Force {_LEGACY_SCF} NoSymm "
     f"Guess=Read Geom=Checkpoint {_LEGACY_IOP} Int=UltraFine"
 )
 
@@ -143,6 +148,7 @@ def write_gaussian_jobs(
         path = output / filename
         parent = record.metadata.get("parent_record_id", record.record_id)
         first_route = rattle_route if "rattle_index" in record.metadata else route
+        gen_basis = render_gen_basis({a.symbol for a in record.atoms})
         lines = [
             f"%chk={stem}.chk",
             f"%mem={memory}",
@@ -157,6 +163,7 @@ def write_gaussian_jobs(
             f"{record.charge} {record.multiplicity}",
         ]
         lines.extend(f"{a.symbol:3s} {a.x: .12f} {a.y: .12f} {a.z: .12f}" for a in record.atoms)
+        lines.append(gen_basis.rstrip("\n"))
         lines.extend(
             [
                 "",
@@ -169,6 +176,7 @@ def write_gaussian_jobs(
                 f"MLIP diffuse-basis force label human_id={stem}; job_id={record.record_id}",
                 "",
                 f"{record.charge} {record.multiplicity}",
+                gen_basis.rstrip("\n"),
                 "",
             ]
         )

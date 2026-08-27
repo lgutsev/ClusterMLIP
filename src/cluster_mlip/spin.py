@@ -10,14 +10,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+from .basis import render_gen_basis
 from .gaussian import ATOMIC_SYMBOLS, _CM_RE, _SCF_RE, _float, extract_document_records
 from .io import iter_documents, read_document, read_extxyz, source_tree, write_extxyz
 from .jobs import human_job_stem
 from .models import Atom, Record
 
 
+# Basis is Gen (see basis.py): 6-31G* for light elements, an explicit
+# def2-TZVP-without-f contraction for Fe.
 DEFAULT_SPIN_ROUTE = (
-    "#p UBPW91/6-311G* SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc) "
+    "#p UBPW91/Gen SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc) "
     "NoSymm Opt Freq IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine "
     "Stable=Opt Pop=(Full,SpinDensity)"
 )
@@ -373,6 +376,7 @@ def render_ladder_input(
     for multiplicity in sequence:
         validate_multiplicity(record, multiplicity)
     chain = f"{record.record_id}-ladder-m{high_spin}-m{sequence[-1]}"
+    gen_basis = render_gen_basis({atom.symbol for atom in record.atoms}).rstrip("\n")
     parts: list[str] = []
     rows: list[dict[str, str]] = []
     previous_checkpoint: str | None = None
@@ -397,6 +401,7 @@ def render_ladder_input(
         ])
         if stage == 0:
             parts.extend(_coordinates(record.atoms))
+        parts.append(gen_basis)
         parts.append("")
         lineage.append(f"m{multiplicity}:{checkpoint}")
         rows.append({
@@ -572,7 +577,8 @@ def render_fragment_input(
         f"{record.charge} {target} {fragment_state}",
     ])
     lines.extend(_coordinates(record.atoms, atom_map))
-    lines.extend(["", ""])
+    lines.append(render_gen_basis({atom.symbol for atom in record.atoms}).rstrip("\n"))
+    lines.append("")
     row = {
         "job_id": job_id,
         "chain_id": job_id,
