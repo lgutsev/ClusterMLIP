@@ -7,6 +7,7 @@ import os
 import re
 import shlex
 import shutil
+import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TypedDict
@@ -41,10 +42,157 @@ class SlurmPlan(TypedDict):
     warnings: list[str]
 
 
+@dataclass(frozen=True)
+class ExtractSlurmConfig:
+    time_limit: str = "12:00:00"
+    partition: str = "checkpt"
+    account: str = "loni_perovsk27"
+    gaussian_module: str = "gaussian/g16-c01"
+    job_name: str = "cluster_mlip_extract"
+    cluster_mlip_command: str = "cluster-mlip"
+
+
+class ExtractSlurmPlan(TypedDict):
+    source: str
+    source_sha256: str
+    output: str
+    config: dict[str, object]
+    extract_arguments: list[str]
+    sbatch_script: str
+    submit_script: str
+
+
 def _safe_directive(value: str, name: str) -> str:
     if not value or any(character in value for character in "\r\n"):
         raise ValueError(f"{name} must be a non-empty single line")
     return value
+
+
+def _path_sha256(path: Path) -> str:
+    """Hash one source file or a directory tree without depending on mtimes."""
+    digest = hashlib.sha256()
+    if path.is_file():
+        with path.open("rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                digest.update(chunk)
+        return digest.hexdigest()
+    files = sorted(item for item in path.rglob("*") if item.is_file())
+    for item in files:
+        relative = item.relative_to(path).as_posix()
+        digest.update(relative.encode("utf-8", errors="surrogateescape"))
+        digest.update(b"\0")
+        with item.open("rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                digest.update(chunk)
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _extract_sbatch_script(
+    source: Path,
+    output: Path,
+    config: ExtractSlurmConfig,
+    extract_arguments: list[str],
+) -> str:
+    directives = [
+        "#!/usr/bin/env bash",
+        f"#SBATCH --job-name={_safe_directive(config.job_name, 'job name')}",
+        "#SBATCH --nodes=1",
+        "#SBATCH --ntasks=1",
+        "#SBATCH --cpus-per-task=1",
+        f"#SBATCH --time={_safe_directive(config.time_limit, 'time limit')}",
+        f"#SBATCH --partition={_safe_directive(config.partition, 'partition')}",
+        f"#SBATCH --account={_safe_directive(config.account, 'account')}",
+        "#SBATCH --output=extract-%j.stdout",
+        "#SBATCH --error=extract-%j.stderr",
+    ]
+    command = [
+        _safe_directive(config.cluster_mlip_command, "cluster-mlip command"),
+        "extract",
+        str(source),
+        "-o",
+        str(output),
+        *extract_arguments,
+    ]
+    module_line = (
+        f"module load {shlex.quote(config.gaussian_module)}" if config.gaussian_module else ""
+    )
+    source_message = shlex.quote(f"Source: {source}")
+    output_message = shlex.quote(f"Output: {output}")
+    body = f"""
+set -euo pipefail
+
+{module_line}
+printf '%s\n' {source_message}
+printf '%s\n' {output_message}
+echo "Host: $(hostname)"
+date
+{' '.join(shlex.quote(part) for part in command)}
+date
+"""
+    return "\n".join(directives) + body
+
+
+def prepare_extract_slurm(
+    source: Path,
+    output: Path,
+    config: ExtractSlurmConfig,
+    *,
+    extract_arguments: list[str] | None = None,
+) -> ExtractSlurmPlan:
+    """Persist an auditable one-node Slurm job for the sequential extractor."""
+    source = source.resolve()
+    output = output.resolve()
+    if not source.exists():
+        raise FileNotFoundError(source)
+    if source.is_dir() and (output == source or source in output.parents):
+        raise ValueError("extract output must not be inside a source directory")
+    source_sha256 = _path_sha256(source)
+    output.mkdir(parents=True, exist_ok=True)
+    arguments = list(extract_arguments or [])
+    sbatch_path = output / "run_extract.sbatch"
+    submit_path = output / "submit_extract.sh"
+    sbatch_path.write_text(
+        _extract_sbatch_script(source, output, config, arguments), encoding="utf-8"
+    )
+    submit_path.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+
+output=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+sbatch "$@" --chdir="$output" "$output/run_extract.sbatch"
+""",
+        encoding="utf-8",
+    )
+    sbatch_path.chmod(0o755)
+    submit_path.chmod(0o755)
+    plan: ExtractSlurmPlan = {
+        "source": str(source),
+        "source_sha256": source_sha256,
+        "output": str(output),
+        "config": asdict(config),
+        "extract_arguments": arguments,
+        "sbatch_script": sbatch_path.name,
+        "submit_script": submit_path.name,
+    }
+    (output / "extract_slurm_plan.json").write_text(
+        json.dumps(plan, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return plan
+
+
+def submit_extract_slurm(output: Path) -> str:
+    """Submit a previously persisted extract job and retain sbatch's job-id response."""
+    output = output.resolve()
+    submit_path = output / "submit_extract.sh"
+    if not submit_path.is_file():
+        raise FileNotFoundError(submit_path)
+    result = subprocess.run(
+        ["bash", str(submit_path)], check=True, capture_output=True, text=True
+    )
+    response = result.stdout.strip()
+    (output / "extract_submission.txt").write_text(response + "\n", encoding="utf-8")
+    return response
 
 
 def _manifest_inputs(campaign: Path) -> tuple[Path, list[str]]:

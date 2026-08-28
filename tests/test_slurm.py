@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import json
 import platform
 from pathlib import Path
@@ -7,7 +8,12 @@ import tempfile
 import unittest
 
 from cluster_mlip.cli import build_parser
-from cluster_mlip.slurm import SlurmConfig, prepare_slurm_batches
+from cluster_mlip.slurm import (
+    ExtractSlurmConfig,
+    SlurmConfig,
+    prepare_extract_slurm,
+    prepare_slurm_batches,
+)
 
 
 class SlurmPreparationTests(unittest.TestCase):
@@ -15,6 +21,52 @@ class SlurmPreparationTests(unittest.TestCase):
         parser = build_parser()
         prepare_slurm = parser._subparsers._group_actions[0].choices["prepare-slurm"]
         self.assertIn("--allow-nproc-mismatch", prepare_slurm.format_help())
+
+    def test_extract_slurm_help_renders(self):
+        parser = build_parser()
+        extract_slurm = parser._subparsers._group_actions[0].choices["extract-slurm"]
+        help_text = extract_slurm.format_help()
+        self.assertIn("--submit", help_text)
+        self.assertIn("--require-elements", help_text)
+
+    def test_prepares_reproducible_extract_job(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "warehouse.zip"
+            source.write_bytes(b"test warehouse bytes")
+            output = root / "campaign" / "extracted"
+            plan = prepare_extract_slurm(
+                source,
+                output,
+                ExtractSlurmConfig(time_limit="08:00:00", job_name="fenom_extract"),
+                extract_arguments=["--elements", "Fe,O", "--max-atoms", "20"],
+            )
+            sbatch = (output / "run_extract.sbatch").read_text()
+            self.assertIn("#SBATCH --job-name=fenom_extract", sbatch)
+            self.assertIn("#SBATCH --cpus-per-task=1", sbatch)
+            self.assertIn("#SBATCH --time=08:00:00", sbatch)
+            self.assertIn("module load gaussian/g16-c01", sbatch)
+            self.assertIn("--elements Fe,O --max-atoms 20", sbatch)
+            self.assertEqual(plan["source"], str(source.resolve()))
+            self.assertEqual(
+                plan["source_sha256"], hashlib.sha256(source.read_bytes()).hexdigest()
+            )
+            saved = json.loads((output / "extract_slurm_plan.json").read_text())
+            self.assertEqual(saved, plan)
+            subprocess.run(["bash", "-n", str(output / "run_extract.sbatch")], check=True)
+            subprocess.run(["bash", "-n", str(output / "submit_extract.sh")], check=True)
+
+    def test_extract_slurm_rejects_output_inside_source_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "warehouse"
+            source.mkdir()
+            (source / "record.log").write_text("record", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "must not be inside"):
+                prepare_extract_slurm(
+                    source,
+                    source / "extracted",
+                    ExtractSlurmConfig(),
+                )
 
     def _campaign(self, root: Path, count: int = 7) -> Path:
         campaign = root / "campaign"

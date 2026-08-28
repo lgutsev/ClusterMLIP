@@ -38,7 +38,13 @@ from .spin import (
     write_spin_inventory,
     write_spin_jobs,
 )
-from .slurm import SlurmConfig, prepare_slurm_batches
+from .slurm import (
+    ExtractSlurmConfig,
+    SlurmConfig,
+    prepare_extract_slurm,
+    prepare_slurm_batches,
+    submit_extract_slurm,
+)
 from .stratify import STRATA_FIELDS
 
 
@@ -106,6 +112,42 @@ def command_extract(args: argparse.Namespace) -> int:
     for name, count in sorted(counts.items()):
         print(f"  {name}: {count}")
     print(f"Unreadable documents: {len(errors)}")
+    return 0
+
+
+def command_extract_slurm(args: argparse.Namespace) -> int:
+    extract_arguments: list[str] = []
+    for flag, value in (
+        ("--elements", args.elements),
+        ("--require-elements", args.require_elements),
+        ("--min-atoms", args.min_atoms),
+        ("--max-atoms", args.max_atoms),
+    ):
+        if value is not None:
+            extract_arguments.extend([flag, str(value)])
+    if args.types:
+        extract_arguments.append("--types")
+        extract_arguments.extend(args.types)
+    config = ExtractSlurmConfig(
+        time_limit=args.time,
+        partition=args.partition,
+        account=args.account,
+        gaussian_module=args.gaussian_module,
+        job_name=args.job_name,
+        cluster_mlip_command=args.cluster_mlip_command,
+    )
+    plan = prepare_extract_slurm(
+        Path(args.source),
+        Path(args.output),
+        config,
+        extract_arguments=extract_arguments,
+    )
+    print(f"Prepared extract Slurm job: {Path(plan['output']) / plan['sbatch_script']}")
+    print(f"Source SHA-256: {plan['source_sha256']}")
+    if args.submit:
+        print(submit_extract_slurm(Path(plan["output"])))
+    else:
+        print(f"Submit: {Path(plan['output']) / plan['submit_script']}")
     return 0
 
 
@@ -611,6 +653,32 @@ def build_parser() -> argparse.ArgumentParser:
     extract.add_argument("--max-atoms", type=int)
     extract.add_argument("--types", nargs="+", help="keep selected config_type values")
     extract.set_defaults(func=command_extract)
+
+    extract_slurm = sub.add_parser(
+        "extract-slurm",
+        help="generate and optionally submit a reproducible one-node Slurm extract job",
+    )
+    extract_slurm.add_argument("source", help="archive ZIP, document, or directory")
+    extract_slurm.add_argument("-o", "--output", default="extracted")
+    extract_slurm.add_argument("--elements", help="keep only systems composed of these comma-separated elements")
+    extract_slurm.add_argument("--require-elements", help="require all of these comma-separated elements")
+    extract_slurm.add_argument("--min-atoms", type=int)
+    extract_slurm.add_argument("--max-atoms", type=int)
+    extract_slurm.add_argument("--types", nargs="+", help="keep selected config_type values")
+    extract_slurm.add_argument("--time", default="12:00:00")
+    extract_slurm.add_argument("--partition", default="checkpt")
+    extract_slurm.add_argument("--account", default="loni_perovsk27")
+    extract_slurm.add_argument("--gaussian-module", default="gaussian/g16-c01")
+    extract_slurm.add_argument("--job-name", default="cluster_mlip_extract")
+    extract_slurm.add_argument(
+        "--cluster-mlip-command", default="cluster-mlip",
+        help="executable available inside the Slurm job (default: cluster-mlip from exported PATH)",
+    )
+    extract_slurm.add_argument(
+        "--submit", action="store_true",
+        help="submit immediately after persisting the script and provenance manifest",
+    )
+    extract_slurm.set_defaults(func=command_extract_slurm)
 
     spin_extract = sub.add_parser(
         "spin-extract",

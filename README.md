@@ -265,6 +265,28 @@ cluster-mlip extract Warehouse2.zip \
 Outputs are `seeds.extxyz`, `manifest.csv`, and `errors.tsv`. Identity includes
 geometry (to 1e-6 Å), charge, multiplicity, configuration type, and IRC point.
 
+For a warehouse too large to parse on a login node, generate and submit the
+same extraction as a persistent, auditable Slurm job:
+
+```bash
+cluster-mlip extract-slurm FenOm_Warehouse2.zip \
+  -o campaigns/FenOm_Warehouse2/extracted \
+  --time 12:00:00 \
+  --partition checkpt \
+  --account loni_perovsk27 \
+  --submit
+```
+
+The extractor is currently sequential, so this intentionally requests one CPU.
+The output directory retains `run_extract.sbatch`, `submit_extract.sh`, and
+`extract_slurm_plan.json`; the plan records the absolute source/output paths,
+exact extraction filters, scheduler configuration, and source SHA-256. Without
+`--submit`, the command only generates these files for inspection; submit later
+with `./campaigns/FenOm_Warehouse2/extracted/submit_extract.sh`. Scheduler logs
+are written beside the plan as `extract-<jobid>.stdout` and `.stderr`. The
+Gaussian module is loaded by default so archived binary checkpoints can use
+`formchk`; pass `--gaussian-module ''` when that support is unnecessary.
+
 ## 3. Prepare consistent Gaussian labels
 
 ```bash
