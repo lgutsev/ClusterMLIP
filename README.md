@@ -163,10 +163,19 @@ the inventory above. `literature-gap`'s first argument can be an existing
 the inventory is built inline into `<output>/inventory/`.
 
 **This is the one command in the whole pipeline that needs live internet
-access** -- run it from your laptop or an HPC login node, not an offline
-compute node, since nothing else in ClusterMLIP makes a network call.
-`--contact-email` is optional and only improves OpenAlex's rate-limit
-priority (their documented "polite pool"); nothing is sent anywhere else.
+access** -- run it from your laptop or an HPC login node by default, since
+nothing else in ClusterMLIP makes a network call and most HPC compute nodes
+have no route out. It's normally fast (an author's full bibliography is one
+or two paginated API requests), so this is about getting it off an
+interactive session, not about needing serious compute; if your site's
+batch queues do allow outbound internet, `scripts/run_literature_gap_slurm.sh`
+submits it the same way as the other `run_*_slurm.sh` scripts and forwards
+every argument verbatim, e.g. `sbatch scripts/run_literature_gap_slurm.sh
+inventory -o gap --orcid 0000-0002-1825-0097`; it fails fast with a clear
+error (rather than hanging) if that queue turns out to have no internet
+after all. `--contact-email` is optional and only improves OpenAlex's
+rate-limit priority (their documented "polite pool"); nothing is sent
+anywhere else.
 
 There is deliberately **no default author**. Identify the researcher with a
 verified ORCID using `--orcid`, or with an OpenAlex author ID using
