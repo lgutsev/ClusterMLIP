@@ -561,7 +561,11 @@ def command_inventory(args: argparse.Namespace) -> int:
 
 
 def command_pdf_index(args: argparse.Namespace) -> int:
-    result = write_pdf_index(Path(args.source).resolve(), Path(args.output).resolve())
+    try:
+        result = write_pdf_index(Path(args.source).resolve(), Path(args.output).resolve())
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     counts = result["counts"]
     assert isinstance(counts, dict)
     print(
@@ -570,6 +574,11 @@ def command_pdf_index(args: argparse.Namespace) -> int:
         f"no DOI found: {counts.get('no_doi_found', 0)}  |  "
         f"unreadable: {counts.get('unreadable', 0)}"
     )
+    top_errors = result.get("top_errors")
+    if isinstance(top_errors, list) and top_errors:
+        print("Most common errors among unreadable PDFs:")
+        for message, count in top_errors:
+            print(f"  {count}x  {message}")
     print(f"PDF index: {result['output']}")
     return 0
 

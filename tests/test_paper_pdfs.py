@@ -3,6 +3,7 @@ import importlib.util
 import json
 import tempfile
 import unittest
+import unittest.mock
 import zipfile
 
 from cluster_mlip.cli import build_parser, main
@@ -33,6 +34,48 @@ class PaperPdfTests(unittest.TestCase):
             self.assertEqual(len(papers), 1)
             self.assertEqual(papers[0]["status"], "unreadable")
             self.assertIsNone(papers[0]["doi"])
+            self.assertIsNotNone(papers[0]["error"])
+
+    def test_missing_pypdf_fails_once_clearly_not_per_file(self):
+        # Regression test for a real incident: every PDF in a 405-file
+        # corpus came back "unreadable" with 0 ok/no_doi_found, which is
+        # what a missing `pypdf` import looks like (every file fails
+        # identically), not what genuinely bad PDFs look like. This must
+        # raise once, up front, instead of mislabeling the whole corpus.
+        import builtins
+
+        from cluster_mlip.paper_pdfs import index_paper_pdfs
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "pypdf":
+                raise ImportError("No module named 'pypdf'")
+            return real_import(name, *args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "sample.pdf").write_bytes(SAMPLE_PDF.read_bytes())
+            with unittest.mock.patch("builtins.__import__", side_effect=fake_import):
+                with self.assertRaisesRegex(RuntimeError, "pypdf"):
+                    index_paper_pdfs(root)
+
+    def test_encrypted_pdf_with_empty_password_is_still_read(self):
+        import pypdf
+        from pypdf import PdfWriter
+
+        from cluster_mlip.paper_pdfs import extract_pdf_text
+
+        reader = pypdf.PdfReader(SAMPLE_PDF)
+        writer = PdfWriter()
+        writer.append_pages_from_reader(reader)
+        writer.encrypt(user_password="", owner_password="ownersecret")
+        import io
+
+        buf = io.BytesIO()
+        writer.write(buf)
+        text = extract_pdf_text(buf.getvalue())
+        self.assertIn("Fe6O20", text)
 
     def test_indexes_a_zip_of_pdfs_and_writes_report(self):
         from cluster_mlip.paper_pdfs import load_pdf_compositions, write_pdf_index

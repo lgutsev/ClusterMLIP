@@ -48,6 +48,7 @@ class PdfPaper(TypedDict):
     compositions: list[str]
     text_length: int
     status: str  # "ok" | "no_doi_found" | "unreadable"
+    error: str | None
 
 
 def find_doi(text: str) -> str | None:
@@ -63,15 +64,23 @@ def find_doi(text: str) -> str | None:
 
 def extract_pdf_text(data: bytes) -> str:
     """Full text of every page, concatenated. Raises on a PDF pypdf cannot
-    parse at all (encrypted with an unknown password, corrupt); the caller
-    is responsible for turning that into a per-paper "unreadable" status
-    rather than aborting the whole corpus over one bad file.
+    parse at all (encrypted with an unrecoverable password, corrupt); the
+    caller is responsible for turning that into a per-paper "unreadable"
+    status rather than aborting the whole corpus over one bad file.
     """
     import io
 
     import pypdf  # noqa: PLC0415 -- deliberately lazy, see module docstring
 
     reader = pypdf.PdfReader(io.BytesIO(data))
+    if reader.is_encrypted:
+        # Many publisher-distributed reprints (Elsevier, ACS, Wiley, ...)
+        # are "encrypted" only to restrict printing/copying in a viewer,
+        # with an empty user password -- pypdf still refuses to read pages
+        # until decrypt() is called explicitly, even though no real
+        # password is needed. This is worth trying before giving up; a
+        # genuinely password-protected PDF still raises once this fails.
+        reader.decrypt("")
     return "\n".join(page.extract_text() or "" for page in reader.pages)
 
 
@@ -97,6 +106,26 @@ def iter_pdf_sources(source: Path) -> Iterator[tuple[str, bytes]]:
             yield str(path.relative_to(root)), path.read_bytes()
 
 
+def _require_pypdf() -> None:
+    """Fail once, clearly, if pypdf isn't installed -- rather than letting
+    every single PDF in the corpus fail identically inside the per-file
+    try/except below and get mislabeled "unreadable", which looks like a
+    corrupt-file problem but is actually a missing-dependency problem (this
+    exact failure mode was hit for real: a full run reported 405/405 PDFs
+    "unreadable" with 0 ok and 0 no_doi_found, which is what a missing
+    import looks like, not what 405 genuinely bad PDFs look like).
+    """
+    try:
+        import pypdf  # noqa: F401
+    except ImportError as exc:
+        raise RuntimeError(
+            "pdf-index requires pypdf, which isn't installed in this Python "
+            "environment. Install the optional 'pdf' extra in the same "
+            "environment you run `cluster-mlip` from: "
+            "pip install -e '.[pdf]' (or `pip install pypdf` directly)."
+        ) from exc
+
+
 def index_paper_pdfs(source: Path) -> list[PdfPaper]:
     """Extract text, DOI, and formula mentions from every PDF under
     ``source``. Every PDF gets an entry -- one that couldn't be read, or
@@ -104,17 +133,19 @@ def index_paper_pdfs(source: Path) -> list[PdfPaper]:
     silently dropped, so a person can see what's missing from the index
     rather than assuming full coverage.
     """
+    _require_pypdf()
     papers: list[PdfPaper] = []
     for name, data in iter_pdf_sources(source):
         try:
             text = extract_pdf_text(data)
-        except Exception:  # noqa: BLE001 -- any one bad PDF must not abort the batch
+        except Exception as exc:  # noqa: BLE001 -- any one bad PDF must not abort the batch
             papers.append({
                 "source_pdf": name,
                 "doi": None,
                 "compositions": [],
                 "text_length": 0,
                 "status": "unreadable",
+                "error": f"{type(exc).__name__}: {exc}",
             })
             continue
         doi = find_doi(text)
@@ -124,6 +155,7 @@ def index_paper_pdfs(source: Path) -> list[PdfPaper]:
             "compositions": sorted(set(extract_compositions(text))),
             "text_length": len(text),
             "status": "ok" if doi else "no_doi_found",
+            "error": None,
         })
     return papers
 
@@ -138,7 +170,21 @@ def write_pdf_index(source: Path, output: Path) -> dict[str, object]:
     (output / "pdf_index.json").write_text(
         json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    return {"n_pdfs": len(papers), "counts": counts, "output": str(output / "pdf_index.json")}
+    # The most common distinct error messages among unreadable PDFs, most
+    # frequent first -- surfaced directly to the CLI so a systemic problem
+    # (e.g. every PDF hitting the same exception) is obvious without having
+    # to go dig through pdf_index.json by hand.
+    error_counts: dict[str, int] = {}
+    for paper in papers:
+        if paper["error"]:
+            error_counts[paper["error"]] = error_counts.get(paper["error"], 0) + 1
+    top_errors = sorted(error_counts.items(), key=lambda item: item[1], reverse=True)[:5]
+    return {
+        "n_pdfs": len(papers),
+        "counts": counts,
+        "output": str(output / "pdf_index.json"),
+        "top_errors": top_errors,
+    }
 
 
 def load_pdf_compositions(path: Path) -> dict[str, list[str]]:
