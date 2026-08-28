@@ -3,6 +3,8 @@ from __future__ import annotations
 import collections
 import json
 import re
+import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -274,9 +276,20 @@ def fetch_openalex_works(
             if contact_email:
                 params["mailto"] = contact_email
             url = f"{OPENALEX_WORKS_URL}?{urllib.parse.urlencode(params)}"
+            contact_note = f"mailto: {contact_email}" if contact_email else "mailto: none"
             request = urllib.request.Request(
-                url, headers={"User-Agent": "cluster-mlip literature-gap (mailto: none)"}
+                url, headers={"User-Agent": f"cluster-mlip literature-gap ({contact_note})"}
             )
+            # This is the one command in the pipeline with no local work to
+            # show progress on while it runs -- print each page as it's
+            # fetched (to stderr, so it doesn't interleave with anything a
+            # caller might be parsing from stdout) so a slow or seemingly
+            # stuck run is visibly making progress rather than a silent
+            # black box, and so a real network stall is timed and obvious
+            # rather than indistinguishable from "this always takes a
+            # while".
+            page_started = time.monotonic()
+            print(f"Fetching page {page} from OpenAlex ({url})...", file=sys.stderr)
             try:
                 with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 -- fixed https API host
                     payload = json.loads(response.read().decode("utf-8"))
@@ -291,7 +304,9 @@ def fetch_openalex_works(
                     "compute node. If this is a TLS/certificate error, it may be your local "
                     "network's proxy rather than this tool."
                 ) from exc
+            elapsed = time.monotonic() - page_started
             results = payload.get("results", [])
+            print(f"  got {len(results) if isinstance(results, list) else 0} results in {elapsed:.1f}s", file=sys.stderr)
             if not isinstance(results, list) or not results:
                 break
             for work in results:
