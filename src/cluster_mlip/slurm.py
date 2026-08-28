@@ -180,7 +180,13 @@ def _batch_script(config: SlurmConfig, batch_index: int) -> str:
         directives.append(f"#SBATCH --mem={_safe_directive(config.memory_per_node, 'memory per node')}")
     module_line = ""
     if config.gaussian_module:
-        module_line = f"module load {shlex.quote(config.gaussian_module)}"
+        # Lmod's `module` bash function references variables it doesn't
+        # always guard (e.g. $LMOD_SETTARG_CMD) -- the same class of bug as
+        # conda's activate/deactivate hooks referencing $CONDA_BACKUP_CXX --
+        # so nounset must be relaxed around the load, not just here but for
+        # the rest of the script too, since `module load` also unsets some
+        # variables it never (re-)declared.
+        module_line = f"set +u; module load {shlex.quote(config.gaussian_module)}; set -u"
     scratch_template = shlex.quote(config.scratch_root)
     body = f"""
 set -euo pipefail

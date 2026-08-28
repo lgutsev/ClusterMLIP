@@ -18,6 +18,11 @@ set -euo pipefail
 # copied it), reaches the job. Override CLUSTER_MLIP_ENV if your env lives
 # somewhere other than /project/lgutsev/env/cluster_mlip_runtime.
 CLUSTER_MLIP_ENV=${CLUSTER_MLIP_ENV:-/project/lgutsev/env/cluster_mlip_runtime}
+# conda's own activate/deactivate hooks (e.g. deactivate-gxx_linux-64.sh)
+# reference variables like CONDA_BACKUP_CXX without guarding them -- a known
+# conda/`set -u` incompatibility, nothing wrong with this environment.
+# Nounset is relaxed for just this block and restored immediately after.
+set +u
 for conda_sh in "$HOME"/miniforge3/etc/profile.d/conda.sh \
                 "$HOME"/miniconda3/etc/profile.d/conda.sh \
                 "$HOME"/anaconda3/etc/profile.d/conda.sh; do
@@ -30,6 +35,7 @@ done
 if command -v conda >/dev/null 2>&1 && [ -d "$CLUSTER_MLIP_ENV" ]; then
   conda activate "$CLUSTER_MLIP_ENV"
 fi
+set -u
 
 # Single-core batch job for `cluster-mlip pdf-index` against a local corpus
 # of paper PDFs (a ZIP of PDFs, a folder of them, or a single .pdf). Text
