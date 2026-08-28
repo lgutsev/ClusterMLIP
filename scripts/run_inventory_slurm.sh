@@ -10,6 +10,12 @@
 #SBATCH --error=inventory-%j.stderr
 set -euo pipefail
 
+# Explicitly activate the runtime environment -- sbatch's non-interactive
+# shell does not inherit a `conda activate` you ran before submitting (see
+# _activate_env.sh). Override with CLUSTER_MLIP_ENV if your env lives
+# somewhere other than /project/lgutsev/env/cluster_mlip_runtime.
+source "$(dirname "${BASH_SOURCE[0]}")/_activate_env.sh"
+
 # Single-node batch job for `cluster-mlip inventory` against a folder of many
 # warehouse ZIPs -- this is the one command in the pipeline slow enough (a
 # large/nested warehouse can genuinely take hours to parse) to need
@@ -21,10 +27,6 @@ set -euo pipefail
 # Any #SBATCH directive above can be overridden on the command line without
 # editing this file, e.g.:
 #   sbatch --time=04:00:00 --account=myaccount scripts/run_inventory_slurm.sh
-#
-# Activate whatever environment has `cluster-mlip` installed before
-# submitting (e.g. `source .venv/bin/activate`) -- sbatch inherits the
-# environment of the shell that submits it.
 
 # Defaults to the directory this job was submitted from, so the common case
 # is: cd into the folder of warehouse ZIPs, then `sbatch
