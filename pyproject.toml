@@ -15,9 +15,13 @@ dependencies = []
 train = ["mace-torch>=0.3.16"]
 # Needed only for `cluster-mlip pdf-index` (full-text extraction from a local
 # corpus of paper PDFs, see paper_pdfs.py). Everything else in this package
-# stays free of third-party dependencies.
-pdf = ["pypdf>=4.0"]
-dev = ["mypy>=1.8", "pypdf>=4.0"]
+# stays free of third-party dependencies. `[crypto]` pulls in `cryptography`,
+# which pypdf needs for AES-encrypted PDFs (some publisher-distributed
+# reprints use it) -- without it those specific PDFs fail with
+# "DependencyError: cryptography>=3.1 is required for AES algorithm" instead
+# of a clean "unreadable" for a genuinely bad file.
+pdf = ["pypdf[crypto]>=4.0"]
+dev = ["mypy>=1.8", "pypdf[crypto]>=4.0"]
 
 [project.scripts]
 cluster-mlip = "cluster_mlip.cli:main"
