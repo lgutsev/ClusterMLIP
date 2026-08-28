@@ -43,6 +43,7 @@ class Paper(TypedDict):
     oa_url: str | None
     compositions: list[str]
     status: str  # "on_file" | "possible_gap" | "unclear"
+    full_text_checked: bool
 
 
 def normalize_author_ids(author_ids: Iterable[str]) -> tuple[str, ...]:
@@ -93,6 +94,23 @@ def normalize_orcids(orcids: Iterable[str]) -> tuple[str, ...]:
         if orcid not in normalized:
             normalized.append(orcid)
     return tuple(normalized)
+
+
+_DOI_TRAILING_PUNCTUATION = ".,;:)]}>"
+
+
+def normalize_doi(value: str) -> str:
+    """Canonical lowercase ``10.xxxx/yyyy`` form, whether given a bare DOI or
+    a full ``https://doi.org/...`` URL, so an OpenAlex work's ``doi`` field
+    (always the URL form) and a DOI mined from a local PDF's text (see
+    paper_pdfs.py) can be compared directly.
+    """
+    doi = value.strip()
+    for prefix in ("https://doi.org/", "http://doi.org/", "doi:"):
+        if doi.lower().startswith(prefix):
+            doi = doi[len(prefix):]
+            break
+    return doi.strip().rstrip(_DOI_TRAILING_PUNCTUATION).lower()
 
 
 def extract_compositions(text: str) -> list[str]:
@@ -307,11 +325,27 @@ def _open_access_url(work: dict[str, object]) -> str | None:
     return str(url) if url else None
 
 
-def classify_paper(work: dict[str, object], known_formulas: set[str]) -> Paper:
+def classify_paper(
+    work: dict[str, object],
+    known_formulas: set[str],
+    pdf_compositions: dict[str, list[str]] | None = None,
+) -> Paper:
+    """`pdf_compositions`, if given, maps a normalized DOI (see
+    normalize_doi) to formulas mined from that paper's *full* PDF text (see
+    paper_pdfs.py) -- a title/abstract alone can easily omit a composition
+    only discussed in the body. When this work's DOI has an entry, those
+    formulas are unioned into the ones extracted here from title/abstract,
+    and the report notes that the full text was actually checked rather
+    than just the two sentences OpenAlex provides.
+    """
     title = str(work.get("title") or "(untitled)")
     abstract = _reconstruct_abstract(work.get("abstract_inverted_index"))
-    compositions = sorted(set(extract_compositions(title) + extract_compositions(abstract)))
     doi = work.get("doi")
+    normalized_doi = normalize_doi(str(doi)) if doi else None
+    from_pdf = (pdf_compositions or {}).get(normalized_doi or "", [])
+    compositions = sorted(
+        set(extract_compositions(title) + extract_compositions(abstract) + from_pdf)
+    )
     year = work.get("publication_year")
     if not compositions:
         status = "unclear"
@@ -329,11 +363,16 @@ def classify_paper(work: dict[str, object], known_formulas: set[str]) -> Paper:
         "oa_url": _open_access_url(work),
         "compositions": compositions,
         "status": status,
+        "full_text_checked": normalized_doi in (pdf_compositions or {}),
     }
 
 
-def build_gap_report(works: list[dict[str, object]], known_formulas: set[str]) -> list[Paper]:
-    return [classify_paper(work, known_formulas) for work in works]
+def build_gap_report(
+    works: list[dict[str, object]],
+    known_formulas: set[str],
+    pdf_compositions: dict[str, list[str]] | None = None,
+) -> list[Paper]:
+    return [classify_paper(work, known_formulas, pdf_compositions) for work in works]
 
 
 def load_known_formulas(source: Path, output: Path, jobs: int = 1) -> set[str]:
@@ -390,10 +429,11 @@ def write_gap_report(
     def paper_block(paper: Paper, number: int) -> list[str]:
         year = f" ({paper['year']})" if paper["year"] else ""
         block = [f"{number}. **{paper['title']}**{year}"]
+        source = "full text" if paper["full_text_checked"] else "title/abstract"
         if paper["compositions"]:
-            block.append(f"   - Formulas mentioned: {', '.join(paper['compositions'])}")
+            block.append(f"   - Formulas mentioned ({source}): {', '.join(paper['compositions'])}")
         else:
-            block.append("   - No specific formula found in the title/abstract -- worth a quick look.")
+            block.append(f"   - No specific formula found in the {source} -- worth a quick look.")
         if paper["oa_url"]:
             block.append(f"   - Free PDF: {paper['oa_url']}")
         if paper["doi"]:
@@ -416,10 +456,18 @@ def write_gap_report(
         )
     else:
         summary_line = f"We looked at {len(papers)} cluster papers returned by OpenAlex for the requested author query."
+    n_full_text = sum(1 for paper in papers if paper["full_text_checked"])
+    full_text_line = (
+        f"{n_full_text} of these were additionally cross-checked against a locally supplied "
+        "PDF's full text, not just OpenAlex's title/abstract."
+        if n_full_text
+        else None
+    )
     lines = [
         heading,
         "",
         summary_line,
+        *([full_text_line, ""] if full_text_line else []),
         "",
         f"- We already have data for **{counts.get('on_file', 0)}** of them.",
         f"- We may be **missing data for {counts.get('possible_gap', 0)}** of them -- see below.",
@@ -456,6 +504,7 @@ def run_literature_gap(
     contact_email: str | None = None,
     jobs: int = 1,
     author_name: str | None = None,
+    pdf_compositions: dict[str, list[str]] | None = None,
 ) -> dict[str, object]:
     author_id_values = tuple(author_ids)
     orcid_values = tuple(orcids)
@@ -472,7 +521,7 @@ def run_literature_gap(
     # client-side against the local warehouse's own elements.
     works = fetch_openalex_works(normalized_author_ids, normalized_orcids, contact_email=contact_email)
     relevant_works = filter_relevant_works(works, known_formulas, keywords=normalized_keywords)
-    papers = build_gap_report(relevant_works, known_formulas)
+    papers = build_gap_report(relevant_works, known_formulas, pdf_compositions)
     return write_gap_report(
         papers,
         output,

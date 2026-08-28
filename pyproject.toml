@@ -13,7 +13,11 @@ dependencies = []
 # Needed only for `configs/train_from_scratch.sh` / `configs/finetune_foundation.sh`
 # and for `cluster-mlip select-next-batch` (committee inference).
 train = ["mace-torch>=0.3.16"]
-dev = ["mypy>=1.8"]
+# Needed only for `cluster-mlip pdf-index` (full-text extraction from a local
+# corpus of paper PDFs, see paper_pdfs.py). Everything else in this package
+# stays free of third-party dependencies.
+pdf = ["pypdf>=4.0"]
+dev = ["mypy>=1.8", "pypdf>=4.0"]
 
 [project.scripts]
 cluster-mlip = "cluster_mlip.cli:main"

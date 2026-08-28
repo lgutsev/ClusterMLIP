@@ -341,7 +341,7 @@ class GapReportTests(unittest.TestCase):
             write_gap_report(papers, output)
             text = (output / "literature_gap.md").read_text(encoding="utf-8")
             self.assertIn("1. **Fe9O12 clusters** (2021)", text)
-            self.assertIn("Formulas mentioned: Fe9O12", text)
+            self.assertIn("Formulas mentioned (title/abstract): Fe9O12", text)
             self.assertIn("doi.org/10.1/x", text)
 
     def test_report_is_author_agnostic_and_records_query(self):

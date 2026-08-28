@@ -211,6 +211,39 @@ matching is by formula only, and general "Fe_n"-style series notation without
 a specific number isn't extracted as a composition) -- treat every row as a
 starting point for a human to confirm, not an authoritative claim.
 
+### Cross-checking against the actual PDFs, not just OpenAlex's abstract
+
+When you have the real papers on hand (e.g. a delivery of PDFs from a
+collaborator), `literature-gap`'s formula matching can go deeper than the
+title/abstract OpenAlex provides -- a composition discussed only in a paper's
+body would otherwise be missed entirely.
+
+```bash
+cluster-mlip pdf-index /path/to/papers.zip -o pdf_index
+cluster-mlip literature-gap inventory --orcid 0000-0002-1825-0097 \
+  -o gap --pdf-index pdf_index/pdf_index.json
+```
+
+`pdf-index` accepts a ZIP of PDFs, a folder of already-unpacked PDFs, or a
+single `.pdf` file; it extracts each PDF's full text, mines it for chemical
+formulas the same way `literature-gap` does, and looks for a DOI in the text
+to match each PDF back to the right OpenAlex work. Every PDF gets an entry in
+`pdf_index.json` -- one that couldn't be read (`unreadable`) or had no DOI
+findable in its text (`no_doi_found`, e.g. a scan with no text layer) is
+reported with that status rather than silently dropped. Passing the resulting
+`pdf_index.json` to `literature-gap --pdf-index` unions those full-text
+formulas into a matched paper's own compositions, and the report notes when a
+paper's formulas came from "full text" rather than "title/abstract".
+
+`pdf-index` needs the optional `pdf` extra (`pip install -e '.[pdf]'`,
+pulling in `pypdf`) -- the only third-party dependency anywhere in this
+package, isolated to this one command. Parsing a large PDF corpus is slow and
+CPU-bound but, unlike `literature-gap`, needs no network access, so it belongs
+on an offline compute node rather than a login node.
+`scripts/run_pdf_index_slurm.sh` is a ready-to-submit single-core sbatch
+script for LONI's `single` (serial) queue: `sbatch
+scripts/run_pdf_index_slurm.sh /path/to/papers.zip`.
+
 ## 2. Extract structures
 
 ```bash
@@ -236,19 +269,22 @@ cluster-mlip prepare extracted/seeds.extxyz \
 
 Every seed is retained and receives reproducible Cartesian perturbations so the
 force set is not dominated by near-zero stationary-point forces. Defaults match
-the Gaussian 09-era unrestricted BPW91 protocol used for the legacy database.
-An unperturbed seed first runs:
+the Gaussian 09-era unrestricted BPW91 protocol used for the legacy database,
+with a mixed `Gen` basis (see `basis.py`): `6-31G*` for light/organic elements
+(intended to be upgraded to `6-311G*` later; diffuse functions are not used)
+and an explicit def2-TZVP contraction with the f-shell dropped for Fe. An
+unperturbed seed first runs:
 
 ```text
-#p UBPW91/6-311G* SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc) NoSymm Opt Freq IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine
+#p UBPW91/Gen SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc) NoSymm Opt Freq IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine
 ```
 
 Rattled structures instead use the same method as a non-optimizing SP so their
 off-equilibrium displacements are not erased. Both paths then use `--Link1--`
-and the existing checkpoint for the final diffuse-basis force label:
+and the existing checkpoint for the final force label, on the same Gen basis:
 
 ```text
-#p UBPW91/6-311++G* Force SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc) NoSymm Guess=Read Geom=Checkpoint IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine
+#p UBPW91/Gen Force SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc) NoSymm Guess=Read Geom=Checkpoint IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine
 ```
 
 This is a single-point gradient calculation rather than a strict energy-only

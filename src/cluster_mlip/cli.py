@@ -24,6 +24,7 @@ from .jobs import (
 )
 from .label_report import write_label_report
 from .literature import DEFAULT_KEYWORDS, run_literature_gap
+from .paper_pdfs import load_pdf_compositions, write_pdf_index
 from .mace_glue import MaceUnavailable
 from .manifest import write_experiment_manifest
 from .models import Record, composition_allowed, geometry_signature
@@ -516,7 +517,24 @@ def command_inventory(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_pdf_index(args: argparse.Namespace) -> int:
+    result = write_pdf_index(Path(args.source).resolve(), Path(args.output).resolve())
+    counts = result["counts"]
+    assert isinstance(counts, dict)
+    print(
+        f"Indexed {result['n_pdfs']} PDFs -- "
+        f"ok: {counts.get('ok', 0)}  |  "
+        f"no DOI found: {counts.get('no_doi_found', 0)}  |  "
+        f"unreadable: {counts.get('unreadable', 0)}"
+    )
+    print(f"PDF index: {result['output']}")
+    return 0
+
+
 def command_literature_gap(args: argparse.Namespace) -> int:
+    pdf_compositions = None
+    if args.pdf_index:
+        pdf_compositions = load_pdf_compositions(Path(args.pdf_index).resolve())
     try:
         summary = run_literature_gap(
             Path(args.source).resolve(), Path(args.output).resolve(),
@@ -525,6 +543,7 @@ def command_literature_gap(args: argparse.Namespace) -> int:
             keywords=args.keywords or DEFAULT_KEYWORDS,
             contact_email=args.contact_email, jobs=args.jobs,
             author_name=args.author_name,
+            pdf_compositions=pdf_compositions,
         )
     except (RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -858,7 +877,26 @@ def build_parser() -> argparse.ArgumentParser:
         "-j", "--jobs", type=int, default=1,
         help="if `source` is a raw ZIP folder, parse it with this many worker processes",
     )
+    literature_gap.add_argument(
+        "--pdf-index",
+        help=(
+            "a pdf_index.json from `cluster-mlip pdf-index` -- when given, a paper whose DOI "
+            "matches an indexed PDF is also checked against that PDF's full text, not just "
+            "OpenAlex's title/abstract"
+        ),
+    )
     literature_gap.set_defaults(func=command_literature_gap)
+
+    pdf_index = sub.add_parser(
+        "pdf-index",
+        help=(
+            "extract full text from a local corpus of paper PDFs and mine it for DOIs and "
+            "chemical formulas, for `literature-gap --pdf-index` (offline; needs the `pdf` extra)"
+        ),
+    )
+    pdf_index.add_argument("source", help="a ZIP of PDFs, a folder of PDFs, or a single .pdf file")
+    pdf_index.add_argument("-o", "--output", default="pdf_index")
+    pdf_index.set_defaults(func=command_pdf_index)
     return parser
 
 
