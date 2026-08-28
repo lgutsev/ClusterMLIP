@@ -135,6 +135,7 @@ def command_extract_slurm(args: argparse.Namespace) -> int:
         gaussian_module=args.gaussian_module,
         job_name=args.job_name,
         cluster_mlip_command=args.cluster_mlip_command,
+        runtime_env=args.runtime_env,
     )
     plan = prepare_extract_slurm(
         Path(args.source),
@@ -673,6 +674,10 @@ def build_parser() -> argparse.ArgumentParser:
     extract_slurm.add_argument(
         "--cluster-mlip-command", default="cluster-mlip",
         help="executable available inside the Slurm job (default: cluster-mlip from exported PATH)",
+    )
+    extract_slurm.add_argument(
+        "--runtime-env", default="/project/lgutsev/env/cluster_mlip_runtime",
+        help="conda environment activated inside the batch job; pass an empty string to disable",
     )
     extract_slurm.add_argument(
         "--submit", action="store_true",

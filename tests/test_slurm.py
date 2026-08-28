@@ -28,6 +28,7 @@ class SlurmPreparationTests(unittest.TestCase):
         help_text = extract_slurm.format_help()
         self.assertIn("--submit", help_text)
         self.assertIn("--require-elements", help_text)
+        self.assertIn("--runtime-env", help_text)
 
     def test_prepares_reproducible_extract_job(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -46,6 +47,8 @@ class SlurmPreparationTests(unittest.TestCase):
             self.assertIn("#SBATCH --cpus-per-task=1", sbatch)
             self.assertIn("#SBATCH --time=08:00:00", sbatch)
             self.assertIn("module load gaussian/g16-c01", sbatch)
+            self.assertIn("conda activate \"$runtime_env\"", sbatch)
+            self.assertIn("/project/lgutsev/env/cluster_mlip_runtime", sbatch)
             self.assertIn("--elements Fe,O --max-atoms 20", sbatch)
             self.assertEqual(plan["source"], str(source.resolve()))
             self.assertEqual(

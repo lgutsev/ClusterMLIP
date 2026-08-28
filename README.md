@@ -285,7 +285,10 @@ exact extraction filters, scheduler configuration, and source SHA-256. Without
 with `./campaigns/FenOm_Warehouse2/extracted/submit_extract.sh`. Scheduler logs
 are written beside the plan as `extract-<jobid>.stdout` and `.stderr`. The
 Gaussian module is loaded by default so archived binary checkpoints can use
-`formchk`; pass `--gaussian-module ''` when that support is unnecessary.
+`formchk`; pass `--gaussian-module ''` when that support is unnecessary. The
+job explicitly activates `/project/lgutsev/env/cluster_mlip_runtime` rather
+than assuming a login-shell activation survives `sbatch`; override it with
+`--runtime-env` if the environment moves.
 
 ## 3. Prepare consistent Gaussian labels
 

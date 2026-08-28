@@ -50,6 +50,7 @@ class ExtractSlurmConfig:
     gaussian_module: str = "gaussian/g16-c01"
     job_name: str = "cluster_mlip_extract"
     cluster_mlip_command: str = "cluster-mlip"
+    runtime_env: str = "/project/lgutsev/env/cluster_mlip_runtime"
 
 
 class ExtractSlurmPlan(TypedDict):
@@ -115,13 +116,34 @@ def _extract_sbatch_script(
         *extract_arguments,
     ]
     module_line = (
-        f"module load {shlex.quote(config.gaussian_module)}" if config.gaussian_module else ""
+        f"set +u; module load {shlex.quote(config.gaussian_module)}; set -u"
+        if config.gaussian_module
+        else ""
     )
+    runtime_env = shlex.quote(config.runtime_env)
     source_message = shlex.quote(f"Source: {source}")
     output_message = shlex.quote(f"Output: {output}")
     body = f"""
 set -euo pipefail
 
+runtime_env={runtime_env}
+if [[ -n $runtime_env ]]; then
+  set +u
+  for conda_sh in "$HOME"/miniforge3/etc/profile.d/conda.sh \
+                  "$HOME"/miniconda3/etc/profile.d/conda.sh \
+                  "$HOME"/anaconda3/etc/profile.d/conda.sh; do
+    if [[ -f $conda_sh ]]; then
+      source "$conda_sh"
+      break
+    fi
+  done
+  if command -v conda >/dev/null 2>&1 && [[ -d $runtime_env ]]; then
+    conda activate "$runtime_env"
+  elif [[ -d $runtime_env/bin ]]; then
+    export PATH="$runtime_env/bin:$PATH"
+  fi
+  set -u
+fi
 {module_line}
 printf '%s\n' {source_message}
 printf '%s\n' {output_message}
