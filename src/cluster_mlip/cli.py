@@ -676,7 +676,7 @@ def build_parser() -> argparse.ArgumentParser:
     extract_slurm.add_argument("--max-atoms", type=int)
     extract_slurm.add_argument("--types", nargs="+", help="keep selected config_type values")
     extract_slurm.add_argument("--time", default="12:00:00")
-    extract_slurm.add_argument("--partition", default="checkpt")
+    extract_slurm.add_argument("--partition", default="single")
     extract_slurm.add_argument("--account", default="loni_perovsk27")
     extract_slurm.add_argument("--gaussian-module", default="gaussian/g16-c01")
     extract_slurm.add_argument("--job-name", default="cluster_mlip_extract")

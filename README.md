@@ -272,12 +272,14 @@ same extraction as a persistent, auditable Slurm job:
 cluster-mlip extract-slurm FenOm_Warehouse2.zip \
   -o campaigns/FenOm_Warehouse2/extracted \
   --time 12:00:00 \
-  --partition checkpt \
+  --partition single \
   --account loni_perovsk27 \
   --submit
 ```
 
-The extractor is currently sequential, so this intentionally requests one CPU.
+The extractor is currently sequential, so this intentionally requests one CPU
+on LONI's `single` partition; it does not use `workq`, which allocates complete
+64-core nodes.
 The output directory retains `run_extract.sbatch`, `submit_extract.sh`, and
 `extract_slurm_plan.json`; the plan records the absolute source/output paths,
 exact extraction filters, scheduler configuration, and source SHA-256. Without

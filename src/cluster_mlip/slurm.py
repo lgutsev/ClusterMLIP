@@ -45,7 +45,7 @@ class SlurmPlan(TypedDict):
 @dataclass(frozen=True)
 class ExtractSlurmConfig:
     time_limit: str = "12:00:00"
-    partition: str = "checkpt"
+    partition: str = "single"
     account: str = "loni_perovsk27"
     gaussian_module: str = "gaussian/g16-c01"
     job_name: str = "cluster_mlip_extract"

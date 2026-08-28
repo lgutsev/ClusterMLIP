@@ -45,6 +45,7 @@ class SlurmPreparationTests(unittest.TestCase):
             sbatch = (output / "run_extract.sbatch").read_text()
             self.assertIn("#SBATCH --job-name=fenom_extract", sbatch)
             self.assertIn("#SBATCH --cpus-per-task=1", sbatch)
+            self.assertIn("#SBATCH --partition=single", sbatch)
             self.assertIn("#SBATCH --time=08:00:00", sbatch)
             self.assertIn("module load gaussian/g16-c01", sbatch)
             self.assertIn("conda activate \"$runtime_env\"", sbatch)
