@@ -10,11 +10,26 @@
 #SBATCH --error=pdf_index-%j.stderr
 set -euo pipefail
 
-# Explicitly activate the runtime environment -- sbatch's non-interactive
-# shell does not inherit a `conda activate` you ran before submitting (see
-# _activate_env.sh). Override with CLUSTER_MLIP_ENV if your env lives
+# Explicitly activate the runtime environment. `sbatch` copies this script
+# into a spool directory and runs it from there in a non-interactive,
+# non-login shell -- so neither a `conda activate` you ran before
+# submitting, nor sourcing a sibling file by relative path (the script's
+# own location is no longer this repo's scripts/ folder once Slurm has
+# copied it), reaches the job. Override CLUSTER_MLIP_ENV if your env lives
 # somewhere other than /project/lgutsev/env/cluster_mlip_runtime.
-source "$(dirname "${BASH_SOURCE[0]}")/_activate_env.sh"
+CLUSTER_MLIP_ENV=${CLUSTER_MLIP_ENV:-/project/lgutsev/env/cluster_mlip_runtime}
+for conda_sh in "$HOME"/miniforge3/etc/profile.d/conda.sh \
+                "$HOME"/miniconda3/etc/profile.d/conda.sh \
+                "$HOME"/anaconda3/etc/profile.d/conda.sh; do
+  if [ -f "$conda_sh" ]; then
+    # shellcheck disable=SC1090
+    source "$conda_sh"
+    break
+  fi
+done
+if command -v conda >/dev/null 2>&1 && [ -d "$CLUSTER_MLIP_ENV" ]; then
+  conda activate "$CLUSTER_MLIP_ENV"
+fi
 
 # Single-core batch job for `cluster-mlip pdf-index` against a local corpus
 # of paper PDFs (a ZIP of PDFs, a folder of them, or a single .pdf). Text

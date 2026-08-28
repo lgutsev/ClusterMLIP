@@ -137,13 +137,14 @@ both overridable on the `sbatch` command line without editing the file):
 not bundled into this job -- it needs live internet, which compute nodes
 typically do not have; run it separately afterward from a login node.
 
-All `scripts/run_*_slurm.sh` jobs source `scripts/_activate_env.sh` first,
-which activates `/project/lgutsev/env/cluster_mlip_runtime` explicitly --
-`sbatch`'s non-interactive shell does **not** inherit a `conda activate` you
-ran before submitting, only plain environment variables, so without this the
-job silently falls back to the base Python and fails with `No module named
-'cluster_mlip'`. Override with `CLUSTER_MLIP_ENV=/other/path sbatch ...` if
-your environment lives somewhere else.
+Every `scripts/run_*_slurm.sh` job activates
+`/project/lgutsev/env/cluster_mlip_runtime` explicitly at the top of the
+script -- `sbatch` copies the script into a spool directory and runs it
+there in a non-interactive shell, so neither a `conda activate` you ran
+before submitting nor sourcing a sibling file by relative path reaches the
+job; without this it silently falls back to the base Python and fails with
+`No module named 'cluster_mlip'`. Override with `CLUSTER_MLIP_ENV=/other/path
+sbatch ...` if your environment lives somewhere else.
 
 ```bash
 cluster-mlip literature-gap inventory \
