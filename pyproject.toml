@@ -10,8 +10,10 @@ requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
-# Needed only for `configs/train_from_scratch.sh` / `configs/finetune_foundation.sh`
-# and for `cluster-mlip select-next-batch` (committee inference).
+# Needed only to *run* the scripts `cluster-mlip train` generates (and the
+# frozen `configs/*.sh` references), and for `cluster-mlip evaluate` /
+# `select-next-batch` (committee inference). `cluster-mlip train` itself only
+# renders the command line and needs nothing extra.
 train = ["mace-torch>=0.3.16"]
 # Needed only for `cluster-mlip pdf-index` (full-text extraction from a local
 # corpus of paper PDFs, see paper_pdfs.py). Everything else in this package
