@@ -46,6 +46,7 @@ from .slurm import (
     submit_extract_slurm,
 )
 from .stratify import STRATA_FIELDS
+from .training import DEFAULT_SEED, TrainingConfig, write_training_campaign
 
 
 def _elements(value: str | None) -> set[str] | None:
@@ -523,6 +524,54 @@ def command_evaluate(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_train(args: argparse.Namespace) -> int:
+    config = TrainingConfig(
+        dataset_dir=Path(args.dataset),
+        output_dir=Path(args.output),
+        run_name=args.run_name,
+        mode="finetune" if args.finetune else "scratch",
+        seeds=tuple(args.seed) if args.seed else (DEFAULT_SEED,),
+        foundation_model=args.foundation_model,
+        e0s=args.e0s,
+        device=args.device,
+        multiheads_finetuning=args.multiheads_finetuning,
+        forces_weight=args.forces_weight,
+        energy_weight=args.energy_weight,
+        max_num_epochs=args.max_num_epochs,
+        spin_num_classes=args.spin_num_classes,
+        spin_offset=args.spin_offset,
+        charge_num_classes=args.charge_num_classes,
+        charge_offset=args.charge_offset,
+        allow_mixed_method=args.allow_mixed_method,
+        force=args.force,
+        extra_args=tuple(args.extra_arg or ()),
+    )
+    try:
+        plan = write_training_campaign(config)
+    except (FileNotFoundError, FileExistsError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    output = Path(args.output).resolve()
+    print(
+        f"Wrote {len(plan['seed_runs'])} training script(s) "
+        f"({plan['mode']}, {plan['model']}"
+        + (f", foundation={plan['foundation_model']}" if plan["foundation_model"] else "")
+        + ") to " + str(output)
+    )
+    print(
+        f"  charge range {plan['charge_range']}, multiplicity range "
+        f"{plan['multiplicity_range']}, label routes: {len(plan['label_routes'])}"
+    )
+    for run in plan["seed_runs"]:
+        print(f"  {run['script']}")
+    for warning in plan["warnings"]:
+        print(f"  warning: {warning}", file=sys.stderr)
+    if plan["mode"] == "finetune":
+        print(f"  read {output / 'PREFLIGHT.md'} before submitting")
+    print(f"  manifest: {output / 'train_manifest.json'}")
+    return 0
+
+
 def command_select_next_batch(args: argparse.Namespace) -> int:
     if len(args.models) < 2:
         print("error: --models needs at least two checkpoints to form a committee", file=sys.stderr)
@@ -889,6 +938,50 @@ def build_parser() -> argparse.ArgumentParser:
         help="skip the five stratify-class physical sanity checks (they're cheap, but this is a fast path)",
     )
     evaluate.set_defaults(func=command_evaluate)
+
+    train = sub.add_parser(
+        "train",
+        help="generate a charge/spin MACE training campaign from a `collect` dataset",
+    )
+    train.add_argument("dataset", help="dataset directory from `collect` (train/valid/test.extxyz)")
+    train.add_argument("-o", "--output", default="models/run", help="campaign output directory")
+    train.add_argument("--run-name", default="cluster_charge_spin", dest="run_name")
+    train.add_argument(
+        "--seed", type=int, action="append",
+        help="training seed; repeat to generate a committee (default: one seed)",
+    )
+    train.add_argument(
+        "--finetune", action="store_true",
+        help="fine-tune a foundation model instead of training from scratch",
+    )
+    train.add_argument(
+        "--foundation-model", default="polar-1-m", dest="foundation_model",
+        help="foundation checkpoint for --finetune: polar-1-{s,m,l} (native charge/spin, "
+        "wB97M-V), mace-omol, small/medium/large, or a path",
+    )
+    train.add_argument(
+        "--multiheads-finetuning", action="store_true", dest="multiheads_finetuning",
+        help="use multihead-replay fine-tuning (needs --pt_train_file via --extra-arg)",
+    )
+    train.add_argument("--e0s", default="average", help="MACE --E0s (default: average)")
+    train.add_argument("--device", default="cuda")
+    train.add_argument("--energy-weight", type=float, default=1.0, dest="energy_weight")
+    train.add_argument("--forces-weight", type=float, default=100.0, dest="forces_weight")
+    train.add_argument("--max-num-epochs", type=int, default=None, dest="max_num_epochs")
+    train.add_argument("--spin-num-classes", type=int, default=101, dest="spin_num_classes")
+    train.add_argument("--spin-offset", type=int, default=0, dest="spin_offset")
+    train.add_argument("--charge-num-classes", type=int, default=201, dest="charge_num_classes")
+    train.add_argument("--charge-offset", type=int, default=100, dest="charge_offset")
+    train.add_argument(
+        "--allow-mixed-method", action="store_true", dest="allow_mixed_method",
+        help="proceed even if the dataset mixes force-label routes (unsound unless equivalent)",
+    )
+    train.add_argument("--force", action="store_true", help="overwrite a non-empty output directory")
+    train.add_argument(
+        "--extra-arg", action="append", dest="extra_arg",
+        help="append a raw flag to every mace_run_train command (repeatable)",
+    )
+    train.set_defaults(func=command_train)
 
     select_next_batch = sub.add_parser(
         "select-next-batch",

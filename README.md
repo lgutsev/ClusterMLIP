@@ -709,29 +709,61 @@ rattle that blew up a geometry shows up here before it ever reaches training.
 ## 5. Train from scratch
 
 ```bash
-bash configs/train_from_scratch.sh dataset
+cluster-mlip train dataset -o models/scratch_v1 --seed 11 --seed 23
 ```
 
-The initial configuration is a two-interaction `ScaleShiftMACE` with graph-level
-categorical embeddings for total charge and spin multiplicity. It uses energy
-and force losses and no stress target because these are isolated clusters.
-Hyperparameters are a documented baseline, not a claim of final convergence.
+`train` reads a `collect` dataset and writes one `seed_<N>/run.sh` per `--seed`
+(repeat the flag for a committee), a `train_manifest.json` recording the
+resolved `mace_run_train` command line, the dataset file checksums, the
+charge/multiplicity coverage, and the distinct force-label routes, and a
+`run_all_seeds.sh` wrapper. The generated `run.sh` is meant to be inspected,
+then run on a GPU with the `[train]` extra installed.
+
+The from-scratch configuration is a two-interaction `ScaleShiftMACE` with
+graph-level categorical embeddings for total charge and spin multiplicity
+(`--embedding_specs` + `--use_embedding_readout`), energy and force losses, and
+no stress target because these are isolated clusters. Hyperparameters
+reproduce `configs/train_from_scratch.sh`, which stays as the frozen reference;
+they are a documented baseline, not a claim of final convergence.
+
+Some choices are locked because they define "isolated-cluster Gaussian MACE"
+and are common ways to get a run subtly wrong: `--default_dtype=float64` (the
+Gaussian labels are effectively exact), `--stress_weight=0`,
+`--energy_key=REF_energy` / `--forces_key=REF_forces`, and a refusal to train
+one head on a dataset that mixes force-label routes unless
+`--allow-mixed-method` is passed. A charge or multiplicity outside the
+embedding's class range is a hard error, not a silent mis-bin; widen it with
+`--charge-num-classes` / `--spin-num-classes` / `--charge-offset`.
 
 ### Fine-tuning a foundation model (deferred, unverified)
 
-`configs/finetune_foundation.sh` is a starting point for the fine-tuning
-milestone the top of this README defers, written from MACE's documented
-naive-fine-tuning flags (`--foundation_model`, low `--lr`, few epochs) rather
-than from a run that has actually been executed against this project's data.
-It carries the open question in a comment: whether `--foundation_model`
-tolerates the project's `--embedding_specs`/`--use_embedding_readout`
-charge/spin modules being attached to a checkpoint that was never trained
-with them. Smoke-test on a handful of structures before a real allocation,
-the same way the spin workflow needs a one-case check first.
-
 ```bash
-FOUNDATION_MODEL=medium bash configs/finetune_foundation.sh dataset
+cluster-mlip train dataset -o models/ft_polar_v1 --finetune --foundation-model polar-1-m
 ```
+
+With `--finetune`, `train` targets a foundation checkpoint instead of training
+from scratch, and writes a `PREFLIGHT.md` next to the run scripts. The
+foundation model determines how charge and spin are handled:
+
+- **`polar-1-{s,m,l}`** ([MACE-POLAR-1](https://arxiv.org/abs/2602.19411), a
+  polarisable electrostatic foundation model trained on OMol25 at wB97M-V) and
+  **`mace-omol`** carry *native* total-charge and total-spin conditioning, so
+  the fine-tune passes `charge`/`spin` through but does **not** attach custom
+  `--embedding_specs`. `polar-1-*` selects `--model=PolarMACE` and needs the
+  `graph_electrostatics` package (see MACE's "Electrostatic MACE" guide).
+- **`small` / `medium` / `large`** (the mace-mp-0 materials family) were
+  pretrained without a charge/spin channel, so the fine-tune keeps the custom
+  `--embedding_specs` modules. Whether a given `mace-torch` tolerates new
+  embedding modules on a foundation checkpoint is unverified — the open
+  question `configs/finetune_foundation.sh` already carries.
+
+In every case the foundation was trained at a different electronic-structure
+method than the legacy UBPW91/Gen labels, so a naive fine-tune shifts the whole
+model toward the foundation's method — keep the scratch model as the control,
+and smoke-test on a handful of structures before a real allocation, the same
+way the spin workflow needs a one-case check first.
+`configs/finetune_foundation.sh` remains as the frozen reference for the
+generic-foundation path.
 
 ## 6. Evaluate a trained model
 
@@ -846,7 +878,9 @@ python -m pip install -e '.[dev]' && mypy src
 
 The fixtures exercise minimum, TS, IRC, checkpoint, warehouse, force-table,
 grouped job, nested-ZIP analysis, label-report, evaluation, active-learning
-disagreement-ranking, fragment-spec shape-validation, parallel-scan,
+disagreement-ranking, training-campaign generation (locked-argument and
+embedding-coverage checks, mixed-method refusal, scratch/POLAR/generic-
+foundation rendering), fragment-spec shape-validation, parallel-scan,
 geometry-stratification (bonding graph/coordination/compactness/PES-region/
 charge-spin classification, stratified `grouped_split`), and physical-check
 paths. CI (`.github/workflows/tests.yml`) runs the unit tests on Python
