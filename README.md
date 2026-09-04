@@ -394,6 +394,19 @@ Submit from anywhere with the generated wrapper:
 ./gaussian_jobs/gaussian_batch_status.sh
 ```
 
+Submit only an inclusive range when piloting a campaign or isolating a
+problematic region:
+
+```bash
+./gaussian_jobs/submit_gaussian_batches.sh --start 1 --end 8
+./gaussian_jobs/submit_gaussian_batches.sh --start 9 --end 16
+```
+
+Scheduler overrides may follow `--`, for example
+`submit_gaussian_batches.sh --start 1 --end 4 -- --time=24:00:00`.
+Range submission retains the normal `RUN_POLICY=resume` behavior, so completed
+folders inside the selected range are skipped.
+
 For a persistent, job-by-job audit table rather than only batch totals, run:
 
 ```bash

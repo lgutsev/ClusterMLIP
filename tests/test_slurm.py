@@ -1,6 +1,7 @@
 import csv
 import hashlib
 import json
+import os
 import platform
 from pathlib import Path
 import subprocess
@@ -158,6 +159,69 @@ class SlurmPreparationTests(unittest.TestCase):
                 writer.writerow({"job_id": "stage1", "stage_index": "1", "input": "ladder.gjf"})
             plan = prepare_slurm_batches(campaign, SlurmConfig())
             self.assertEqual(plan["input_count"], 1)
+
+    def test_campaign_submitter_accepts_inclusive_batch_range(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            campaign = self._campaign(root, count=7)
+            prepare_slurm_batches(
+                campaign,
+                SlurmConfig(jobs_per_batch=3, concurrent_jobs=2, cpus_per_job=8),
+            )
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            fake_sbatch = fake_bin / "sbatch"
+            fake_sbatch.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf '%s\\n' \"$*\" >> \"$SBATCH_LOG\"\n"
+                "echo 'Submitted batch job 12345'\n",
+                encoding="utf-8",
+            )
+            fake_sbatch.chmod(0o755)
+            submission_log = root / "sbatch.log"
+            environment = os.environ.copy()
+            environment.update({
+                "PATH": f"{fake_bin}:{environment['PATH']}",
+                "SBATCH_LOG": str(submission_log),
+            })
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(campaign / "submit_gaussian_batches.sh"),
+                    "--start", "2",
+                    "--end", "3",
+                    "--",
+                    "--qos=debug",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            submissions = submission_log.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(submissions), 2)
+            self.assertNotIn("batch_0001", "\n".join(submissions))
+            self.assertIn("batch_0002", submissions[0])
+            self.assertIn("batch_0003", submissions[1])
+            self.assertTrue(all("--qos=debug" in line for line in submissions))
+            self.assertIn("Submitting batch range 2-3 of 3", result.stdout)
+
+    def test_campaign_submitter_rejects_invalid_batch_range(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign = self._campaign(Path(tmp), count=4)
+            prepare_slurm_batches(campaign, SlurmConfig(jobs_per_batch=2))
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(campaign / "submit_gaussian_batches.sh"),
+                    "--start", "2",
+                    "--end", "3",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("exceeds the final batch", result.stderr)
 
     @unittest.skipIf(
         platform.system() == "Windows",

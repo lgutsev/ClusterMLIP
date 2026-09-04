@@ -478,9 +478,58 @@ set -euo pipefail
 
 campaign_root=$(cd -- "$(dirname -- "${{BASH_SOURCE[0]}}")" && pwd -P)
 run_policy=${{RUN_POLICY:-resume}}
+start_batch=1
+end_batch={batch_count}
+sbatch_args=()
+
+usage() {{
+  cat <<'EOF'
+Usage: submit_gaussian_batches.sh [--start N] [--end N] [-- SBATCH_ARGS...]
+
+Submit an inclusive range of generated Gaussian batch folders. The default is
+the complete campaign. Unrecognized arguments are forwarded to sbatch for
+backward compatibility; use -- to separate them unambiguously.
+EOF
+}}
+
+while (( $# )); do
+  case "$1" in
+    --start)
+      (( $# >= 2 )) || {{ echo "--start requires a batch number" >&2; exit 2; }}
+      start_batch=$2
+      shift 2
+      ;;
+    --end)
+      (( $# >= 2 )) || {{ echo "--end requires a batch number" >&2; exit 2; }}
+      end_batch=$2
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      sbatch_args+=("$@")
+      break
+      ;;
+    *)
+      sbatch_args+=("$1")
+      shift
+      ;;
+  esac
+done
+
+[[ $start_batch =~ ^[0-9]+$ ]] || {{ echo "--start must be a positive integer" >&2; exit 2; }}
+[[ $end_batch =~ ^[0-9]+$ ]] || {{ echo "--end must be a positive integer" >&2; exit 2; }}
+(( start_batch >= 1 )) || {{ echo "--start must be at least 1" >&2; exit 2; }}
+(( end_batch <= {batch_count} )) || {{ echo "--end exceeds the final batch ({batch_count})" >&2; exit 2; }}
+(( start_batch <= end_batch )) || {{ echo "--start must not exceed --end" >&2; exit 2; }}
+
 submitted=0
 skipped=0
-for batch_number in $(seq 1 {batch_count}); do
+echo "Submitting batch range $start_batch-$end_batch of {batch_count} (policy=$run_policy)"
+for ((batch_number=start_batch; batch_number<=end_batch; batch_number++)); do
   batch_dir=$(printf '%s/slurm_batches/batch_%04d' "$campaign_root" "$batch_number")
   if [[ $run_policy == resume ]]; then
     incomplete=0
@@ -499,7 +548,7 @@ for batch_number in $(seq 1 {batch_count}); do
       continue
     fi
   fi
-  result=$("$batch_dir/submit.sh" "$@")
+  result=$("$batch_dir/submit.sh" "${{sbatch_args[@]}}")
   echo "$(basename -- "$batch_dir"): $result"
   ((submitted += 1))
 done
