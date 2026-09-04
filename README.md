@@ -582,9 +582,10 @@ still be characterized from local spins and `<S^2>`.
 
 The default route is the Gaussian 09-era protocol used for the original work:
 unrestricted BPW91/6-311++G*, the VShift/NoIncFock convergence controls, NoSymm,
-`Opt=(RFO,MaxCycle=70)`, the historical IOP settings, and UltraFine integration.
-Regular Mulliken population analysis is added so the electronic root can be
-audited without the much larger all-orbital dump produced by `Pop=Full`.
+plain `Opt`, the historical IOP settings, and UltraFine integration. No explicit
+`Pop` option is requested: population analysis is not needed to obtain SCF
+energies or optimization gradients, and Gaussian's normal unrestricted output
+is parsed opportunistically when atomic spin densities are present.
 These small spin-campaign clusters use Gaussian's built-in basis directly,
 without a `Gen` basis block. It does not use wB97M-V/def2TZVPP.
 
