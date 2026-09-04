@@ -17,10 +17,11 @@ from .jobs import human_job_stem
 from .models import Atom, Record
 
 
-# Basis is Gen (see basis.py): 6-31G* for light elements, an explicit
-# def2-TZVP-without-f contraction for Fe.
+# The archived spin-refinement jobs use Gaussian 09's built-in 6-311++G*
+# directly for these small Fe/O/N clusters.  A user-supplied /Gen route is
+# still supported and receives the mixed basis block from basis.py.
 DEFAULT_SPIN_ROUTE = (
-    "#p UBPW91/Gen SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc) "
+    "#p UBPW91/6-311++G* SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc) "
     "NoSymm Opt Freq IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine "
     "Stable=Opt Pop=(Full,SpinDensity)"
 )
@@ -327,6 +328,10 @@ def _route_with(route: str, *keywords: str) -> str:
     return f"{route} {' '.join(keywords)}".strip()
 
 
+def _route_uses_gen_basis(route: str) -> bool:
+    return re.search(r"/gen(?:\s|$)", route, flags=re.IGNORECASE) is not None
+
+
 def _link_header(checkpoint: str, memory: str, nproc: int, old_checkpoint: str | None = None) -> list[str]:
     lines = []
     if old_checkpoint:
@@ -376,7 +381,11 @@ def render_ladder_input(
     for multiplicity in sequence:
         validate_multiplicity(record, multiplicity)
     chain = f"{record.record_id}-ladder-m{high_spin}-m{sequence[-1]}"
-    gen_basis = render_gen_basis({atom.symbol for atom in record.atoms}).rstrip("\n")
+    gen_basis = (
+        render_gen_basis({atom.symbol for atom in record.atoms}).rstrip("\n")
+        if _route_uses_gen_basis(route)
+        else None
+    )
     parts: list[str] = []
     rows: list[dict[str, str]] = []
     previous_checkpoint: str | None = None
@@ -401,13 +410,12 @@ def render_ladder_input(
         ])
         if stage == 0:
             parts.extend(_coordinates(record.atoms))
-        # Gaussian's molecule specification must be terminated by a blank
-        # line before a Gen basis section.  This is required both when the
-        # first stage supplies Cartesian coordinates and when a later Link1
-        # stage obtains its geometry from the checkpoint.
+        # Terminate the molecular specification whether Cartesian coordinates
+        # were supplied or Geom=Checkpoint is active.  A custom Gen basis, if
+        # requested explicitly, follows only after this separator.
         parts.append("")
-        parts.append(gen_basis)
-        parts.append("")
+        if gen_basis is not None:
+            parts.extend([gen_basis, ""])
         lineage.append(f"m{multiplicity}:{checkpoint}")
         rows.append({
             "job_id": job_id,
@@ -582,10 +590,12 @@ def render_fragment_input(
         f"{record.charge} {target} {fragment_state}",
     ])
     lines.extend(_coordinates(record.atoms, atom_map))
-    # Terminate the fragment-labelled molecular specification before Gen.
+    # Terminate the fragment-labelled molecular specification.  The archived
+    # default uses built-in 6-311++G* and therefore needs no basis block.
     lines.append("")
-    lines.append(render_gen_basis({atom.symbol for atom in record.atoms}).rstrip("\n"))
-    lines.append("")
+    if _route_uses_gen_basis(route):
+        lines.append(render_gen_basis({atom.symbol for atom in record.atoms}).rstrip("\n"))
+        lines.append("")
     row = {
         "job_id": job_id,
         "chain_id": job_id,
@@ -611,7 +621,7 @@ def render_fragment_input(
         "fragment_count": str(len(states)),
         "fragment_spec_sha256": _canonical_sha256(specification),
     }
-    return "\n".join(lines), row
+    return "\n".join(lines) + "\n", row
 
 
 def write_spin_jobs(

@@ -252,19 +252,27 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(text.count("--Link1--"), 4)
         self.assertIn("Geom=Checkpoint Guess=(Read,Always)", text)
         self.assertIn("%oldchk=fe2-ladder-m9-m1-s00-m9.chk", text)
-        self.assertIn("UBPW91/Gen", DEFAULT_SPIN_ROUTE)
+        self.assertIn("UBPW91/6-311++G*", DEFAULT_SPIN_ROUTE)
         self.assertIn("VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc", DEFAULT_SPIN_ROUTE)
         self.assertNotIn("wB97M-V", DEFAULT_SPIN_ROUTE)
-        self.assertEqual(text.count("Fe     0"), 5)
+        self.assertEqual(text.count("6-311++G*"), 5)
+        self.assertNotIn("Fe     0", text)
         first_coordinate = [
             line
             for line in text.splitlines()
             if line.startswith("Fe ") and len(line.split()) == 4
         ][-1]
-        self.assertIn(f"{first_coordinate}\n\nFe     0", text)
-        self.assertIn("0 7\n\nFe     0", text)
+        self.assertIn(f"{first_coordinate}\n\n", text)
+        self.assertIn("0 7\n\n", text)
         self.assertNotIn("6-31G*", text)
         self.assertNotIn("6-311G*", text)
+
+    def test_spin_ladder_keeps_gen_override_compatible(self):
+        record = Record("feo", "legacy", [Atom("Fe", 0, 0, 0), Atom("O", 2, 0, 0)], 0, 5, "minimum")
+        route = DEFAULT_SPIN_ROUTE.replace("/6-311++G*", "/Gen")
+        text, _ = render_ladder_input(record, 5, [3], route=route)
+        self.assertEqual(text.count("O     0"), 2)
+        self.assertEqual(text.count("Fe     0"), 2)
 
     def test_fe10_spin_flip_ladder_has_complete_checkpoint_lineage(self):
         record = Record(
@@ -503,7 +511,9 @@ class PipelineTests(unittest.TestCase):
         last_coordinate = next(
             line for line in text.splitlines() if line.startswith("Fe(Fragment=2)")
         )
-        self.assertIn(f"{last_coordinate}\n\nFe     0", text)
+        self.assertIn(f"{last_coordinate}\n\n", text)
+        self.assertNotIn("Fe     0", text)
+        self.assertIn("UBPW91/6-311++G*", text)
         self.assertEqual(row["pathway"], "fragment_guess")
 
     def test_fragment_spins_must_reproduce_total_multiplicity(self):
