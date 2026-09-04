@@ -222,12 +222,12 @@ def infer_automatic_fe_spin_plans(
         high_spin = reliable_multiplicities[0]
         parallel_at_high = [record for record in parallel if record.multiplicity == high_spin]
         if parallel_at_high:
-            evidence = tuple(sorted(record.record_id for record in parallel_at_high))
+            evidence = tuple(sorted({record.record_id for record in parallel_at_high}))
             inference = "observed_all_resolved_fe_parallel"
         elif len(reliable_multiplicities) >= 2:
-            evidence = tuple(sorted(
+            evidence = tuple(sorted({
                 record.record_id for record in reliable if record.multiplicity == high_spin
-            ))
+            }))
             inference = "highest_observed_group_multiplicity"
         else:
             for record in members:
@@ -774,7 +774,34 @@ def write_automatic_fe_spin_jobs(
     nproc: int = 16,
 ) -> int:
     """Prepare one data-inferred high-spin-to-archived-target ladder per Fe record."""
-    plans, skipped = infer_automatic_fe_spin_plans(records)
+    inferred_plans, inferred_skipped = infer_automatic_fe_spin_plans(records)
+
+    # A warehouse often contains the same Gaussian state more than once: for
+    # example, duplicate document/log exports or repeated charge/multiplicity
+    # sections. The spin inventory intentionally retains those observations,
+    # but an automatic campaign must prepare only one deterministic ladder for
+    # an identical record/target. Collapsing by plan_id is safe because plan_id
+    # includes the record identity, formula/charge group, inferred high spin,
+    # target multiplicity, and inference method. Distinct geometries, charges,
+    # multiplicities, or preparation decisions therefore remain separate.
+    plans_by_id: dict[str, AutomaticSpinPlan] = {}
+    for plan in inferred_plans:
+        previous = plans_by_id.get(plan.plan_id)
+        if previous is not None:
+            if _source_geometry_sha256(previous.record) != _source_geometry_sha256(plan.record):
+                raise ValueError(
+                    f"spin plan identity collision for different geometries: {plan.plan_id}"
+                )
+            continue
+        plans_by_id[plan.plan_id] = plan
+    plans = list(plans_by_id.values())
+
+    skipped_by_identity: dict[tuple[str, str], SkippedAutomaticSpinPlan] = {}
+    for item in inferred_skipped:
+        skipped_by_identity.setdefault((item.record.record_id, item.reason), item)
+    skipped = list(skipped_by_identity.values())
+    duplicate_plans_collapsed = len(inferred_plans) - len(plans)
+    duplicate_skips_collapsed = len(inferred_skipped) - len(skipped)
     if output.exists():
         existing = sorted(path.name for path in output.iterdir())
         if existing:
@@ -886,7 +913,10 @@ def write_automatic_fe_spin_jobs(
         writer.writeheader()
         writer.writerows(plan_rows)
     plan_summary = {
-        "total_archive_records": len(plan_rows),
+        "total_archive_records": len(records),
+        "unique_archive_records": len(plan_rows),
+        "duplicate_planned_records_collapsed": duplicate_plans_collapsed,
+        "duplicate_skipped_records_collapsed": duplicate_skips_collapsed,
         "planned_records": len(plans),
         "skipped_records": len(skipped),
         "by_inference": dict(sorted(collections.Counter(
@@ -930,6 +960,8 @@ def write_automatic_fe_spin_jobs(
         "automatic_from_real_data": True,
         "planned_parent_count": len(plans),
         "skipped_parent_count": len(skipped),
+        "duplicate_planned_records_collapsed": duplicate_plans_collapsed,
+        "duplicate_skipped_records_collapsed": duplicate_skips_collapsed,
         "high_spin_inference_precedence": [
             "observed_all_resolved_fe_parallel",
             "highest_observed_group_multiplicity",

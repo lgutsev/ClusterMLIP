@@ -355,6 +355,32 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(plans, [])
         self.assertEqual(skipped[0].reason, "insufficient_real_data_no_parallel_reference")
 
+    def test_automatic_campaign_collapses_duplicate_inventory_records(self):
+        atoms = [Atom("Fe", float(index), 0.0, 0.0) for index in range(2)] + [
+            Atom("O", float(index), 2.0, 0.0) for index in range(2)
+        ]
+        high = Record(
+            "fe2o2-m9", "warehouse/fe2o2_9.log", atoms, 0, 9,
+            "minimum", metadata={"state_inference": "filename"},
+        )
+        low = Record(
+            "fe2o2-m1", "warehouse/fe2o2_1.log", atoms, 0, 1,
+            "minimum", metadata={"state_inference": "filename"},
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "auto"
+            stages = write_automatic_fe_spin_jobs([high, low, high, low], output)
+            self.assertEqual(stages, 6)  # m9 plus the five-stage m9 -> m1 ladder
+            self.assertEqual(len(list(output.glob("*.gjf"))), 2)
+            with (output / "spin_plan.csv").open(newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+            self.assertEqual(len(rows), 2)
+            summary = json.loads((output / "spin_plan_summary.json").read_text())
+            self.assertEqual(summary["total_archive_records"], 4)
+            self.assertEqual(summary["unique_archive_records"], 2)
+            self.assertEqual(summary["duplicate_planned_records_collapsed"], 2)
+            self.assertEqual(summary["duplicate_skipped_records_collapsed"], 0)
+
     def test_automatic_oxide_plan_skips_invalid_filename_multiplicity_without_aborting(self):
         atoms = [Atom("Fe", float(index), 0.0, 0.0) for index in range(10)] + [
             Atom("O", float(index), 2.0, 0.0) for index in range(10)
