@@ -32,6 +32,7 @@ from .physical_checks import write_physical_checks_report
 from .progress import write_campaign_progress
 from .spin import (
     DEFAULT_SPIN_ROUTE,
+    route_with_frequency,
     validate_fragment_specification_shape,
     validate_spin_campaign,
     write_automatic_fe_spin_jobs,
@@ -404,6 +405,7 @@ def command_prepare_spins(args: argparse.Namespace) -> int:
             raise ValueError(f"--record-id not found in {args.seeds}: {unknown}")
         records = [record for record in records if record.record_id in requested]
     records = [record for record in records if _record_allowed(record, args)]
+    route = route_with_frequency(args.route) if args.freq else args.route
     specifications = None
     if args.fragment_spec:
         payload = json.loads(Path(args.fragment_spec).read_text(encoding="utf-8"))
@@ -422,7 +424,7 @@ def command_prepare_spins(args: argparse.Namespace) -> int:
         stages = write_automatic_fe_spin_jobs(
             records=records,
             output=Path(args.output),
-            route=args.route,
+            route=route,
             memory=args.memory,
             nproc=args.nproc,
         )
@@ -436,7 +438,7 @@ def command_prepare_spins(args: argparse.Namespace) -> int:
             output=Path(args.output),
             high_spin=args.high_spin,
             targets=args.targets,
-            route=args.route,
+            route=route,
             memory=args.memory,
             nproc=args.nproc,
             fragment_specifications=specifications,
@@ -874,6 +876,14 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_spins.add_argument("--min-atoms", type=int)
     prepare_spins.add_argument("--max-atoms", type=int)
     prepare_spins.add_argument("--route", default=DEFAULT_SPIN_ROUTE)
+    prepare_spins.add_argument(
+        "--freq", action="store_true",
+        help=(
+            "add a Freq calculation to every stage's route (off by default); cheap on small "
+            "clusters and useful for flagging poor optimizations via imaginary modes, but not "
+            "recommended for larger systems in the same campaign"
+        ),
+    )
     prepare_spins.add_argument("--memory", default="16GB")
     prepare_spins.add_argument("--nproc", type=int, default=16)
     prepare_spins.set_defaults(func=command_prepare_spins)

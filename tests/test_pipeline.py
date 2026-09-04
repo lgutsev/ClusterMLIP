@@ -33,6 +33,7 @@ from cluster_mlip.spin import (
     parse_spin_diagnostics,
     render_fragment_input,
     render_ladder_input,
+    route_with_frequency,
     validate_spin_campaign,
     write_automatic_fe_spin_jobs,
     write_spin_inventory,
@@ -250,7 +251,8 @@ class PipelineTests(unittest.TestCase):
         text, rows = render_ladder_input(record, 9, [5, 1])
         self.assertEqual([int(row["intended_multiplicity"]) for row in rows], [9, 7, 5, 3, 1])
         self.assertEqual(text.count("--Link1--"), 4)
-        self.assertIn("Geom=Checkpoint Guess=(Read,Always)", text)
+        self.assertIn("Geom=Checkpoint Guess=Read", text)
+        self.assertNotIn("Guess=(Read,Always)", text)
         self.assertIn("%oldchk=fe2-ladder-m9-m1-s00-m9.chk", text)
         self.assertIn("UBPW91/6-311++G*", DEFAULT_SPIN_ROUTE)
         self.assertIn("VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc", DEFAULT_SPIN_ROUTE)
@@ -274,6 +276,18 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("0 7\n\n", text)
         self.assertNotIn("6-31G*", text)
         self.assertNotIn("6-311G*", text)
+
+    def test_route_with_frequency_is_opt_in_and_idempotent(self):
+        augmented = route_with_frequency(DEFAULT_SPIN_ROUTE)
+        self.assertNotIn(" Freq", DEFAULT_SPIN_ROUTE)
+        self.assertTrue(augmented.endswith(" Freq"))
+        self.assertEqual(route_with_frequency(augmented), augmented)
+
+    def test_spin_ladder_propagates_opt_in_freq_to_every_stage(self):
+        record = Record("fe2", "legacy", [Atom("Fe", 0, 0, 0), Atom("Fe", 2, 0, 0)], 0, 9, "minimum")
+        route = route_with_frequency(DEFAULT_SPIN_ROUTE)
+        text, rows = render_ladder_input(record, 9, [5, 1], route=route)
+        self.assertEqual(text.count(" Freq"), len(rows))
 
     def test_spin_ladder_keeps_gen_override_compatible(self):
         record = Record("feo", "legacy", [Atom("Fe", 0, 0, 0), Atom("O", 2, 0, 0)], 0, 5, "minimum")

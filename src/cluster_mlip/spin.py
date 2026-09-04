@@ -331,6 +331,19 @@ def _route_uses_gen_basis(route: str) -> bool:
     return re.search(r"/gen(?:\s|$)", route, flags=re.IGNORECASE) is not None
 
 
+def route_with_frequency(route: str) -> str:
+    """Append a bare ``Freq`` keyword to a route, unless one is already present.
+
+    Off by default: these campaigns span both small clusters (where a Freq
+    calculation after every optimization is cheap and catches poor solutions
+    via imaginary modes) and much larger systems (where it is not). Callers
+    opt in per-campaign rather than paying for it unconditionally.
+    """
+    if re.search(r"\bfreq\b", route, re.IGNORECASE):
+        return route
+    return f"{route.rstrip()} Freq"
+
+
 def _link_header(checkpoint: str, memory: str, nproc: int, old_checkpoint: str | None = None) -> list[str]:
     lines = []
     if old_checkpoint:
@@ -396,7 +409,7 @@ def render_ladder_input(
         if stage:
             parts.extend(["", "--Link1--"])
         parts.extend(_link_header(checkpoint, memory, nproc, previous_checkpoint))
-        stage_route = route if stage == 0 else _route_with(route, "Geom=Checkpoint", "Guess=(Read,Always)")
+        stage_route = route if stage == 0 else _route_with(route, "Geom=Checkpoint", "Guess=Read")
         parts.extend([
             stage_route,
             "",

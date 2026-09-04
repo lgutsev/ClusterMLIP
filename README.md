@@ -575,7 +575,7 @@ cluster-mlip prepare-spins spin_inventory/seeds.extxyz \
 Multiplicity 29 is the only directly initialized state. Each lower-spin Link1
 stage reads the immediately preceding checkpoint with `%oldchk`, writes a
 different checkpoint with `%chk`, and uses
-`Geom=Checkpoint Guess=(Read,Always)`. Thus the multiplicity-17 state cannot be
+`Geom=Checkpoint Guess=Read`. Thus the multiplicity-17 state cannot be
 mistaken for an independently initialized low-spin calculation. This is a
 multiplicity ladder, not proof of the desired AFM coupling; the output must
 still be characterized from local spins and `<S^2>`.
@@ -586,6 +586,12 @@ plain `Opt`, the historical IOP settings, and UltraFine integration. No explicit
 `Pop` option is requested: population analysis is not needed to obtain SCF
 energies or optimization gradients, and Gaussian's normal unrestricted output
 is parsed opportunistically when atomic spin densities are present.
+
+`Freq` is opt-in via `--freq` rather than in the default route: it is cheap on
+small clusters and useful for flagging a poor optimization through imaginary
+modes, but the same campaign can include much larger systems where a
+frequency calculation at every Link1 stage is not worth the cost. Pass
+`--freq` per invocation for the systems small enough to want it.
 These small spin-campaign clusters use Gaussian's built-in basis directly,
 without a `Gen` basis block. It does not use wB97M-V/def2TZVPP.
 
