@@ -247,6 +247,34 @@ class SlurmPreparationTests(unittest.TestCase):
             self.assertTrue(all("--qos=debug" in line for line in submissions))
             self.assertIn("Submitting batch range 2-3 of 3", result.stdout)
 
+    def test_campaign_submitter_rejects_sbatch_execution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign = self._campaign(Path(tmp), count=1)
+            prepare_slurm_batches(campaign, SlurmConfig())
+            environment = os.environ.copy()
+            environment["SLURM_JOB_ID"] = "747605"
+            result = subprocess.run(
+                ["bash", str(campaign / "submit_gaussian_batches.sh")],
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("Do not submit this head launcher with sbatch", result.stderr)
+
+    def test_campaign_submitter_rejects_missing_inputs_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign = self._campaign(Path(tmp), count=1)
+            prepare_slurm_batches(campaign, SlurmConfig())
+            (campaign / "slurm_batches" / "batch_0001" / "inputs.txt").unlink()
+            result = subprocess.run(
+                ["bash", str(campaign / "submit_gaussian_batches.sh")],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("Missing or empty generated batch input list", result.stderr)
+
     def test_campaign_submitter_rejects_invalid_batch_range(self):
         with tempfile.TemporaryDirectory() as tmp:
             campaign = self._campaign(Path(tmp), count=4)

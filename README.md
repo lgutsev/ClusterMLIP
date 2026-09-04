@@ -402,7 +402,7 @@ cluster-mlip prepare-slurm gaussian_spin_qb3_g09_v1 \
   --cpus-per-job 12 \
   --time 48:00:00 \
   --partition workq \
-  --account loni_dspm_25 \
+  --account loni_perovsk27 \
   --gaussian-module 'mvapich2 gaussian/g09-d01' \
   --gaussian-command g09 \
   --job-name W2_g09_qb3 \

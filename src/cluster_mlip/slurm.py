@@ -481,6 +481,11 @@ def _submit_all_script(batch_count: int) -> str:
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 
+if [[ -n ${{SLURM_JOB_ID:-}} ]]; then
+  echo "Do not submit this head launcher with sbatch; execute it with bash or ./submit_gaussian_batches.sh" >&2
+  exit 2
+fi
+
 campaign_root=$(cd -- "$(dirname -- "${{BASH_SOURCE[0]}}")" && pwd -P)
 run_policy=${{RUN_POLICY:-resume}}
 start_batch=1
@@ -536,6 +541,11 @@ skipped=0
 echo "Submitting batch range $start_batch-$end_batch of {batch_count} (policy=$run_policy)"
 for ((batch_number=start_batch; batch_number<=end_batch; batch_number++)); do
   batch_dir=$(printf '%s/slurm_batches/batch_%04d' "$campaign_root" "$batch_number")
+  inputs_file="$batch_dir/inputs.txt"
+  if [[ ! -s $inputs_file ]]; then
+    echo "Missing or empty generated batch input list: $inputs_file" >&2
+    exit 1
+  fi
   if [[ $run_policy == resume ]]; then
     incomplete=0
     while IFS= read -r input_name; do
@@ -546,7 +556,7 @@ for ((batch_number=start_batch; batch_number<=end_batch; batch_number++)); do
         incomplete=1
         break
       fi
-    done < "$batch_dir/inputs.txt"
+    done < "$inputs_file"
     if (( incomplete == 0 )); then
       echo "SKIP complete batch: $(basename -- "$batch_dir")"
       ((skipped += 1))
