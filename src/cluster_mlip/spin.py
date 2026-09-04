@@ -22,8 +22,8 @@ from .models import Atom, Record
 # still supported and receives the mixed basis block from basis.py.
 DEFAULT_SPIN_ROUTE = (
     "#p UBPW91/6-311++G* SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc) "
-    "NoSymm Opt Freq IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine "
-    "Stable=Opt Pop=Regular"
+    "NoSymm Opt=(RFO,MaxCycle=70) IOP(5/13=1,5/36=1,8/11=1) "
+    "Int=UltraFine Pop=Regular"
 )
 
 SPIN_MANIFEST_COLUMNS = [

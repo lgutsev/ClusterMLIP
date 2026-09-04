@@ -582,11 +582,16 @@ still be characterized from local spins and `<S^2>`.
 
 The default route is the Gaussian 09-era protocol used for the original work:
 unrestricted BPW91/6-311++G*, the VShift/NoIncFock convergence controls, NoSymm,
-Opt/Freq, the historical IOP settings, and UltraFine integration. `Stable=Opt`
-and regular Mulliken population analysis are added so the electronic root can
-be audited without the much larger all-orbital dump produced by `Pop=Full`.
+`Opt=(RFO,MaxCycle=70)`, the historical IOP settings, and UltraFine integration.
+Regular Mulliken population analysis is added so the electronic root can be
+audited without the much larger all-orbital dump produced by `Pop=Full`.
 These small spin-campaign clusters use Gaussian's built-in basis directly,
 without a `Gen` basis block. It does not use wB97M-V/def2TZVPP.
+
+Wavefunction stability is deliberately not combined with optimization in the
+same route: Gaussian 09 treats `Stable=Opt` as a separate calculation type and
+rejects the combination during Link 1 parsing. Any stability refinement must
+be run as its own checkpoint-reading stage after the geometry pathway.
 
 The independent fragment pathway follows Gaussian's
 [`Guess=Fragment`](https://gaussian.com/guess/) and
