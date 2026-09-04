@@ -583,9 +583,10 @@ still be characterized from local spins and `<S^2>`.
 The default route is the Gaussian 09-era protocol used for the original work:
 unrestricted BPW91/6-311++G*, the VShift/NoIncFock convergence controls, NoSymm,
 Opt/Freq, the historical IOP settings, and UltraFine integration. `Stable=Opt`
-and full spin-density population analysis are added so the electronic root can
-be audited. These small spin-campaign clusters use Gaussian's built-in basis
-directly, without a `Gen` basis block. It does not use wB97M-V/def2TZVPP.
+and regular Mulliken population analysis are added so the electronic root can
+be audited without the much larger all-orbital dump produced by `Pop=Full`.
+These small spin-campaign clusters use Gaussian's built-in basis directly,
+without a `Gen` basis block. It does not use wB97M-V/def2TZVPP.
 
 The independent fragment pathway follows Gaussian's
 [`Guess=Fragment`](https://gaussian.com/guess/) and

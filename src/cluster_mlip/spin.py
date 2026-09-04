@@ -23,7 +23,7 @@ from .models import Atom, Record
 DEFAULT_SPIN_ROUTE = (
     "#p UBPW91/6-311++G* SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc) "
     "NoSymm Opt Freq IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine "
-    "Stable=Opt Pop=(Full,SpinDensity)"
+    "Stable=Opt Pop=Regular"
 )
 
 SPIN_MANIFEST_COLUMNS = [
