@@ -147,6 +147,47 @@ class SlurmPreparationTests(unittest.TestCase):
             saved = json.loads((campaign / "slurm_plan.json").read_text())
             self.assertEqual(saved["manifest"], "jobs.csv")
 
+    def test_prepares_batches_from_nested_input_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign = Path(tmp) / "campaign"
+            inputs = campaign / "inputs"
+            inputs.mkdir(parents=True)
+            input_path = inputs / "nested.gjf"
+            input_path.write_text("%nprocshared=12\n# force\n", encoding="utf-8")
+            with (campaign / "spin_jobs.csv").open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=["job_id", "input", "output"])
+                writer.writeheader()
+                writer.writerow({"job_id": "nested", "input": "inputs/nested.gjf", "output": "nested.log"})
+
+            prepare_slurm_batches(
+                campaign,
+                SlurmConfig(jobs_per_batch=1, concurrent_jobs=1, cpus_per_job=12),
+            )
+
+            linked_input = campaign / "slurm_batches" / "batch_0001" / "nested.gjf"
+            self.assertTrue(linked_input.is_symlink() or linked_input.is_file())
+            self.assertEqual(linked_input.read_text(encoding="utf-8"), input_path.read_text(encoding="utf-8"))
+            saved = json.loads((campaign / "slurm_plan.json").read_text())
+            self.assertEqual(saved["manifest"], "spin_jobs.csv")
+
+    def test_batch_loads_qb3_modules_in_declared_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign = self._campaign(Path(tmp), count=1)
+            prepare_slurm_batches(
+                campaign,
+                SlurmConfig(
+                    gaussian_module="mvapich2 gaussian/g09-d01",
+                    gaussian_command="g09",
+                ),
+            )
+            script = (
+                campaign / "slurm_batches" / "batch_0001" / "run_batch.sbatch"
+            ).read_text(encoding="utf-8")
+            mvapich = script.index("module load mvapich2")
+            gaussian = script.index("module load gaussian/g09-d01")
+            self.assertLess(mvapich, gaussian)
+            self.assertIn("GAUSSIAN_COMMAND=${GAUSSIAN_COMMAND:-g09}", script)
+
     def test_spin_manifest_deduplicates_link1_input(self):
         with tempfile.TemporaryDirectory() as tmp:
             campaign = Path(tmp) / "spin"

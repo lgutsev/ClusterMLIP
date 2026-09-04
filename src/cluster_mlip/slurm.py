@@ -69,6 +69,15 @@ def _safe_directive(value: str, name: str) -> str:
     return value
 
 
+def _module_load_lines(module_specification: str) -> str:
+    """Render one guarded module load per whitespace-separated module name."""
+    modules = shlex.split(module_specification)
+    return "\n".join(
+        f"set +u; module load {shlex.quote(module)}; set -u"
+        for module in modules
+    )
+
+
 def _path_sha256(path: Path) -> str:
     """Hash one source file or a directory tree without depending on mtimes."""
     digest = hashlib.sha256()
@@ -115,11 +124,7 @@ def _extract_sbatch_script(
         str(output),
         *extract_arguments,
     ]
-    module_line = (
-        f"set +u; module load {shlex.quote(config.gaussian_module)}; set -u"
-        if config.gaussian_module
-        else ""
-    )
+    module_line = _module_load_lines(config.gaussian_module)
     runtime_env = shlex.quote(config.runtime_env)
     source_message = shlex.quote(f"Source: {source}")
     output_message = shlex.quote(f"Output: {output}")
@@ -356,7 +361,7 @@ def _batch_script(config: SlurmConfig, batch_index: int) -> str:
         # so nounset must be relaxed around the load, not just here but for
         # the rest of the script too, since `module load` also unsets some
         # variables it never (re-)declared.
-        module_line = f"set +u; module load {shlex.quote(config.gaussian_module)}; set -u"
+        module_line = _module_load_lines(config.gaussian_module)
     scratch_template = shlex.quote(config.scratch_root)
     body = f"""
 set -euo pipefail

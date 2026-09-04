@@ -387,6 +387,28 @@ calculations at once on its node. Each folder has its own `inputs.txt`,
 `.status`, `.rc`, and timestamp files. The original inputs remain unmoved and
 unmodified, and `collect` scans the batch folders recursively.
 
+Spin campaigns keep generated `.gjf` files under `inputs/`, leaving the
+campaign root limited to manifests, summaries, and control scripts. Manifest
+paths are campaign-relative (for example `inputs/job.gjf`), and Slurm batch
+folders receive basename-only symlinks to those files.
+
+For a 48-core QB3 node running four 12-core Gaussian 09 workers, a typical
+preparation is:
+
+```bash
+cluster-mlip prepare-slurm gaussian_spin_qb3_g09_v1 \
+  --jobs-per-batch 8 \
+  --concurrent-jobs 4 \
+  --cpus-per-job 12 \
+  --time 48:00:00 \
+  --partition workq \
+  --account loni_dspm_25 \
+  --gaussian-module 'mvapich2 gaussian/g09-d01' \
+  --gaussian-command g09 \
+  --job-name W2_g09_qb3 \
+  --scratch-root '/work/$USER/g09-scr'
+```
+
 Submit from anywhere with the generated wrapper:
 
 ```bash

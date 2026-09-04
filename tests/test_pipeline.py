@@ -256,6 +256,13 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc", DEFAULT_SPIN_ROUTE)
         self.assertNotIn("wB97M-V", DEFAULT_SPIN_ROUTE)
         self.assertEqual(text.count("Fe     0"), 5)
+        first_coordinate = [
+            line
+            for line in text.splitlines()
+            if line.startswith("Fe ") and len(line.split()) == 4
+        ][-1]
+        self.assertIn(f"{first_coordinate}\n\nFe     0", text)
+        self.assertIn("0 7\n\nFe     0", text)
         self.assertNotIn("6-31G*", text)
         self.assertNotIn("6-311G*", text)
 
@@ -297,6 +304,7 @@ class PipelineTests(unittest.TestCase):
                 self.assertTrue(current["checkpoint_lineage"].startswith(previous["checkpoint_lineage"] + ">"))
             input_name = rows[0]["input"]
             self.assertIn("fe10-m29", input_name)
+            self.assertEqual(Path(input_name).parent, Path("inputs"))
             text = (output / input_name).read_text(encoding="utf-8")
             self.assertEqual(text.count("--Link1--"), 6)
             self.assertIn(f"%oldchk={rows[0]['checkpoint']}\n%chk={rows[1]['checkpoint']}", text)
@@ -371,10 +379,12 @@ class PipelineTests(unittest.TestCase):
             output = Path(tmp) / "auto"
             stages = write_automatic_fe_spin_jobs([high, low, high, low], output)
             self.assertEqual(stages, 6)  # m9 plus the five-stage m9 -> m1 ladder
-            self.assertEqual(len(list(output.glob("*.gjf"))), 2)
+            self.assertEqual(len(list(output.glob("*.gjf"))), 0)
+            self.assertEqual(len(list((output / "inputs").glob("*.gjf"))), 2)
             with (output / "spin_plan.csv").open(newline="", encoding="utf-8") as handle:
                 rows = list(csv.DictReader(handle))
             self.assertEqual(len(rows), 2)
+            self.assertTrue(all(Path(row["input"]).parent == Path("inputs") for row in rows))
             summary = json.loads((output / "spin_plan_summary.json").read_text())
             self.assertEqual(summary["total_archive_records"], 4)
             self.assertEqual(summary["unique_archive_records"], 2)
@@ -490,6 +500,10 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("0 1 0 5 0 -5", text)
         self.assertIn("Fe(Fragment=1)", text)
         self.assertIn("Fe(Fragment=2)", text)
+        last_coordinate = next(
+            line for line in text.splitlines() if line.startswith("Fe(Fragment=2)")
+        )
+        self.assertIn(f"{last_coordinate}\n\nFe     0", text)
         self.assertEqual(row["pathway"], "fragment_guess")
 
     def test_fragment_spins_must_reproduce_total_multiplicity(self):

@@ -401,6 +401,11 @@ def render_ladder_input(
         ])
         if stage == 0:
             parts.extend(_coordinates(record.atoms))
+        # Gaussian's molecule specification must be terminated by a blank
+        # line before a Gen basis section.  This is required both when the
+        # first stage supplies Cartesian coordinates and when a later Link1
+        # stage obtains its geometry from the checkpoint.
+        parts.append("")
         parts.append(gen_basis)
         parts.append("")
         lineage.append(f"m{multiplicity}:{checkpoint}")
@@ -577,6 +582,8 @@ def render_fragment_input(
         f"{record.charge} {target} {fragment_state}",
     ])
     lines.extend(_coordinates(record.atoms, atom_map))
+    # Terminate the fragment-labelled molecular specification before Gen.
+    lines.append("")
     lines.append(render_gen_basis({atom.symbol for atom in record.atoms}).rstrip("\n"))
     lines.append("")
     row = {
@@ -666,6 +673,7 @@ def write_spin_jobs(
     # everything before writing anything means a bad spec later in the list
     # raises cleanly instead of leaving a half-written job directory with no
     # spin_jobs.csv to explain what is and is not there.
+    input_directory = Path("inputs")
     files: list[tuple[str, str]] = []
     rows: list[dict[str, str]] = []
     for record in high_spin_records:
@@ -675,7 +683,7 @@ def write_spin_jobs(
             filename = f"{readable}__spin-ladder-m{high_spin}-to-m{min(requested_targets)}.gjf"
             files.append((filename, text))
             for row in chain_rows:
-                row["input"] = filename
+                row["input"] = str(input_directory / filename)
                 row["output"] = f"{Path(filename).stem}.log"
             rows.extend(chain_rows)
         if strategy in {"fragment", "both"}:
@@ -686,7 +694,7 @@ def write_spin_jobs(
                     f"-m{row['intended_multiplicity']}.gjf"
                 )
                 files.append((filename, text))
-                row["input"] = filename
+                row["input"] = str(input_directory / filename)
                 row["output"] = f"{Path(filename).stem}.log"
                 rows.append(row)
 
@@ -700,8 +708,10 @@ def write_spin_jobs(
         raise ValueError(f"spin specifications produce duplicate job IDs: {duplicates}")
 
     output.mkdir(parents=True, exist_ok=True)
+    inputs = output / input_directory
+    inputs.mkdir()
     for filename, text in files:
-        (output / filename).write_text(text, encoding="utf-8")
+        (inputs / filename).write_text(text, encoding="utf-8")
     # Hash what was actually written, not the pre-write string: write_text's
     # universal-newline translation turns "\n" into the platform line
     # separator on disk (a no-op on Linux, but "\r\n" on Windows), which
@@ -709,7 +719,10 @@ def write_spin_jobs(
     # beforehand from what _spin_manifest_audit reads back later. Reading
     # the file back after writing, like jobs.py's _file_sha256 already does,
     # is correct by construction on every platform.
-    written_hashes = {filename: hashlib.sha256((output / filename).read_bytes()).hexdigest() for filename, _ in files}
+    written_hashes = {
+        str(input_directory / filename): hashlib.sha256((inputs / filename).read_bytes()).hexdigest()
+        for filename, _ in files
+    }
     for row in rows:
         row["input_sha256"] = written_hashes[row["input"]]
     with (output / "spin_jobs.csv").open("w", newline="", encoding="utf-8") as handle:
@@ -745,6 +758,7 @@ def write_spin_jobs(
         "route": route,
         "memory": memory,
         "nproc": nproc,
+        "input_directory": str(input_directory),
         "manifest": "spin_jobs.csv",
         "manifest_sha256": spin_manifest_sha256,
         "fragment_specifications": (
@@ -811,6 +825,7 @@ def write_automatic_fe_spin_jobs(
                 f"so checkpoint and audit lineage remain immutable: {preview}"
             )
 
+    input_directory = Path("inputs")
     files: list[tuple[str, str]] = []
     rows: list[dict[str, str]] = []
     plan_rows: list[dict[str, object]] = []
@@ -840,7 +855,7 @@ def write_automatic_fe_spin_jobs(
                 "target_record_multiplicity": str(plan.target_multiplicity),
                 "high_spin_inference": plan.inference,
                 "high_spin_evidence_record_ids": evidence_ids,
-                "input": filename,
+                "input": str(input_directory / filename),
                 "output": f"{Path(filename).stem}.log",
             })
             if row["stage_index"] == "0":
@@ -861,7 +876,7 @@ def write_automatic_fe_spin_jobs(
             "high_spin_inference": plan.inference,
             "high_spin_evidence_record_ids": evidence_ids,
             "observed_group_multiplicities": ";".join(map(str, plan.observed_multiplicities)),
-            "input": filename,
+            "input": str(input_directory / filename),
             "reason": "",
         })
     for item in skipped:
@@ -892,11 +907,16 @@ def write_automatic_fe_spin_jobs(
         raise ValueError(f"automatic spin planning produced duplicate job IDs: {duplicates}")
 
     output.mkdir(parents=True, exist_ok=True)
+    inputs = output / input_directory
+    inputs.mkdir()
     for filename, text in files:
-        (output / filename).write_text(text, encoding="utf-8")
+        (inputs / filename).write_text(text, encoding="utf-8")
     # See write_spin_jobs for why this hashes the file after writing rather
     # than the pre-write string.
-    written_hashes = {filename: hashlib.sha256((output / filename).read_bytes()).hexdigest() for filename, _ in files}
+    written_hashes = {
+        str(input_directory / filename): hashlib.sha256((inputs / filename).read_bytes()).hexdigest()
+        for filename, _ in files
+    }
     for row in rows:
         row["input_sha256"] = written_hashes[row["input"]]
     with (output / "spin_jobs.csv").open("w", newline="", encoding="utf-8") as handle:
@@ -971,6 +991,7 @@ def write_automatic_fe_spin_jobs(
         "route": route,
         "memory": memory,
         "nproc": nproc,
+        "input_directory": str(input_directory),
         "manifest": "spin_jobs.csv",
         "manifest_sha256": manifest_hash,
         "spin_plan": "spin_plan.csv",

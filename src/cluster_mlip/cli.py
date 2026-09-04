@@ -802,7 +802,12 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_slurm.add_argument("--time", default="72:00:00")
     prepare_slurm.add_argument("--partition", default="checkpt")
     prepare_slurm.add_argument("--account", default="loni_perovsk27")
-    prepare_slurm.add_argument("--gaussian-module", default="gaussian/g16-c01")
+    prepare_slurm.add_argument(
+        "--gaussian-module",
+        default="gaussian/g16-c01",
+        help="Gaussian module, or a quoted whitespace-separated load sequence such as "
+        "'mvapich2 gaussian/g09-d01'",
+    )
     prepare_slurm.add_argument("--gaussian-command", default="g16")
     prepare_slurm.add_argument("--job-name", default="cluster_mlip_g16")
     prepare_slurm.add_argument(
