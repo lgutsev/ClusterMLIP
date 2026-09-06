@@ -81,6 +81,27 @@ class LabelReportTests(unittest.TestCase):
         self.assertEqual(len(summary["outliers"]), 1)
         self.assertEqual(summary["outliers"][0]["record_id"], "c")
 
+    def test_summarize_labels_flags_conflicting_labels_for_one_state(self):
+        # Same formula/charge/multiplicity and (via _frame) the same geometry,
+        # but a 1 eV energy gap -> two SCF roots the model cannot tell apart.
+        frames = [
+            _frame("root_a", 0, 1, -10.0, 0.1),
+            _frame("root_b", 0, 1, -11.0, 0.1),
+            _frame("lonely", -1, 2, -8.0, 0.1),  # singleton state, no conflict
+        ]
+        conflicts = summarize_labels(frames)["state_conflicts"]
+        self.assertEqual(len(conflicts), 1)
+        conflict = conflicts[0]
+        self.assertEqual(conflict["record_ids"], ["root_a", "root_b"])
+        self.assertAlmostEqual(conflict["energy_spread_ev"], 1.0)
+        self.assertTrue(conflict["flagged"])
+
+    def test_summarize_labels_does_not_flag_agreeing_duplicates(self):
+        frames = [_frame("a", 0, 1, -10.0, 0.1), _frame("b", 0, 1, -10.0005, 0.1)]
+        conflicts = summarize_labels(frames)["state_conflicts"]
+        self.assertEqual(len(conflicts), 1)
+        self.assertFalse(conflicts[0]["flagged"])
+
     def test_write_label_report_roundtrips_through_dataset_io(self):
         frames = [_frame("a", 0, 1, -10.0, 0.1)]
         with tempfile.TemporaryDirectory() as tmp:
