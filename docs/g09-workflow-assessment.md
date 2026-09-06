@@ -1,11 +1,46 @@
 # G09 workflow comparison — literature recheck, code audit, and an assessment plan
 
-Status: draft for review (not implemented). Prepared 2026-09-05.
+Prepared 2026-09-05. Plan reviewed and approved; Phases 1–4 and 5.1 implemented
+on branch `g09-workflow-hardening` (commits `Phase 1`…`Phase 5.1`). No Gaussian
+was run; the parser/launcher changes are covered by new synthetic fixtures.
 
 Scope: re-check the literature behind the earlier comparison, verify against the
 **current** code which of the six findings are actually fixed, and lay out a
-phased plan you can assess before launching all 382 batches. No Gaussian was
-run; this is a code + documentation audit.
+phased plan for launching all 382 (archive-derived) batches.
+
+## Decisions locked in
+
+1. **`IOP(5/13=1)` stays on by default**, now a switch (`--no-scf-continue` on
+   `prepare`/`prepare-spins`). It rarely actually fails for these systems and
+   salvages partial runs; the collector gate is what protects the label set.
+2. **The 382 batches are archive-derived**, so Phase 3 (orientation) was treated
+   as a launch blocker and is done.
+3. **Spin campaign keeps 6-311++G\* as the default**, with `/Gen` as a one-flag
+   convergence fallback (`prepare-spins --basis gen`); the two are tracked as
+   distinct datasets.
+4. **Target is nanodots**, not small clusters — Part D's diagnostic is sized
+   accordingly, and the local-moment-as-diagnostic stance is the right default
+   (background spin self-averages across a nanodot; the active site is what
+   MACE must capture).
+
+## Implementation status
+
+| Phase | Item | Status |
+|---|---|---|
+| 1.1 | SCF-convergence + error-termination gate in `collect`; `--no-scf-continue` | **done** (`gaussian.force_label_quality`, `--no-scf-continue`) |
+| 1.2 | Multi-step completion detection in the launcher (`gaussian_complete.sh`) | **done** |
+| 1.3 | `resume` continues an interrupted opt from its checkpoint | **deferred** — 1.2 makes `resume` *correct* (re-runs the right jobs from scratch); checkpoint-restart is a compute optimisation, not a correctness fix, and generating provably-correct restart inputs needs a real Gaussian to validate |
+| 2.1 | `collect` reads `spin_jobs.csv`, one frame per multiplicity, with lineage | **done** |
+| 2.2 | `--include-opt-trajectory` | **done** (`iter_force_frames`) |
+| 2.3 | `label_route` on every frame; method-consistency guard covers spin data | **done** |
+| 3.1 | Force/coordinate orientation reconciliation + `standard_unreconciled` reject | **done** |
+| 3.2 | Multi-section Link1 parser fixtures | **done** (`link1_opt_force.log`, …) |
+| 4.1 | Named calc profile in the manifests; `--basis` fallback | **done** |
+| 4.2 | `validate-spins --strict` stability hygiene; `--require-stability` | **done** |
+| 4.3 | Stale "diffuse-basis" label removed; redundant `SP` kept (with a reason) | **done** |
+| 5.1 | Same-state label-conflict check in `label_report` | **done** |
+| 5.2 | Committee "agree to disagree" curation pass | **deferred** — needs ≥2 trained checkpoints, which do not exist yet; do it right after the first committee |
+| D | Spin-sensitivity diagnostic | **pending your run** — see Part D |
 
 ---
 
@@ -38,6 +73,11 @@ Fe-oxide paper) or explicit spin-state heads (Fe(II) NN paper).
 ---
 
 ## Part B — Code audit: status of the six findings
+
+> The "OPEN / FIXED" markers below are the state **at audit time**. Findings
+> 2–7 are now addressed — see the implementation-status table above and
+> Part C for what each change was. This section is kept as the record of what
+> was wrong and why it mattered.
 
 Verified against `HEAD` (`6bf13c1`). "Open" means the earlier finding still
 stands in the current tree.
@@ -167,7 +207,7 @@ stands in the current tree.
 Each item lists the change, the acceptance check, and the test to add. Ordering
 is by "what blocks a trustworthy 382-batch launch."
 
-### Phase 1 — label integrity (blocks launch)
+### Phase 1 — label integrity (blocks launch) — 1.1/1.2 done, 1.3 deferred
 
 **1.1 Gate every exported frame on a converged, clean SCF.**
 - Add an SCF-convergence + normal-per-step check to `parse_final_force_frame`
@@ -202,18 +242,17 @@ is by "what blocks a trustworthy 382-batch launch."
 - *Test:* extend `tests/test_slurm.py` — generate scripts, run the completion
   predicate over synthetic logs (full / step-1-only / error-in-step-2).
 
-**1.3 Make `resume` able to continue an interrupted optimisation.**
-- Smaller lift: for an incomplete job that has a usable `.chk`, regenerate a
-  one-shot restart input (`%oldchk`, `Geom=Checkpoint Guess=Read`, same route
-  minus `Opt`'s already-done work → `Opt=Restart`) rather than restarting the
-  whole multi-step input. Gate behind `RUN_POLICY=continue` so current
-  behaviour is unchanged by default.
-- *Assess:* kill a job mid-`Opt`, run with `RUN_POLICY=continue`, confirm the
-  restart reads the checkpoint and the final step count matches expected.
-- Lower priority than 1.1/1.2 — acceptable to launch with "resume = rerun from
-  scratch" as long as 1.2 correctly identifies what to rerun.
+**1.3 Make `resume` continue an interrupted optimisation from its checkpoint — DEFERRED.**
+- The idea: for an incomplete job with a usable `.chk`, regenerate a one-shot
+  restart input (`%oldchk`, `Opt=Restart` / `Geom=Checkpoint Guess=Read`) instead
+  of re-running the whole multi-step input, gated behind `RUN_POLICY=continue`.
+- Not implemented: 1.2 already makes `resume` **correct** (it re-runs exactly the
+  jobs that are genuinely incomplete, just from scratch). Checkpoint-restart is a
+  compute optimisation, and a subtly-wrong restart input is worse than a slow
+  correct one — generating one that is provably right needs a real Gaussian to
+  validate against. Revisit if the pilot shows the recompute cost is material.
 
-### Phase 2 — spin-campaign collection (blocks using spin data, not the main launch)
+### Phase 2 — spin-campaign collection (blocks using spin data, not the main launch) — done
 
 **2.1 Teach `collect` about `spin_jobs.csv`.**
 - When `outputs/spin_jobs.csv` exists, iterate its rows, and for each ladder
@@ -244,7 +283,7 @@ is by "what blocks a trustworthy 382-batch launch."
   **separate datasets / separate heads**, or re-run one campaign on the other's
   basis. Recommendation: separate datasets until a deliberate decision.
 
-### Phase 3 — archive-parse robustness (blocks trusting archive-derived labels/inventory)
+### Phase 3 — archive-parse robustness (blocks trusting archive-derived labels/inventory) — done
 
 **3.1 Orientation reconciliation in `extract_records` / `parse_final_force_frame`.**
 - When the geometry table paired with a `Forces` block is `Standard
@@ -263,33 +302,39 @@ is by "what blocks a trustworthy 382-batch launch."
   pairing, no cross-section bleed. This is the "cclib regression-log coverage"
   gap.
 
-### Phase 4 — defaults & strict-mode hygiene (cleanup, do before launch)
+### Phase 4 — defaults & strict-mode hygiene (cleanup, do before launch) — done
 
-**4.1 One explicit calculation profile per campaign type**, named and recorded
-in the campaign manifest (`profile: "spin_g09_6311ppgs"` /
-`profile: "main_gen_bpw91"`), so "which method produced this frame" is a lookup,
-not an inference.
+**4.1** `spin_campaign.json` now records `basis` (`6-311++g*` / `gen`) and
+`scf_nonconvergence_continuation`; every collected frame carries `label_route`.
+`--basis gen` swaps the spin route's basis in one flag. So "which method
+produced this frame" is a lookup, and the one-method-per-head guard covers spin
+data.
 
-**4.2 `validate-spins --strict`:** move `planned_states_without_stability` out of
-the hard-failure sum (it is expected when `Stable=Opt` is intentionally absent);
-report it, and add a separate `--require-stability` opt-in for campaigns that
-did run a stability stage.
+**4.2** `validate-spins --strict` no longer counts
+`planned_states_without_stability` (it fired on every stage — `Stable=Opt` is
+intentionally absent). New `--require-stability` restores it for a campaign that
+ran a dedicated stability stage.
 
-**4.3** Remove or implement the "diffuse-basis force label"; drop the redundant
-`SP` before `Force` for rattled seeds (or document why it stays).
+**4.3** Stale "diffuse-basis force label" wording removed. The redundant `SP`
+before `Force` for rattled seeds **stays, deliberately**: it is what makes every
+frame — reference and rattle — carry the byte-identical `link1_route`, which the
+one-method-per-head training guard keys on. Dropping it would make rattles use a
+route string without `Guess=Read Geom=Checkpoint` and trip a false "mixed
+method" refusal.
 
 ### Phase 5 — validation additions (parallel; informs go/no-go on spin)
 
-**5.1** `evaluate` / `physical_checks`: add an explicit **inconsistent
-broken-symmetry SCF** check over the training set (frames sharing
-geometry+charge+multiplicity whose energies or near-active-site forces disagree
-beyond a threshold) — this is the "explicit checks for inconsistent
-broken-symmetry SCF roots" item still marked *not implemented* in the README.
+**5.1 — done.** `label_report` (written by `collect`) now has a "same-state
+label conflicts" section: frames sharing formula/charge/multiplicity/geometry
+whose energy spread exceeds 0.01 eV/atom or force spread 0.5 eV/Å. Recalibrate
+the thresholds once real distributions are in hand; the `flagged` column is the
+first thing to skim after a spin collection.
 
-**5.2** Committee "agree to disagree" curation pass (Romano et al.): once ≥2
-seeds are trained, flag training frames where all committee members are
-confidently wrong in the same place as **candidates for DFT recheck**, not as
-automatic removals.
+**5.2 — deferred to first committee.** Romano et al.'s "agree to disagree"
+curation: once ≥2 seeds are trained, flag frames where every committee member is
+confidently wrong in the same place as **candidates for DFT recheck**, not
+automatic removals. Needs trained checkpoints; revisit right after the first
+committee run.
 
 ---
 
@@ -298,60 +343,76 @@ automatic removals.
 Goal: measure whether alternative spin solutions change the chemistry you care
 about, before deciding to build root-matching or a spin-aware model.
 
-**Design.**
-1. Pick ~8–12 representative geometries: bare cluster, gas molecule approaching,
-   adsorbed intermediate, barrier-region, product — across 2–3 cluster sizes.
+**Design (nanodot target).**
+1. Pick ~8–12 representative geometries on **2–3 nanodot sizes** (not the small
+   test clusters): bare nanodot, gas molecule approaching, chemisorbed
+   intermediate, barrier region, product. The point of using real nanodot sizes
+   is that the "background spin self-averages, the active site is what matters"
+   argument is only testable at the size you will actually run.
 2. At **fixed charge and multiplicity**, initialise 2–3 alternative spin
-   arrangements per geometry (different `Guess`, fragment guesses, or a
-   swapped-site broken-symmetry start).
-3. Converge each; record total energy, per-atom Fe moments, `<S²>`, and forces.
+   arrangements per geometry (different `Guess`, a `prepare-spins` fragment
+   guess, or a swapped-site broken-symmetry start).
+3. Converge each; record total energy, per-atom Fe moments, `<S²>`, forces.
 4. Metrics that matter:
-   - Δ(adsorption energy) and Δ(barrier height) across roots — compare to the
-     model accuracy target (e.g. 50 meV, 0.1 eV/Å).
+   - Δ(adsorption energy) and Δ(barrier height) across roots — against the model
+     accuracy target (e.g. 50 meV, 0.1 eV/Å).
    - Force RMS **restricted to the active-site atoms** (adsorbate + first Fe
-     shell), not whole-cluster per-atom — a per-atom cluster average hides local
-     disagreement (Fe-Cr-C paper's static/local caveat).
+     shell), not whole-nanodot per-atom — a per-atom average over a nanodot
+     buries a local active-site disagreement (the Fe-Cr-C static/local caveat is
+     sharper the bigger the particle).
+   - Whether the alternative roots even *differ* at the active site once the
+     rest of the nanodot relaxes — for a large particle they often do not.
 5. Decision:
    - Differences ≪ target → keep the current graph-level charge/spin model;
-     local moments stay diagnostic. Root-matching adds little.
+     local moments stay diagnostic. Root-matching adds little. (Expected outcome
+     for nanodots per the literature.)
    - Differences ≳ target → adopt one of: **(a)** a documented root-selection
-     policy (always take the lowest-energy converged root per
-     geometry/charge/multiplicity, recorded in provenance), or **(b)** Fe↑/Fe↓/
-     Fe_NM species input (ACE Fe-oxide paper), or **(c)** explicit spin-state
-     heads (Fe(II) NN paper).
+     policy (lowest-energy converged root per geometry/charge/multiplicity,
+     recorded in provenance — the `label_report` conflict table already surfaces
+     the candidates), **(b)** Fe↑/Fe↓/Fe_NM species input (ACE Fe-oxide paper),
+     or **(c)** explicit spin-state heads (Fe(II) NN paper).
 
-This is cheap (a few dozen extra single points) and it is the piece of evidence
-that actually settles findings #6 and #8.
+A few dozen extra single points; the evidence that settles findings #6 and #8.
+The `mulliken_spin_per_atom` metadata `collect` now writes on every spin frame
+is the raw material for step 4.
 
 ---
 
 ## Part E — recommended sequencing before the 382-batch launch
 
-1. **Phase 1 in full** (1.1 label gate, 1.2 completion detection) — these
-   determine whether the batch outputs can be trusted at all. 1.3 is optional.
-2. **Phase 3.1 + 3.2** if any batch inputs are seeded from archive-parsed
-   geometries/forces; skip if every seed is a fresh `extract` structure.
-3. **Phase 4** (defaults, strict mode) — small, removes false signals during the
-   run.
-4. Launch a **pilot range** (`submit_gaussian_batches.sh --start 1 --end 8`),
-   run `campaign-status`, and hand-check ~10 logs against the new gates before
-   releasing the rest.
-5. **Phase 2** once the first spin outputs exist; **Phase D** in parallel with
-   the pilot.
-6. **Phase 5** after the first committee is trained.
+Phases 1–4 and 5.1 are implemented on `g09-workflow-hardening`. Remaining steps
+for you:
+
+1. **Review the branch** — `git log g09-workflow-hardening`, ~7 commits, each a
+   phase. Run `python -m unittest discover -s tests` (176 tests) and skim the
+   new fixtures under `tests/fixtures/`.
+2. **One real Gaussian smoke test** — a 2-rung spin ladder and one main-campaign
+   2-step `.gjf`: confirm the checkpoint handoff (`Initial guess read from the
+   checkpoint file`), that `gaussian_complete.sh` marks a deliberately
+   half-finished log incomplete, and that `collect` on a real converged log
+   produces the expected frames.
+3. **Regenerate the campaign** (the completion helper is new; existing
+   `slurm_batches/` from before this branch have no `gaussian_complete.sh`).
+   Re-run `prepare-slurm`.
+4. **Launch a pilot range** (`submit_gaussian_batches.sh --start 1 --end 8`),
+   `campaign-status`, hand-check ~10 logs, then release the rest.
+5. **After the first spin outputs**: `collect` the spin campaign, read the
+   `label_report.md` "same-state label conflicts" section, and run **Part D**.
+6. **After the first committee**: implement 5.2.
 
 The earlier passing unit tests covered the generators, not the
-output-parsing / completion / collection paths that a production launch depends
-on. Phases 1–3 are mostly new fixtures + predicates, not architectural change.
+output-parsing / completion / collection paths a production launch depends on.
+The new work is mostly fixtures + predicates, not architectural change.
 
 ---
 
-## Open questions for you
+## Open questions — resolved
 
-- Drop `IOP(5/13=1)` or keep-and-gate? (recommendation: keep-and-gate)
-- Are any 382-batch seeds archive-derived, or all from fresh `extract`? (decides
-  whether Phase 3 blocks launch)
-- Spin campaign (6-311++G*) and main campaign (`/Gen`): separate heads
-  permanently, or converge on one basis?
-- Diagnostic (Part D) cluster sizes / reactions — which specific systems are
-  representative of the real target?
+- **`IOP(5/13=1)`** — kept on by default, now `--no-scf-continue` to drop it;
+  collector gates unconverged frames regardless.
+- **382 seeds archive-derived** — yes; Phase 3 done.
+- **Spin (6-311++G\*) vs main (`/Gen`)** — separate datasets/heads; 6-311++G\*
+  is the spin default with `--basis gen` as a fallback, recorded in
+  `spin_campaign.json` so a fallback subset stays traceably distinct.
+- **Diagnostic systems** — nanodots at 2–3 real sizes; specific reactions still
+  for you to name (Part D step 1).
