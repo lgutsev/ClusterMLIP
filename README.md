@@ -455,10 +455,16 @@ tail -f scheduler-*.stdout
 
 The wrappers export the actual campaign and batch directories rather than
 relying on `$PWD` or the Slurm spool directory. A resubmission is safe by default:
-`RUN_POLICY=resume` skips any `.log` containing a normal Gaussian termination
-and reruns missing/incomplete calculations. The all-batch submitter skips a
-fully completed batch instead of creating a new Slurm job for it. Force a
-complete rerun only when deliberate:
+`RUN_POLICY=resume` reruns missing/incomplete calculations and skips completed
+ones. "Completed" means **every** job step terminated normally, not just one:
+each generated `.gjf` is multi-step (`Opt[/Freq]` then the `Force` label; a spin
+ladder has one step per multiplicity), Gaussian prints "Normal termination" once
+per step, and the shared `gaussian_complete.sh` predicate counts them against
+the `--Link1--` count in the input and also fails on any `Error termination`. So
+a job whose optimisation finished but whose force-label step crashed is
+correctly re-run rather than skipped. The all-batch submitter skips a fully
+completed batch instead of creating a new Slurm job for it. Force a complete
+rerun only when deliberate:
 
 ```bash
 RUN_POLICY=all ./gaussian_jobs/submit_gaussian_batches.sh
@@ -730,6 +736,15 @@ cluster-mlip collect gaussian_jobs -o dataset
 The collector converts Gaussian energies and forces to eV and eV/Å and writes
 `all.extxyz`, `train.extxyz`, `valid.extxyz`, and `test.extxyz`. All rattles from
 one parent remain in one split, preventing near-duplicate leakage.
+
+Every output is gated before it becomes a label: an `Error termination`
+anywhere, or a final SCF that did not converge, sends the file to
+`failed_outputs.tsv` with a reason instead of `all.extxyz`. This matters because
+the route keeps `IOP(5/13=1)` (SCF-nonconvergence continuation) on by default —
+Gaussian then finishes with "Normal termination" even when the density behind
+the exported energy and forces never converged. Pass `--no-scf-continue` to
+`prepare`/`prepare-spins` to drop the IOP and have Gaussian stop on
+nonconvergence instead.
 
 The split is geometry-stratified by default (`--stratify-by
 pes_region,charge_spin_class`): every parent-record group is classified (see

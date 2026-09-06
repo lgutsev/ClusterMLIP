@@ -13,13 +13,14 @@ from .batch_inventory import build_inventory
 from .dataset import grouped_split, read_jobs_manifest, read_labeled_extxyz, write_labeled_extxyz
 from .doctor import MISSING_REQUIRED, format_report, run_checks
 from .evaluate import predict_with_mace, write_evaluation_report
-from .gaussian import extract_document_records, parse_final_force_frame
+from .gaussian import extract_document_records, force_label_quality, parse_final_force_frame
 from .io import iter_documents, read_document, read_extxyz, source_tree, write_extxyz, write_manifest
 from .jobs import (
     DEFAULT_LINK1_ROUTE,
     DEFAULT_RATTLE_ROUTE,
     DEFAULT_ROUTE,
     expanded_records,
+    route_without_scf_continue,
     write_gaussian_jobs,
 )
 from .label_report import write_label_report
@@ -219,20 +220,25 @@ def command_prepare(args: argparse.Namespace) -> int:
         records = [r for r in records if r.config_type in args.types]
     if args.max_seeds is not None:
         records = records[:args.max_seeds]
+    route, rattle_route, link1_route = args.route, args.rattle_route, args.link1_route
+    if not args.scf_continue:
+        route = route_without_scf_continue(route)
+        rattle_route = route_without_scf_continue(rattle_route)
+        link1_route = route_without_scf_continue(link1_route)
     jobs = expanded_records(records, args.rattles_per_seed, args.rattle_sigma, args.seed)
     write_gaussian_jobs(
         jobs,
         Path(args.output),
-        args.route,
+        route,
         args.memory,
         args.nproc,
-        args.rattle_route,
-        args.link1_route,
+        rattle_route,
+        link1_route,
     )
     print(f"Prepared {len(jobs)} Gaussian force jobs from {len(records)} seeds")
-    print(f"Seed route: {args.route}")
-    print(f"Rattled route: {args.rattle_route}")
-    print(f"Link1 force route: {args.link1_route}")
+    print(f"Seed route: {route}")
+    print(f"Rattled route: {rattle_route}")
+    print(f"Link1 force route: {link1_route}")
     return 0
 
 
@@ -332,11 +338,16 @@ def command_collect(args: argparse.Namespace) -> int:
                 metadata=metadata,
             )
         try:
-            frame = parse_final_force_frame(path.read_text(errors="ignore"), path, seed)
+            text = path.read_text(errors="ignore")
+            frame = parse_final_force_frame(text, path, seed)
             if frame is None:
                 failures.append((str(path), "no complete energy/geometry/force frame"))
-            else:
-                frames.append(frame)
+                continue
+            usable, reason = force_label_quality(text)
+            if not usable:
+                failures.append((str(path), reason))
+                continue
+            frames.append(frame)
         except Exception as exc:
             failures.append((str(path), str(exc)))
     write_labeled_extxyz(frames, destination / "all.extxyz")
@@ -405,7 +416,9 @@ def command_prepare_spins(args: argparse.Namespace) -> int:
             raise ValueError(f"--record-id not found in {args.seeds}: {unknown}")
         records = [record for record in records if record.record_id in requested]
     records = [record for record in records if _record_allowed(record, args)]
-    route = route_with_frequency(args.route) if args.freq else args.route
+    route = args.route if args.scf_continue else route_without_scf_continue(args.route)
+    if args.freq:
+        route = route_with_frequency(route)
     specifications = None
     if args.fragment_spec:
         payload = json.loads(Path(args.fragment_spec).read_text(encoding="utf-8"))
@@ -778,7 +791,14 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument(
         "--link1-route",
         default=DEFAULT_LINK1_ROUTE,
-        help="checkpoint-linked diffuse-basis force route used for final labels",
+        help="checkpoint-linked force route used for final labels",
+    )
+    prepare.add_argument(
+        "--no-scf-continue", dest="scf_continue", action="store_false",
+        help=(
+            "drop IOP(5/13=1) so Gaussian error-terminates on a non-converged SCF "
+            "instead of continuing (on by default; the collector gates unconverged frames either way)"
+        ),
     )
     prepare.add_argument("--memory", default="16GB")
     prepare.add_argument("--nproc", type=int, default=16)
@@ -876,6 +896,10 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_spins.add_argument("--min-atoms", type=int)
     prepare_spins.add_argument("--max-atoms", type=int)
     prepare_spins.add_argument("--route", default=DEFAULT_SPIN_ROUTE)
+    prepare_spins.add_argument(
+        "--no-scf-continue", dest="scf_continue", action="store_false",
+        help="drop IOP(5/13=1) so Gaussian stops on a non-converged SCF (on by default)",
+    )
     prepare_spins.add_argument(
         "--freq", action="store_true",
         help=(

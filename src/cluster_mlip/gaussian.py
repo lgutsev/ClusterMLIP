@@ -34,6 +34,20 @@ _SCF_RE = re.compile(r"SCF Done:\s+E\([^)]*\)\s*=\s*(-?\d+(?:\.\d+)?(?:[DEde][+-
 _FREQ_RE = re.compile(r"Frequencies\s+--\s+([^\n\r]+)", re.I)
 _IRC_POINT_RE = re.compile(r"Point\s+Number:\s*(-?\d+)\s+Path\s+Number:\s*(\d+)", re.I)
 _STATE_RE = re.compile(r"State\s*=\s*([^\\\s]+)", re.I)
+_FORCES_HEADER_RE = re.compile(r"^\s*Forces \(Hartrees/Bohr\)\s*$", re.I | re.M)
+# Gaussian with IOP(5/13=1) does not stop on a non-converged SCF -- it prints
+# ">>>>>>>>>> Convergence criterion not met." and then an ordinary "SCF Done"
+# line with the unconverged density, so "Normal termination" is not proof the
+# exported energy/forces come from a converged wavefunction.  Also catch the
+# hard-failure and "not converged" phrasings for completeness.
+_SCF_NOT_CONVERGED_RE = re.compile(
+    r">>>>>>>>>>\s*Convergence criterion not met"
+    r"|Convergence failure\s*--\s*run terminated"
+    r"|SCF has not converged"
+    r"|Convergence criteri(?:on|a) not (?:met|satisfied)",
+    re.I,
+)
+_ERROR_TERMINATION_RE = re.compile(r"Error termination", re.I)
 
 
 def _float(value: str) -> float:
@@ -414,9 +428,50 @@ def extract_document_records(text: str, source: str) -> list[Record]:
     return []
 
 
-def parse_final_force_frame(text: str, source: Path, seed: Record | None = None) -> LabeledFrame | None:
-    force_headers = list(re.finditer(r"^\s*Forces \(Hartrees/Bohr\)\s*$", text, re.I | re.M))
+def final_scf_not_converged(text: str) -> bool:
+    """Whether the SCF backing the last ``Forces`` block (or, absent forces, the
+    last ``SCF Done``) failed to converge.
+
+    Scoped to the window between the previous energy and the labelled one, so an
+    earlier optimisation point whose SCF wobbled but later recovered is not held
+    against the frame. Returns ``False`` when there is no energy to judge --
+    ``parse_final_force_frame`` rejects that case on its own.
+    """
+    forces = list(_FORCES_HEADER_RE.finditer(text))
+    region = text[: forces[-1].start()] if forces else text
+    energies = list(_SCF_RE.finditer(region)) or list(_HF_RE.finditer(region))
+    if not energies:
+        return False
+    window_start = energies[-2].end() if len(energies) >= 2 else 0
+    return _SCF_NOT_CONVERGED_RE.search(region[window_start : energies[-1].start()]) is not None
+
+
+def force_label_quality(text: str) -> tuple[bool, str]:
+    """Gate a completed Gaussian output before its energy/forces become a label.
+
+    Distinct from ``parse_final_force_frame`` (which only asks "is there a frame
+    to parse"): this asks "is that frame trustworthy" -- no error termination,
+    and a converged final SCF even though ``IOP(5/13=1)`` let the job finish
+    normally without one.
+    """
+    if _ERROR_TERMINATION_RE.search(text):
+        return False, "error termination in Gaussian output"
+    if final_scf_not_converged(text):
+        return False, "final SCF did not converge (IOP 5/13 continuation)"
+    return True, ""
+
+
+def parse_final_force_frame(
+    text: str,
+    source: Path,
+    seed: Record | None = None,
+    *,
+    require_converged_scf: bool = False,
+) -> LabeledFrame | None:
+    force_headers = list(_FORCES_HEADER_RE.finditer(text))
     if not force_headers:
+        return None
+    if require_converged_scf and final_scf_not_converged(text):
         return None
     header = force_headers[-1]
     force_tail = text[header.end():]

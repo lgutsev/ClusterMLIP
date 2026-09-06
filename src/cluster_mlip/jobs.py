@@ -35,6 +35,24 @@ DEFAULT_LINK1_ROUTE = (
 )
 
 
+def route_without_scf_continue(route: str) -> str:
+    """Return ``route`` with the ``IOP(5/13=1)`` term removed.
+
+    ``5/13=1`` tells Gaussian to carry on past a non-converged SCF rather than
+    stop. It is kept on by default (it rarely actually fails for these systems
+    and salvages otherwise-lost partial runs), with the collector gating any
+    frame whose final SCF did not converge. Passing ``--no-scf-continue`` drops
+    it here so Gaussian error-terminates on non-convergence instead.
+    """
+    def _fix(match: re.Match[str]) -> str:
+        terms = [term.strip() for term in match.group(1).split(",") if term.strip()]
+        terms = [term for term in terms if not re.fullmatch(r"5\s*/\s*13\s*=\s*1", term, re.I)]
+        return f"IOP({','.join(terms)})" if terms else ""
+
+    updated = re.sub(r"IOP\(([^)]*)\)", _fix, route, flags=re.I)
+    return re.sub(r"\s{2,}", " ", updated).strip()
+
+
 def _geometry_sha256(record: Record) -> str:
     from .models import geometry_signature
 

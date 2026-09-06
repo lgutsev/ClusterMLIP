@@ -11,6 +11,8 @@ from cluster_mlip.gaussian import (
     extract_document_records,
     extract_records,
     extract_warehouse_record,
+    final_scf_not_converged,
+    force_label_quality,
     parse_final_force_frame,
 )
 from cluster_mlip.io import read_document, read_extxyz, write_extxyz
@@ -20,6 +22,7 @@ from cluster_mlip.jobs import (
     DEFAULT_ROUTE,
     expanded_records,
     human_job_stem,
+    route_without_scf_continue,
     write_gaussian_jobs,
 )
 from cluster_mlip.models import Atom, Record
@@ -64,6 +67,66 @@ class PipelineTests(unittest.TestCase):
         assert frame is not None
         self.assertEqual(len(frame.forces_ev_ang), 2)
         self.assertAlmostEqual(frame.forces_ev_ang[0][0], 0.5142206748, places=7)
+
+    def test_converged_force_log_passes_quality_gate(self):
+        text = (FIXTURES / "force.log").read_text()
+        self.assertFalse(final_scf_not_converged(text))
+        usable, reason = force_label_quality(text)
+        self.assertTrue(usable)
+        self.assertEqual(reason, "")
+
+    def test_non_converged_final_scf_is_rejected_as_a_label(self):
+        text = (FIXTURES / "scf_not_converged.log").read_text()
+        # There is still a parseable energy/geometry/force frame ...
+        self.assertIsNotNone(
+            parse_final_force_frame(text, FIXTURES / "scf_not_converged.log")
+        )
+        # ... but IOP(5/13=1) let the job finish "Normal termination" without a
+        # converged final SCF, so it must not become a training label.
+        self.assertTrue(final_scf_not_converged(text))
+        usable, reason = force_label_quality(text)
+        self.assertFalse(usable)
+        self.assertIn("did not converge", reason)
+        self.assertIsNone(
+            parse_final_force_frame(
+                text, FIXTURES / "scf_not_converged.log", require_converged_scf=True
+            )
+        )
+
+    def test_error_termination_fails_quality_gate(self):
+        text = (FIXTURES / "force.log").read_text() + "\n Error termination via Lnk1e in l502.exe\n"
+        usable, reason = force_label_quality(text)
+        self.assertFalse(usable)
+        self.assertIn("error termination", reason)
+
+    def test_scf_continue_iop_switch_drops_only_5_13(self):
+        stripped = route_without_scf_continue(DEFAULT_ROUTE)
+        self.assertIn("IOP(5/13=1", DEFAULT_ROUTE)
+        self.assertNotIn("5/13=1", stripped)
+        self.assertIn("5/36=1", stripped)
+        self.assertIn("8/11=1", stripped)
+        self.assertNotIn("  ", stripped)
+        # A route whose only IOP term was 5/13=1 loses the IOP() wrapper entirely.
+        self.assertEqual(
+            route_without_scf_continue("#p UBPW91/Gen Force IOP(5/13=1) NoSymm"),
+            "#p UBPW91/Gen Force NoSymm",
+        )
+
+    def test_prepare_no_scf_continue_removes_iop_from_every_stage(self):
+        records = extract_records((FIXTURES / "minimum.log").read_text(), "minimum.log")
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            xyz = tmp_path / "seeds.extxyz"
+            write_extxyz(records, xyz)
+            from cluster_mlip.cli import build_parser
+
+            args = build_parser().parse_args(
+                ["prepare", str(xyz), "-o", str(tmp_path / "jobs"), "--no-scf-continue",
+                 "--rattles-per-seed", "1"]
+            )
+            self.assertEqual(args.func(args), 0)
+            for gjf in (tmp_path / "jobs").glob("*.gjf"):
+                self.assertNotIn("5/13=1", gjf.read_text())
 
     def test_extxyz_and_jobs(self):
         records = extract_records((FIXTURES / "minimum.log").read_text(), "minimum.log")

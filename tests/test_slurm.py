@@ -343,6 +343,48 @@ class SlurmPreparationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "disagrees"):
                 prepare_slurm_batches(campaign, SlurmConfig(cpus_per_job=8))
 
+    def test_completion_helper_counts_every_link1_step(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            campaign = root / "campaign"
+            campaign.mkdir()
+            # A two-step input: Opt/Freq then the Force label (one --Link1--).
+            (campaign / "job_000.gjf").write_text(
+                "%chk=job_000.chk\n# opt\n\n--Link1--\n%chk=job_000.chk\n# force\n",
+                encoding="utf-8",
+            )
+            with (campaign / "jobs.csv").open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=["job_id", "input", "output"])
+                writer.writeheader()
+                writer.writerow({"job_id": "job_000", "input": "job_000.gjf", "output": "job_000.log"})
+            prepare_slurm_batches(campaign, SlurmConfig(jobs_per_batch=1))
+
+            helper = campaign / "gaussian_complete.sh"
+            self.assertTrue(helper.is_file())
+            subprocess.run(["bash", "-n", str(helper)], check=True)
+
+            normal = " Normal termination of Gaussian 16\n"
+            cases = {
+                "full.log": normal + " ... step 2 ...\n" + normal,
+                "step1_only.log": normal + " ... optimizer still running ...\n",
+                "error_step2.log": normal + " ... step 2 ...\n" + normal + " Error termination in l716.\n",
+                "empty.log": "",
+            }
+            for name, body in cases.items():
+                (campaign / name).write_text(body, encoding="utf-8")
+
+            def complete(log_name: str) -> int:
+                script = (
+                    f'source "{helper}"; '
+                    f'gaussian_job_complete "{campaign / "job_000.gjf"}" "{campaign / log_name}"'
+                )
+                return subprocess.run(["bash", "-c", script]).returncode
+
+            self.assertEqual(complete("full.log"), 0)
+            self.assertNotEqual(complete("step1_only.log"), 0)
+            self.assertNotEqual(complete("error_step2.log"), 0)
+            self.assertNotEqual(complete("empty.log"), 0)
+
     def test_refuses_batch_reshuffle_after_outputs_exist(self):
         with tempfile.TemporaryDirectory() as tmp:
             campaign = self._campaign(Path(tmp), count=4)
