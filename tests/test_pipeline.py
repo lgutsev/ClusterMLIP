@@ -99,6 +99,35 @@ class PipelineTests(unittest.TestCase):
         self.assertFalse(usable)
         self.assertIn("error termination", reason)
 
+    def test_forces_pair_with_input_orientation_when_symmetry_kept_on(self):
+        text = (FIXTURES / "symmetry_on_force.log").read_text()
+        frame = parse_final_force_frame(text, FIXTURES / "symmetry_on_force.log")
+        self.assertIsNotNone(frame)
+        assert frame is not None
+        # The Input-orientation table (atom 2 on +x), not the Standard one
+        # (atom 2 on +y), because the gradient is printed in input orientation.
+        self.assertAlmostEqual(frame.record.atoms[1].x, 0.74, places=6)
+        self.assertAlmostEqual(frame.record.atoms[1].y, 0.0, places=6)
+        self.assertEqual(frame.record.metadata["force_orientation"], "input")
+
+    def test_standard_only_forces_are_flagged_unreconciled(self):
+        text = (FIXTURES / "standard_only_force.log").read_text()
+        frame = parse_final_force_frame(text, FIXTURES / "standard_only_force.log")
+        self.assertIsNotNone(frame)
+        assert frame is not None
+        self.assertEqual(
+            frame.record.metadata["force_orientation"], "standard_unreconciled"
+        )
+
+    def test_link1_opt_then_force_pairs_each_energy_with_its_own_geometry(self):
+        text = (FIXTURES / "link1_opt_force.log").read_text()
+        frame = parse_final_force_frame(text, FIXTURES / "link1_opt_force.log")
+        assert frame is not None
+        # Final label comes from the Force step: converged geometry (1.62 A) and
+        # its small residual force, not the first optimisation point (1.65 A).
+        self.assertAlmostEqual(frame.record.atoms[1].x, 1.62, places=6)
+        self.assertAlmostEqual(frame.energy_ev / -1338.2, 27.211386, places=3)
+
     def test_scf_continue_iop_switch_drops_only_5_13(self):
         stripped = route_without_scf_continue(DEFAULT_ROUTE)
         self.assertIn("IOP(5/13=1", DEFAULT_ROUTE)

@@ -99,6 +99,24 @@ class CollectQualityGateTests(unittest.TestCase):
             self.assertIn("bad.log", failures)
             self.assertIn("did not converge", failures)
 
+    def test_unreconciled_orientation_output_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign = Path(tmp) / "campaign"
+            campaign.mkdir()
+            with (campaign / "jobs.csv").open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=["job_id", "output", "input"])
+                writer.writeheader()
+                writer.writerow({"job_id": "archived", "output": "archived.log", "input": "archived.gjf"})
+            (campaign / "archived.log").write_text(
+                (FIXTURES / "standard_only_force.log").read_text(), encoding="utf-8"
+            )
+            dataset = Path(tmp) / "dataset"
+            self.assertEqual(_collect(campaign, dataset), 0)
+            self.assertEqual(read_labeled_extxyz(dataset / "all.extxyz"), [])
+            self.assertIn(
+                "orientation", (dataset / "failed_outputs.tsv").read_text(encoding="utf-8")
+            )
+
 
 class SpinCollectionTests(unittest.TestCase):
     def _campaign(self, tmp: Path) -> Path:

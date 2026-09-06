@@ -461,6 +461,37 @@ def force_label_quality(text: str) -> tuple[bool, str]:
     return True, ""
 
 
+def _geometry_table_for_forces(
+    tables: list[tuple[int, int, list[Atom], str]],
+) -> tuple[list[Atom], str] | None:
+    """Pick the orientation table to pair with a ``Forces`` block.
+
+    Gaussian always prints the gradient in **input** orientation, while the
+    coordinate table nearest it may be ``Standard orientation`` when the route
+    does not disable symmetry. With ``NoSymm`` (every route this tool
+    generates) the two coincide and the last table is already input
+    orientation. For an archived log that kept symmetry on, Gaussian prints
+    ``Input orientation`` then ``Standard orientation`` for the same step, so
+    the immediately-preceding input table with a matching atom count is that
+    geometry in the orientation the forces use. If only a standard-orientation
+    table is available the pairing cannot be reconciled and the caller is told
+    so rather than emitting rotated-relative-to-each-other coordinates and
+    forces.
+    """
+    if not tables:
+        return None
+    _, _, atoms, orientation = tables[-1]
+    if orientation in ("input", "z-matrix"):
+        return atoms, "input"
+    if (
+        len(tables) >= 2
+        and tables[-2][3] in ("input", "z-matrix")
+        and len(tables[-2][2]) == len(atoms)
+    ):
+        return tables[-2][2], "input"
+    return atoms, "standard_unreconciled"
+
+
 def _forces_after_header(text: str, header_end: int) -> list[tuple[float, float, float]] | None:
     force_tail = text[header_end:]
     sep = list(re.finditer(r"^\s*-{10,}\s*$", force_tail, re.M))
@@ -500,10 +531,10 @@ def parse_final_force_frame(
     if not forces:
         return None
 
-    tables = _orientation_tables(text[:header.start()])
-    if not tables:
+    selected = _geometry_table_for_forces(_orientation_tables(text[:header.start()]))
+    if selected is None:
         return None
-    _, _, atoms, _ = tables[-1]
+    atoms, orientation_status = selected
     energy_matches = list(_SCF_RE.finditer(text[:header.start()]))
     if not energy_matches:
         energy_matches = list(_HF_RE.finditer(text[:header.start()]))
@@ -526,6 +557,7 @@ def parse_final_force_frame(
         seed.atoms = atoms
         seed.charge = charge
         seed.multiplicity = multiplicity
+    seed.metadata["force_orientation"] = orientation_status
     return LabeledFrame(seed, energy_h * HARTREE_TO_EV, forces, source)
 
 
@@ -564,10 +596,10 @@ def iter_force_frames(
         if not forces:
             continue
         pre = text[: header.start()]
-        tables = _orientation_tables(pre)
-        if not tables:
+        selected = _geometry_table_for_forces(_orientation_tables(pre))
+        if selected is None or selected[1] == "standard_unreconciled":
             continue
-        atoms = tables[-1][2]
+        atoms = selected[0]
         energies = list(_SCF_RE.finditer(pre)) or list(_HF_RE.finditer(pre))
         if not energies or len(atoms) != len(forces):
             continue

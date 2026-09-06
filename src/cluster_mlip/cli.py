@@ -356,6 +356,13 @@ def _collect_force_frames(
             if not usable:
                 failures.append((str(path), reason))
                 continue
+            if frame.record.metadata.get("force_orientation") == "standard_unreconciled":
+                failures.append((
+                    str(path),
+                    "forces are in input orientation but only a standard-orientation "
+                    "geometry is available (archive log kept symmetry on); rerun with NoSymm",
+                ))
+                continue
             frames.append(frame)
         except Exception as exc:
             failures.append((str(path), str(exc)))
