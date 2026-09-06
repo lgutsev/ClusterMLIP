@@ -97,3 +97,40 @@ ladders, manifest mapping, and grouped splitting. Gaussian09 and Slurm have
 not been executed on QB3 in this review. Intermediate frames should be curated
 for redundancy and chemical coverage before large training runs; the new
 collector does not implement ground-state selection or local-spin dynamics.
+
+## Per-batch progress and audit
+
+With the ClusterMLIP environment active on QB4 (the shared files are readable
+there), run:
+
+```bash
+W2=/ddnB/work/lgutsev/ClusterMLIP/campaigns/FenOm_Warehouse2/gaussian_spin_qb3_g09_v3
+cluster-mlip campaign-status "$W2" --by-batch
+cluster-mlip campaign-status "$W2" --audit --start 1 --end 10
+```
+
+The batch table counts Gaussian input files separately from their spin stages.
+It shows completed inputs, failures, incomplete logs, unconfirmed activity,
+unstarted inputs, and completed/planned stages. Unstarted inputs are mapped
+from each batch's inputs.txt, so they remain visible before any log exists.
+The job report includes the latest observed multiplicity, energy, optimization
+step, output size and timestamp, and log path for manual inspection.
+
+Reports are written under `monitoring/`: `batch_progress.csv`,
+`job_progress.csv`, `audit_issues.csv`, and `summary.json`. Each invocation
+replaces these reports for the selected range; use `-o DIRECTORY` to keep a
+separate snapshot. Inspection does not modify inputs, checkpoints, or results.
+No regeneration of the campaign is required to use these commands.
+
+`--audit` additionally checks manifest hashes, CPU settings, contradictory
+Guess=(Read,Always), failed calculations, and availability of final force
+labels. Audit errors produce exit code 2. SCF convergence warnings are
+reported without changing IOP settings or automatically rejecting labels.
+
+These are filesystem snapshots, not scheduler queries: `Active?` means a
+start marker without a matching finish; a killed job may leave the same
+markers. `Waiting` includes both queued and unsubmitted calculations. Use
+`squeue -u "$USER"` on QB3 to establish the live allocation state. Running
+`squeue` on QB4 does not establish QB3 job status. Output files can change
+while a snapshot is being read; repeat an audit after completion before
+making a final training-data decision.

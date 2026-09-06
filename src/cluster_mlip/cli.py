@@ -11,6 +11,7 @@ from .active_learning import predict_committee_forces, write_next_batch
 from .analysis import write_analysis
 from .audit import run_private_audit
 from .batch_inventory import build_inventory
+from .batch_progress import write_batch_progress
 from .dataset import grouped_split, read_jobs_manifest, read_labeled_extxyz, write_labeled_extxyz
 from .doctor import MISSING_REQUIRED, format_report, run_checks
 from .evaluate import predict_with_mace, write_evaluation_report
@@ -268,6 +269,21 @@ def command_prepare_slurm(args: argparse.Namespace) -> int:
 
 
 def command_campaign_status(args: argparse.Namespace) -> int:
+    if args.by_batch or args.audit:
+        batch_result = write_batch_progress(Path(args.campaign), Path(args.output) if args.output else None,
+                                      start=args.start, end=args.end, audit=args.audit)
+        print("Batch          Inputs   Done Failed Partial Active? Waiting Stages     Issues")
+        for row in batch_result["batches"]:
+            print(f"{row['batch']:14} {row['planned']:6} {row['complete']:6} {row['failed']:6} "
+                  f"{row['incomplete']:7} {row['activity_unconfirmed']:7} {row['not_started']:7} "
+                  f"{row['completed_stages']:4}/{row['planned_stages']:<4} "
+                  f"{row['errors']} errors, {row['warnings']} warnings")
+        print("Active? = start marker without a matching finish; scheduler state is unconfirmed.")
+        print("Waiting = no calculation started; queued and unsubmitted jobs cannot be distinguished from files.")
+        print(f"Reports: {batch_result['destination']}")
+        return 2 if args.audit and batch_result['summary']['errors'] else 0
+    if args.start != 1 or args.end is not None:
+        raise ValueError("--start/--end require --by-batch or --audit")
     result = write_campaign_progress(
         Path(args.campaign), Path(args.output) if args.output else None
     )
@@ -857,8 +873,12 @@ def build_parser() -> argparse.ArgumentParser:
         "campaign", help="prepared Gaussian campaign containing jobs.csv or spin_jobs.csv"
     )
     campaign_status.add_argument(
-        "-o", "--output", help="progress CSV path (default: CAMPAIGN/progress.csv)"
+        "-o", "--output", help="progress CSV path, or report directory with --by-batch/--audit (default: CAMPAIGN/monitoring)"
     )
+    campaign_status.add_argument("--by-batch", action="store_true", help="summarize each batch and write CSV reports")
+    campaign_status.add_argument("--audit", action="store_true", help="also check inputs, hashes, CPU settings and final force labels; exit 2 for errors")
+    campaign_status.add_argument("--start", type=int, default=1, help="first batch to inspect (inclusive)")
+    campaign_status.add_argument("--end", type=int, help="last batch to inspect (inclusive)")
     campaign_status.set_defaults(func=command_campaign_status)
 
     prepare_spins = sub.add_parser(
