@@ -461,6 +461,9 @@ def _collect_spin_frames(
                 continue
             base_meta = _spin_stage_metadata(row, label_route, diagnostics.get((charge, multiplicity)))
             steps = iter_force_frames(section, path)
+            if not steps:
+                failures.append((f"{out_name}#m{multiplicity}", f"no usable force frame ({job_id})"))
+                continue
             if not include_opt_trajectory:
                 steps = steps[-1:]
             for index, (energy_h, atoms, forces) in enumerate(steps):
