@@ -593,6 +593,13 @@ plain `Opt`, the historical IOP settings, and UltraFine integration. No explicit
 energies or optimization gradients, and Gaussian's normal unrestricted output
 is parsed opportunistically when atomic spin densities are present.
 
+`--basis gen` swaps the built-in 6-311++G* for the `/Gen` mixed basis (6-31G*
+light + def2-TZVP-without-f Fe) as a convergence fallback for groups the
+built-in basis will not settle; `spin_campaign.json` records which was used, so
+a `gen`-fallback subset stays a distinct dataset from the 6-311++G* default and
+`collect`/`train` will not pool their labels into one head. `--no-scf-continue`
+drops `IOP(5/13=1)` here too.
+
 `Freq` is opt-in via `--freq` rather than in the default route: it is cheap on
 small clusters and useful for flagging a poor optimization through imaginary
 modes, but the same campaign can include much larger systems where a
@@ -724,6 +731,9 @@ An `alternative_root` is retained as potentially useful training data rather
 than silently discarded. `--strict` returns nonzero for missing states,
 incomplete calculations, alternative roots, planned stages without output,
 broken checkpoint/fragment lineage, or outputs not linked to `spin_jobs.csv`.
+A missing wavefunction-stability result is **not** a `--strict` failure by
+default (`Stable=Opt` is deliberately absent from the route); add
+`--require-stability` for a campaign that ran a separate stability stage.
 
 ## 4. Collect labels and split by parent
 

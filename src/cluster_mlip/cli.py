@@ -41,8 +41,10 @@ from .physical_checks import write_physical_checks_report
 from .progress import write_campaign_progress
 from .spin import (
     DEFAULT_SPIN_ROUTE,
+    SPIN_BASIS_CHOICES,
     parse_spin_diagnostics,
     route_with_frequency,
+    spin_route_with_basis,
     validate_fragment_specification_shape,
     validate_spin_campaign,
     write_automatic_fe_spin_jobs,
@@ -560,7 +562,9 @@ def command_prepare_spins(args: argparse.Namespace) -> int:
             raise ValueError(f"--record-id not found in {args.seeds}: {unknown}")
         records = [record for record in records if record.record_id in requested]
     records = [record for record in records if _record_allowed(record, args)]
-    route = args.route if args.scf_continue else route_without_scf_continue(args.route)
+    route = spin_route_with_basis(args.route, args.basis)
+    if not args.scf_continue:
+        route = route_without_scf_continue(route)
     if args.freq:
         route = route_with_frequency(route)
     specifications = None
@@ -631,8 +635,12 @@ def command_validate_spins(args: argparse.Namespace) -> int:
         + summary["planned_states_uncharacterized"]
         + summary["fragment_alignment_mismatches"]
         + summary["fragment_alignment_unresolved"]
-        + summary["planned_states_without_stability"]
     )
+    # A missing wavefunction-stability result is expected: Stable=Opt is
+    # deliberately not in the route (G09 rejects it combined with Opt). Only a
+    # campaign that ran a separate stability stage should fail --strict on it.
+    if args.require_stability:
+        strict_failures += summary["planned_states_without_stability"]
     return 2 if args.strict and strict_failures else 0
 
 
@@ -1041,6 +1049,14 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_spins.add_argument("--max-atoms", type=int)
     prepare_spins.add_argument("--route", default=DEFAULT_SPIN_ROUTE)
     prepare_spins.add_argument(
+        "--basis", choices=SPIN_BASIS_CHOICES, default="6-311++g*",
+        help=(
+            "spin route basis: the archived built-in 6-311++G* (default), or 'gen' to "
+            "swap in the /Gen mixed basis (6-31G* light + def2-TZVP-no-f Fe) as a "
+            "convergence fallback"
+        ),
+    )
+    prepare_spins.add_argument(
         "--no-scf-continue", dest="scf_continue", action="store_false",
         help="drop IOP(5/13=1) so Gaussian stops on a non-converged SCF (on by default)",
     )
@@ -1098,6 +1114,13 @@ def build_parser() -> argparse.ArgumentParser:
     validate_spins.add_argument(
         "--strict", action="store_true",
         help="exit nonzero for missing/wrong roots, incomplete jobs, or unverified spin provenance",
+    )
+    validate_spins.add_argument(
+        "--require-stability", action="store_true",
+        help=(
+            "under --strict, also fail when an observed planned state has no stable-wavefunction "
+            "result (off by default: Stable=Opt is intentionally absent from the route)"
+        ),
     )
     validate_spins.set_defaults(func=command_validate_spins)
 

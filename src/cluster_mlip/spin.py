@@ -25,6 +25,25 @@ DEFAULT_SPIN_ROUTE = (
     "NoSymm Opt IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine"
 )
 
+SPIN_BASIS_CHOICES = ("6-311++g*", "gen")
+
+
+def spin_route_with_basis(route: str, basis: str) -> str:
+    """Swap the spin route's basis token.
+
+    ``6-311++g*`` is the archived Gaussian 09 default used for these small
+    Fe/O/N clusters; ``gen`` swaps to the ``/Gen`` mixed basis (6-31G* light +
+    def2-TZVP-without-f Fe) as a convergence fallback when the built-in basis
+    will not settle. A no-op if the route already uses the requested basis or a
+    custom ``--route`` names something else.
+    """
+    if basis == "gen":
+        return re.sub(r"/6-311\+\+G\*", "/Gen", route, flags=re.I)
+    if basis == "6-311++g*":
+        return re.sub(r"/Gen\b", "/6-311++G*", route, flags=re.I)
+    raise ValueError(f"unknown spin basis {basis!r}; choose from {SPIN_BASIS_CHOICES}")
+
+
 SPIN_MANIFEST_COLUMNS = [
     "job_id", "chain_id", "stage_index", "pathway", "initialization", "audit_classification",
     "spin_plan_id", "spin_group_key", "target_record_multiplicity", "high_spin_inference",
@@ -778,6 +797,8 @@ def write_spin_jobs(
         "trusted_high_spin_seed_count": len(high_spin_records),
         "skipped_non_high_spin_seed_count": len(skipped_records),
         "route": route,
+        "basis": "gen" if _route_uses_gen_basis(route) else "6-311++g*",
+        "scf_nonconvergence_continuation": bool(re.search(r"5\s*/\s*13\s*=\s*1", route)),
         "memory": memory,
         "nproc": nproc,
         "input_directory": str(input_directory),
@@ -1011,6 +1032,8 @@ def write_automatic_fe_spin_jobs(
         ],
         "idealized_per_fe_high_spin_used": False,
         "route": route,
+        "basis": "gen" if _route_uses_gen_basis(route) else "6-311++g*",
+        "scf_nonconvergence_continuation": bool(re.search(r"5\s*/\s*13\s*=\s*1", route)),
         "memory": memory,
         "nproc": nproc,
         "input_directory": str(input_directory),

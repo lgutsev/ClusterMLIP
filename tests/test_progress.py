@@ -98,6 +98,24 @@ class CampaignProgressTests(unittest.TestCase):
         self.assertIsNone(args.high_spin)
         self.assertIsNone(args.targets)
 
+    def test_prepare_spins_basis_defaults_to_builtin_with_gen_fallback(self):
+        default = build_parser().parse_args(["prepare-spins", "seeds.extxyz", "--auto-from-data"])
+        self.assertEqual(default.basis, "6-311++g*")
+        self.assertTrue(default.scf_continue)
+        fallback = build_parser().parse_args(
+            ["prepare-spins", "seeds.extxyz", "--auto-from-data", "--basis", "gen", "--no-scf-continue"]
+        )
+        self.assertEqual(fallback.basis, "gen")
+        self.assertFalse(fallback.scf_continue)
+
+    def test_validate_spins_require_stability_is_opt_in(self):
+        default = build_parser().parse_args(["validate-spins", "a.zip", "new", "--strict"])
+        self.assertFalse(default.require_stability)
+        opted = build_parser().parse_args(
+            ["validate-spins", "a.zip", "new", "--strict", "--require-stability"]
+        )
+        self.assertTrue(opted.require_stability)
+
     def test_spin_campaign_progress_reports_each_link1_stage(self):
         with tempfile.TemporaryDirectory() as tmp:
             campaign = Path(tmp) / "spin_campaign"

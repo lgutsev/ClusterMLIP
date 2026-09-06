@@ -191,7 +191,7 @@ def write_gaussian_jobs(
                 f"%nprocshared={nproc}",
                 link1_route,
                 "",
-                f"MLIP diffuse-basis force label human_id={stem}; job_id={record.record_id}",
+                f"MLIP force label human_id={stem}; job_id={record.record_id}",
                 "",
                 f"{record.charge} {record.multiplicity}",
                 gen_basis.rstrip("\n"),

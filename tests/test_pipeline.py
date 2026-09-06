@@ -37,6 +37,7 @@ from cluster_mlip.spin import (
     render_fragment_input,
     render_ladder_input,
     route_with_frequency,
+    spin_route_with_basis,
     validate_spin_campaign,
     write_automatic_fe_spin_jobs,
     write_spin_inventory,
@@ -368,6 +369,23 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("0 7\n\n", text)
         self.assertNotIn("6-31G*", text)
         self.assertNotIn("6-311G*", text)
+
+    def test_spin_basis_fallback_swaps_only_the_basis_token(self):
+        gen = spin_route_with_basis(DEFAULT_SPIN_ROUTE, "gen")
+        self.assertIn("UBPW91/Gen ", gen)
+        self.assertNotIn("6-311++G*", gen)
+        # Round-trips back, and the convergence controls are untouched.
+        self.assertEqual(spin_route_with_basis(gen, "6-311++g*"), DEFAULT_SPIN_ROUTE)
+        self.assertIn("VShift=5,NoIncFock", gen)
+
+    def test_spin_gen_basis_fallback_emits_a_gen_block(self):
+        record = Record("feo", "legacy", [Atom("Fe", 0, 0, 0), Atom("O", 2, 0, 0)], 0, 5, "minimum")
+        text, _ = render_ladder_input(
+            record, 5, [3], route=spin_route_with_basis(DEFAULT_SPIN_ROUTE, "gen")
+        )
+        self.assertIn("UBPW91/Gen", text)
+        self.assertEqual(text.count("Fe     0"), 2)
+        self.assertNotIn("6-311++G*", text)
 
     def test_route_with_frequency_is_opt_in_and_idempotent(self):
         augmented = route_with_frequency(DEFAULT_SPIN_ROUTE)
