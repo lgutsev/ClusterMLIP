@@ -267,10 +267,33 @@ def _manifest_inputs(campaign: Path) -> tuple[Path, list[str]]:
     return manifest, inputs
 
 
+def _completion_function() -> str:
+    """Portable completion check shared by worker, resume, and status scripts.
+
+    Count explicit Link1 stages, allowing Gaussian's extra internal jobs (Freq).
+    A successful early stage must never hide a failed or truncated later stage.
+    """
+    return r'''gaussian_complete() {
+  local input=$1 output=$2 expected
+  [[ -s $input && -s $output ]] || return 1
+  [[ ! -f ${output%.*}.rc || $(<"${output%.*}.rc") == 0 ]] || return 1
+  expected=$(awk 'BEGIN {n=1} tolower($0) ~ /^[[:space:]]*--link1--[[:space:]]*$/ {n++} END {print n}' "$input") || return 1
+  awk -v expected="$expected" '
+    /Entering Gaussian System|Link1: *Proceeding|SCF Done:/ {finished=0}
+    /Error termination/ {error=1; finished=0}
+    /Normal termination of Gaussian/ {normal++; finished=1}
+    END {exit !(normal >= expected && finished && !error)}
+  ' "$output"
+}
+'''
+
+
 def _worker_script(default_command: str) -> str:
     command = shlex.quote(default_command)
     return f"""#!/usr/bin/env bash
 set -euo pipefail
+
+{_completion_function()}
 
 if (( $# != 5 )); then
   echo "Usage: $0 INPUT OUTPUT STATUS RC_FILE SCRATCH_DIR" >&2
@@ -321,15 +344,15 @@ printf '%s\n' "$command_rc" > "$rc_file"
 
 finished=$(date --iso-8601=seconds 2>/dev/null || date)
 printf '%s\n' "$finished" > "${{status%.status}}.finished"
-if (( command_rc == 0 )) && grep -q 'Normal termination of Gaussian' "$output"; then
+if (( command_rc == 0 )) && gaussian_complete "$input" "$output"; then
   printf 'OK\n' > "$status"
   echo "<<< Finished $(basename -- "$input") OK at $finished"
   exit 0
 fi
 
 if (( command_rc == 0 )); then
-  printf 'ERROR missing_normal_termination\n' > "$status"
-  echo "<<< Gaussian returned zero but no normal termination was found" >&2
+  printf 'ERROR incomplete_gaussian_job\n' > "$status"
+  echo "<<< Gaussian returned zero but the full input did not complete normally" >&2
   exit 1
 fi
 printf 'ERROR %s\n' "$command_rc" > "$status"
@@ -365,6 +388,8 @@ def _batch_script(config: SlurmConfig, batch_index: int) -> str:
     scratch_template = shlex.quote(config.scratch_root)
     body = f"""
 set -euo pipefail
+
+{_completion_function()}
 
 campaign_root=${{CLUSTER_MLIP_CAMPAIGN_ROOT:?Use the generated submit.sh so the campaign root is exported}}
 campaign_root=$(cd -- "$campaign_root" && pwd -P)
@@ -416,7 +441,7 @@ for input_name in "${{inputs[@]}}"; do
   status="$batch_dir/${{base}}.status"
   rc_file="$batch_dir/${{base}}.rc"
 
-  if [[ $run_policy == resume && -s $output ]] && grep -q 'Normal termination of Gaussian' "$output"; then
+  if [[ $run_policy == resume && -s $output ]] && gaussian_complete "$batch_dir/$input_name" "$output"; then
     printf 'OK\n' > "$status"
     echo "SKIP complete: $input_name"
     continue
@@ -432,6 +457,8 @@ for input_name in "${{inputs[@]}}"; do
     worker_rc=$?
     set -e
     if (( worker_rc != 0 )); then
+      printf 'ERROR %s\\n' "$worker_rc" > "$status"
+      printf '%s\\n' "$worker_rc" > "$rc_file"
       echo "Worker failed for $input_name (rc=$worker_rc)" >&2
     fi
   }} &
@@ -445,11 +472,11 @@ for input_name in "${{inputs[@]}}"; do
   base=$(basename -- "${{input_name%.*}}")
   output="$batch_dir/${{base}}.log"
   status="$batch_dir/${{base}}.status"
-  if [[ -s $output ]] && grep -q 'Normal termination of Gaussian' "$output"; then
+  if [[ -s $output ]] && gaussian_complete "$batch_dir/$input_name" "$output"; then
     ((complete += 1))
   else
     ((failed += 1))
-    echo "INCOMPLETE: $base ($(<"$status" 2>/dev/null || echo no-status))" >&2
+    echo "INCOMPLETE: $base ($(cat -- "$status" 2>/dev/null || echo no-status))" >&2
   fi
 done
 
@@ -480,6 +507,8 @@ sbatch "$@" --chdir="$batch_dir" --export="$export_spec" "$batch_dir/run_batch.s
 def _submit_all_script(batch_count: int) -> str:
     return f"""#!/usr/bin/env bash
 set -euo pipefail
+
+{_completion_function()}
 
 if [[ -n ${{SLURM_JOB_ID:-}} ]]; then
   echo "Do not submit this head launcher with sbatch; execute it with bash or ./submit_gaussian_batches.sh" >&2
@@ -552,7 +581,7 @@ for ((batch_number=start_batch; batch_number<=end_batch; batch_number++)); do
       [[ -n $input_name ]] || continue
       base=${{input_name%.*}}
       output="$batch_dir/${{base}}.log"
-      if [[ ! -s $output ]] || ! grep -q 'Normal termination of Gaussian' "$output"; then
+      if [[ ! -s $output ]] || ! gaussian_complete "$batch_dir/$input_name" "$output"; then
         incomplete=1
         break
       fi
@@ -575,6 +604,8 @@ def _status_script(batch_count: int) -> str:
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 
+{_completion_function()}
+
 campaign_root=$(cd -- "$(dirname -- "${{BASH_SOURCE[0]}}")" && pwd -P)
 total_planned=0
 total_normal=0
@@ -590,7 +621,7 @@ for batch_number in $(seq 1 {batch_count}); do
     base=${{input_name%.*}}
     output="$batch_dir/${{base}}.log"
     status="$batch_dir/${{base}}.status"
-    if [[ -s $output ]] && grep -q 'Normal termination of Gaussian' "$output"; then
+    if [[ -s $output ]] && gaussian_complete "$batch_dir/$input_name" "$output"; then
       ((normal += 1))
     elif [[ -f $status ]] && grep -q '^ERROR' "$status"; then
       ((errors += 1))

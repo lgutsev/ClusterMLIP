@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 
 @dataclass(frozen=True)
@@ -27,7 +27,8 @@ class Record:
     irc_path: int | None = None
     irc_point: int | None = None
     electronic_state: str = ""
-    metadata: dict[str, str] = field(default_factory=dict)
+    # JSON-serializable provenance and numerical electronic diagnostics.
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def total_spin(self) -> int:

@@ -595,6 +595,9 @@ frequency calculation at every Link1 stage is not worth the cost. Pass
 These small spin-campaign clusters use Gaussian's built-in basis directly,
 without a `Gen` basis block. It does not use wB97M-V/def2TZVPP.
 
+See [Gaussian reference workflow](docs/gaussian-reference-workflow.md) for QB3 launcher updates,
+Link1 completion checks, and collecting intermediate force frames with spin provenance.
+
 Wavefunction stability is deliberately not combined with optimization in the
 same route: Gaussian 09 treats `Stable=Opt` as a separate calculation type and
 rejects the combination during Link 1 parsing. Any stability refinement must

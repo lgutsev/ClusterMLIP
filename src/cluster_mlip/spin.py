@@ -11,7 +11,10 @@ from pathlib import Path
 from typing import Iterable
 
 from .basis import render_gen_basis
-from .gaussian import ATOMIC_SYMBOLS, _CM_RE, _SCF_RE, _float, extract_document_records
+from .gaussian import (
+    ATOMIC_SYMBOLS, _CM_RE, _SCF_RE, _S2_RE, _MULLIKEN_SPIN_RE,
+    _MULLIKEN_ROW_RE, _float, extract_document_records,
+)
 from .io import iter_documents, read_document, read_extxyz, source_tree, write_extxyz
 from .jobs import human_job_stem
 from .models import Atom, Record
@@ -36,19 +39,6 @@ SPIN_MANIFEST_COLUMNS = [
     "input_sha256", "output",
 ]
 
-_S2_RE = re.compile(
-    r"S\*\*2\s+before\s+annihilation\s+([+-]?[\d.]+).*?after\s+([+-]?[\d.]+)",
-    re.I | re.S,
-)
-_MULLIKEN_SPIN_RE = re.compile(
-    r"Mulliken\s+charges\s+and\s+spin\s+densities:(.*?)(?:Sum\s+of\s+Mulliken|\n\s*\n)",
-    re.I | re.S,
-)
-_MULLIKEN_ROW_RE = re.compile(
-    r"^\s*(\d+)\s+([A-Z][a-z]?)\s+[+-]?(?:\d+(?:\.\d*)?|\.\d+)"
-    r"(?:[EeDd][+-]?\d+)?\s+([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[EeDd][+-]?\d+)?)\s*$",
-    re.M,
-)
 
 
 @dataclass(frozen=True)
@@ -795,7 +785,9 @@ def write_spin_jobs(
         json.dumps(campaign, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     (output / "run_one.sh").write_text(
-        "#!/usr/bin/env bash\nset -euo pipefail\ninput=$1\noutput=${input%.gjf}.log\ng16 \"$input\" > \"$output\"\n",
+        "#!/usr/bin/env bash\nset -euo pipefail\ninput=$1\n"
+        'cd -- "$(dirname -- "$input")"\ninput=$(basename -- "$input")\n'
+        'output=${input%.*}.log\ntime "${GAUSSIAN_COMMAND:-g09}" < "$input" > "$output" 2>&1\n',
         encoding="utf-8",
     )
     (output / "run_one.sh").chmod(0o755)
@@ -1025,7 +1017,9 @@ def write_automatic_fe_spin_jobs(
         json.dumps(campaign, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     (output / "run_one.sh").write_text(
-        "#!/usr/bin/env bash\nset -euo pipefail\ninput=$1\noutput=${input%.gjf}.log\ng16 \"$input\" > \"$output\"\n",
+        "#!/usr/bin/env bash\nset -euo pipefail\ninput=$1\n"
+        'cd -- "$(dirname -- "$input")"\ninput=$(basename -- "$input")\n'
+        'output=${input%.*}.log\ntime "${GAUSSIAN_COMMAND:-g09}" < "$input" > "$output" 2>&1\n',
         encoding="utf-8",
     )
     (output / "run_one.sh").chmod(0o755)

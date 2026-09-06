@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import collections
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from .batch_inventory import build_inventory
 from .dataset import grouped_split, read_jobs_manifest, read_labeled_extxyz, write_labeled_extxyz
 from .doctor import MISSING_REQUIRED, format_report, run_checks
 from .evaluate import predict_with_mace, write_evaluation_report
-from .gaussian import extract_document_records, parse_final_force_frame
+from .gaussian import extract_document_records, gaussian_job_complete, parse_force_frames
 from .io import iter_documents, read_document, read_extxyz, source_tree, write_extxyz, write_manifest
 from .jobs import (
     DEFAULT_LINK1_ROUTE,
@@ -284,59 +285,81 @@ def command_collect(args: argparse.Namespace) -> int:
     outputs = Path(args.outputs)
     destination = Path(args.output)
     destination.mkdir(parents=True, exist_ok=True)
-    manifest = read_jobs_manifest(outputs / "jobs.csv")
-    manifest_by_output = {
-        Path(row.get("output", "")).stem: row
-        for row in manifest.values()
-        if row.get("output")
-    }
+    if not outputs.is_dir():
+        raise NotADirectoryError(outputs)
+    if (args.valid_fraction < 0 or args.test_fraction < 0
+            or args.valid_fraction + args.test_fraction >= 1):
+        raise ValueError("split fractions must be nonnegative and sum to less than one")
+    spin_campaign = (outputs / "spin_jobs.csv").is_file()
+    manifest = read_jobs_manifest(outputs / ("spin_jobs.csv" if spin_campaign else "jobs.csv"))
+    manifest_by_output: dict[str, list[dict[str, str]]] = {}
+    for row in manifest.values():
+        key = Path(row.get("output") or row["job_id"]).stem
+        manifest_by_output.setdefault(key, []).append(row)
     frames = []
     failures: list[tuple[str, str]] = []
-    for path in sorted(list(outputs.rglob("*.log")) + list(outputs.rglob("*.out"))):
-        row = manifest.get(path.stem, {}) or manifest_by_output.get(path.stem, {})
-        job_id = row.get("job_id", path.stem)
-        seed = None
-        if row:
-            provenance_keys = (
-                "human_id",
-                "source_record_id",
-                "parent_record_id",
-                "variant",
-                "rattle_index",
-                "rattle_sigma_angstrom",
-                "campaign_seed",
-                "resolved_rattle_seed",
-                "parent_geometry_sha256",
-                "input_geometry_sha256",
-                "input_sha256",
-                "legacy_energy_hartree",
-                "legacy_route",
-                "first_route",
-                "link1_route",
-            )
-            metadata = {key: row[key] for key in provenance_keys if row.get(key)}
-            metadata["parent_record_id"] = row.get("parent_record_id", job_id)
-            seed = Record(
-                record_id=job_id,
-                source=row.get("source", str(path)),
-                atoms=[],
-                charge=int(row.get("charge", 0)),
-                multiplicity=int(row.get("multiplicity", 1)),
-                config_type=row.get("config_type", "labeled"),
-                route=row.get("legacy_route", ""),
-                legacy_energy_hartree=(
-                    float(row["legacy_energy_hartree"])
-                    if row.get("legacy_energy_hartree")
-                    else None
-                ),
-                metadata=metadata,
-            )
+    paths = sorted(list(outputs.rglob("*.log")) + list(outputs.rglob("*.out")))
+    counts = collections.Counter(path.stem for path in paths if not path.is_symlink())
+    for path in paths:
+        if path.is_symlink():
+            continue
+        rows = manifest_by_output.get(path.stem, [])
+        if manifest and not rows:
+            continue  # Scheduler logs and unrelated files are not Gaussian labels.
         try:
-            frame = parse_final_force_frame(path.read_text(errors="ignore"), path, seed)
-            if frame is None:
-                failures.append((str(path), "no complete energy/geometry/force frame"))
-            else:
-                frames.append(frame)
+            if counts[path.stem] > 1:
+                raise ValueError("ambiguous duplicate output name; select one campaign copy")
+            rc_path = path.with_suffix(".rc")
+            if rc_path.is_file() and rc_path.read_text().strip() != "0":
+                raise ValueError("Gaussian worker recorded a nonzero or invalid exit code")
+            text = path.read_text(errors="ignore")
+            expected = len(rows) if spin_campaign else 1
+            if rows and rows[0].get("input"):
+                input_path = outputs / rows[0]["input"]
+                if input_path.is_file():
+                    expected = 1 + len(re.findall(
+                        r"^\s*--link1--\s*$", input_path.read_text(errors="ignore"), re.I | re.M
+                    ))
+            if not gaussian_job_complete(text, expected):
+                raise ValueError("incomplete Gaussian job (including Link1 stages)")
+            parsed = parse_force_frames(text, path)
+            if not parsed:
+                raise ValueError("no complete energy/geometry/force frame")
+            grouped: dict[str, list] = {}
+            for frame in parsed:
+                if spin_campaign:
+                    matches = [row for row in rows
+                               if int(row["intended_charge"]) == frame.record.charge
+                               and int(row["intended_multiplicity"]) == frame.record.multiplicity]
+                    if len(matches) != 1:
+                        raise ValueError("force frame has missing or ambiguous spin-stage provenance")
+                    row = matches[0]
+                else:
+                    row = rows[0] if rows else {}
+                job_id = row.get("job_id", path.stem)
+                record = frame.record
+                record.record_id = job_id
+                record.source = row.get("source", str(path))
+                record.config_type = row.get("config_type") or "labeled"
+                record.route = row.get("legacy_route", "")
+                if row.get("legacy_energy_hartree"):
+                    record.legacy_energy_hartree = float(row["legacy_energy_hartree"])
+                # Preserve all manifest provenance, including spin plan and checkpoint lineage.
+                record.metadata.update({key: value for key, value in row.items() if value})
+                record.metadata["parent_record_id"] = row.get("parent_record_id") or job_id
+                record.metadata["gaussian_output"] = str(path.relative_to(outputs))
+                grouped.setdefault(job_id, []).append(frame)
+            if spin_campaign and set(grouped) != {row["job_id"] for row in rows}:
+                raise ValueError("one or more planned spin stages have no force label")
+            selected = []
+            for job_id, members in grouped.items():
+                if args.frames == "all":
+                    for frame in members:
+                        frame.record.record_id = f"{job_id}__frame{frame.record.metadata['force_frame_index']:06d}"
+                    selected.extend(members)
+                else:
+                    selected.append(members[-1])
+            frames.extend(selected)
         except Exception as exc:
             failures.append((str(path), str(exc)))
     write_labeled_extxyz(frames, destination / "all.extxyz")
@@ -350,16 +373,15 @@ def command_collect(args: argparse.Namespace) -> int:
             handle.write(f"{name}\t{message}\n")
     print(f"Collected {len(frames)} labeled frames; rejected {len(failures)} outputs")
     print("Split: " + ", ".join(f"{name}={len(values)}" for name, values in splits.items()))
-    if frames:
-        label_summary = write_label_report(
-            frames, destination, args.force_outlier_threshold,
-            splits=splits, stratify_by=args.stratify_by,
-        )
-        print(
-            f"Label report: {len(label_summary['outliers'])} force-RMS outliers "
-            f"(> {args.force_outlier_threshold} eV/Angstrom) -- see {destination / 'label_report.md'}"
-        )
-    return 0
+    label_summary = write_label_report(
+        frames, destination, args.force_outlier_threshold,
+        splits=splits, stratify_by=args.stratify_by or (),
+    )
+    print(
+        f"Label report: {len(label_summary['outliers'])} force-RMS outliers "
+        f"(> {args.force_outlier_threshold} eV/Angstrom) -- see {destination / 'label_report.md'}"
+    )
+    return 0 if frames else 2
 
 
 def _stratify_by(value: str) -> tuple[str, ...]:
@@ -474,9 +496,10 @@ def command_validate_spins(args: argparse.Namespace) -> int:
         + summary["planned_states_uncharacterized"]
         + summary["fragment_alignment_mismatches"]
         + summary["fragment_alignment_unresolved"]
-        + summary["planned_states_without_stability"]
     )
-    return 2 if args.strict and strict_failures else 0
+    if args.require_stability:
+        strict_failures += summary["planned_states_without_stability"]
+    return 2 if (args.strict or args.require_stability) and strict_failures else 0
 
 
 def command_doctor(args: argparse.Namespace) -> int:
@@ -889,11 +912,15 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_spins.set_defaults(func=command_prepare_spins)
 
     collect = sub.add_parser("collect", help="collect completed Gaussian force outputs into MACE extxyz")
-    collect.add_argument("outputs", help="directory containing .log/.out files and optional jobs.csv")
+    collect.add_argument("outputs", help="campaign directory containing .log/.out files and jobs.csv or spin_jobs.csv")
     collect.add_argument("-o", "--output", default="dataset")
     collect.add_argument("--valid-fraction", type=float, default=0.10)
     collect.add_argument("--test-fraction", type=float, default=0.10)
     collect.add_argument("--seed", type=int, default=20260811)
+    collect.add_argument(
+        "--frames", choices=("final", "all"), default="final",
+        help="final force frame per job/spin stage (default), or every force-bearing step; siblings stay in one split",
+    )
     collect.add_argument(
         "--force-outlier-threshold", type=float, default=5.0,
         help="flag frames whose force RMS (eV/Angstrom) exceeds this in label_report.md/json",
@@ -922,6 +949,10 @@ def build_parser() -> argparse.ArgumentParser:
     validate_spins.add_argument(
         "--strict", action="store_true",
         help="exit nonzero for missing/wrong roots, incomplete jobs, or unverified spin provenance",
+    )
+    validate_spins.add_argument(
+        "--require-stability", action="store_true",
+        help="also require explicit wavefunction stability results (off for routine spin campaigns)",
     )
     validate_spins.set_defaults(func=command_validate_spins)
 

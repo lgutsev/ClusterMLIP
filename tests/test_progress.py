@@ -37,8 +37,8 @@ class CampaignProgressTests(unittest.TestCase):
             batch.mkdir(parents=True)
             output = batch / job["output"]
             output.write_text(
-                (FIXTURES / "force.log").read_text()
-                + "\n Normal termination of Gaussian 16\n"
+                ((FIXTURES / "force.log").read_text()
+                 + "\n Normal termination of Gaussian 16\n") * 2
             )
             (batch / f"{output.stem}.status").write_text("OK\n")
             complete = write_campaign_progress(campaign)

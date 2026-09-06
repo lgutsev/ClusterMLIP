@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import copy
 import math
 import re
 from pathlib import Path
@@ -34,6 +35,21 @@ _SCF_RE = re.compile(r"SCF Done:\s+E\([^)]*\)\s*=\s*(-?\d+(?:\.\d+)?(?:[DEde][+-
 _FREQ_RE = re.compile(r"Frequencies\s+--\s+([^\n\r]+)", re.I)
 _IRC_POINT_RE = re.compile(r"Point\s+Number:\s*(-?\d+)\s+Path\s+Number:\s*(\d+)", re.I)
 _STATE_RE = re.compile(r"State\s*=\s*([^\\\s]+)", re.I)
+
+
+_S2_RE = re.compile(
+    r"S\*\*2\s+before\s+annihilation\s+([+-]?[\d.]+).*?after\s+([+-]?[\d.]+)",
+    re.I | re.S,
+)
+_MULLIKEN_SPIN_RE = re.compile(
+    r"Mulliken\s+charges\s+and\s+spin\s+densities:(.*?)(?:Sum\s+of\s+Mulliken|\n\s*\n)",
+    re.I | re.S,
+)
+_MULLIKEN_ROW_RE = re.compile(
+    r"^\s*(\d+)\s+([A-Z][a-z]?)\s+[+-]?(?:\d+(?:\.\d*)?|\.\d+)"
+    r"(?:[EeDd][+-]?\d+)?\s+([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[EeDd][+-]?\d+)?)\s*$",
+    re.M,
+)
 
 
 def _float(value: str) -> float:
@@ -414,57 +430,115 @@ def extract_document_records(text: str, source: str) -> list[Record]:
     return []
 
 
-def parse_final_force_frame(text: str, source: Path, seed: Record | None = None) -> LabeledFrame | None:
-    force_headers = list(re.finditer(r"^\s*Forces \(Hartrees/Bohr\)\s*$", text, re.I | re.M))
-    if not force_headers:
-        return None
-    header = force_headers[-1]
-    force_tail = text[header.end():]
-    sep = list(re.finditer(r"^\s*-{10,}\s*$", force_tail, re.M))
-    if len(sep) < 2:
-        return None
-    start = sep[1].end()
-    end_match = re.search(r"^\s*-{10,}\s*$", force_tail[start:], re.M)
-    if end_match is None:
-        return None
-    forces: list[tuple[float, float, float]] = []
-    for line in force_tail[start:start + end_match.start()].splitlines():
-        parts = line.split()
-        if len(parts) < 5:
-            continue
-        try:
-            fx, fy, fz = map(_float, parts[-3:])
-        except ValueError:
-            continue
-        forces.append((fx * FORCE_AU_TO_EV_ANG, fy * FORCE_AU_TO_EV_ANG, fz * FORCE_AU_TO_EV_ANG))
+_FORCE_HEADER_RE = re.compile(
+    r"^\s*Center\s+Atomic\s+Forces \(Hartrees/Bohr\)\s*$", re.I | re.M
+)
 
-    tables = _orientation_tables(text[:header.start()])
-    if not tables:
-        return None
-    _, _, atoms, _ = tables[-1]
-    energy_matches = list(_SCF_RE.finditer(text[:header.start()]))
-    if not energy_matches:
-        energy_matches = list(_HF_RE.finditer(text[:header.start()]))
-    if not energy_matches or len(atoms) != len(forces):
-        return None
-    energy_h = _float(energy_matches[-1].group(1))
-    cm = list(_CM_RE.finditer(text[:header.start()]))
-    charge, multiplicity = (int(cm[-1].group(1)), int(cm[-1].group(2))) if cm else (0, 1)
-    if seed is None:
-        geom_hash = _geometry_hash(atoms)
-        seed = Record(
-            record_id=geom_hash,
-            source=str(source),
-            atoms=atoms,
-            charge=charge,
-            multiplicity=multiplicity,
-            config_type="labeled",
+
+def gaussian_job_complete(text: str, expected_stages: int = 1) -> bool:
+    """Match the generated shell launchers' full-job completion policy."""
+    normal = 0
+    finished = False
+    for line in text.splitlines():
+        if any(token in line for token in (
+            "Entering Gaussian System", "Link1:  Proceeding", "SCF Done:",
+        )) or re.search(r"Link1: *Proceeding", line):
+            finished = False
+        if "Error termination" in line:
+            return False
+        if "Normal termination of Gaussian" in line:
+            normal += 1
+            finished = True
+    return normal >= expected_stages and finished
+
+
+def parse_force_frames(text: str, source: Path, seed: Record | None = None) -> list[LabeledFrame]:
+    """Read force-bearing steps, pairing each table with its preceding SCF/geometry.
+
+    Structural extraction alone is not a force label. In particular, never attach
+    a newly printed geometry to an energy/force pair from the previous step.
+    """
+    tables = _orientation_tables(text)
+    energies = list(_SCF_RE.finditer(text))
+    cms = list(_CM_RE.finditer(text))
+    frames = []
+    for index, header in enumerate(_FORCE_HEADER_RE.finditer(text)):
+        preceding_energy = [match for match in energies if match.end() < header.start()]
+        if not preceding_energy:
+            continue
+        energy = preceding_energy[-1]
+        preceding_cm = [match for match in cms if match.end() < header.start()]
+        cm = preceding_cm[-1] if preceding_cm else None
+        # A force table in a new Link1 section cannot borrow an earlier SCF.
+        if cm is not None and energy.start() < cm.start():
+            continue
+        geometries = [table for table in tables if table[1] < energy.start()
+                      and (cm is None or table[0] > cm.start())]
+        if not geometries:
+            continue
+        _, geometry_end, atoms, orientation = geometries[-1]
+        tail = text[header.end():]
+        separators = list(re.finditer(r"^\s*-{10,}\s*$", tail, re.M))
+        if len(separators) < 2:
+            continue
+        force_lines = tail[separators[0].end():separators[1].start()].strip().splitlines()
+        if len(force_lines) != len(atoms):
+            continue
+        forces = []
+        for center, (line, atom) in enumerate(zip(force_lines, atoms), 1):
+            parts = line.split()
+            if len(parts) != 5:
+                break
+            try:
+                if int(parts[0]) != center or ATOMIC_SYMBOLS.get(int(parts[1])) != atom.symbol:
+                    break
+                fx, fy, fz = (_float(value) * FORCE_AU_TO_EV_ANG for value in parts[2:])
+                force = (fx, fy, fz)
+                if not all(math.isfinite(value) for value in force):
+                    break
+                forces.append(force)
+            except ValueError:
+                break
+        if len(forces) != len(atoms):
+            continue
+        energy_h = _float(energy.group(1))
+        if not math.isfinite(energy_h):
+            continue
+        charge, multiplicity = ((int(cm.group(1)), int(cm.group(2))) if cm else
+                                (seed.charge, seed.multiplicity) if seed else (0, 1))
+        record = copy.deepcopy(seed) if seed else Record(
+            record_id=_geometry_hash(atoms), source=str(source), atoms=[],
+            charge=charge, multiplicity=multiplicity, config_type="labeled",
         )
-    else:
-        seed.atoms = atoms
-        seed.charge = charge
-        seed.multiplicity = multiplicity
-    return LabeledFrame(seed, energy_h * HARTREE_TO_EV, forces, source)
+        record.atoms = atoms
+        record.charge = charge
+        record.multiplicity = multiplicity
+        record.metadata.update({
+            "force_frame_index": index, "orientation": orientation,
+            "scf_convergence_warning": "convergence failure" in
+                text[geometry_end:header.start()].lower(),
+        })
+        electronic = text[energy.end():header.start()]
+        s2 = list(_S2_RE.finditer(electronic))
+        if s2:
+            record.metadata["s2_before"] = _float(s2[-1].group(1))
+            record.metadata["s2_after"] = _float(s2[-1].group(2))
+        spin_blocks = list(_MULLIKEN_SPIN_RE.finditer(electronic))
+        if spin_blocks:
+            record.metadata["atomic_spins"] = [
+                [int(match.group(1)), match.group(2), _float(match.group(3))]
+                for match in _MULLIKEN_ROW_RE.finditer(spin_blocks[-1].group(1))
+            ]
+        frames.append(LabeledFrame(record, energy_h * HARTREE_TO_EV, forces, source))
+    return frames
+
+
+def parse_final_force_frame(text: str, source: Path, seed: Record | None = None) -> LabeledFrame | None:
+    frames = parse_force_frames(text, source, seed)
+    headers = list(_FORCE_HEADER_RE.finditer(text))
+    if not frames or frames[-1].record.metadata["force_frame_index"] != len(headers) - 1:
+        return None
+    return frames[-1]
 
 
 def rms_force(frame: LabeledFrame) -> float:

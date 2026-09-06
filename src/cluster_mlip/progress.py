@@ -4,10 +4,11 @@ import collections
 import csv
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import TypedDict
 
-from .gaussian import HARTREE_TO_EV, parse_final_force_frame
+from .gaussian import HARTREE_TO_EV, gaussian_job_complete, parse_final_force_frame
 from .models import LabeledFrame, geometry_signature
 from .spin import SpinDiagnostics, parse_spin_diagnostics
 
@@ -94,7 +95,12 @@ def write_campaign_progress(campaign: Path, destination: Path | None = None) -> 
                 except Exception as exc:  # reporting must survive one corrupt output
                     parse_error = str(exc)
             else:
-                normal = "Normal termination of Gaussian" in text
+                input_path = campaign / job.get("input", "")
+                expected = 1
+                if input_path.is_file():
+                    expected += len(re.findall(r"^\s*--link1--\s*$",
+                                               input_path.read_text(errors="ignore"), re.I | re.M))
+                normal = gaussian_job_complete(text, expected) and (not rc or rc == "0")
                 try:
                     frame = parse_final_force_frame(text, output)
                 except Exception as exc:  # reporting must survive one corrupt output
