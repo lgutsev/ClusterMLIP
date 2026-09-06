@@ -210,7 +210,12 @@ def scan_dataset(dataset_dir: Path) -> DatasetFacts:
                     meta = json.loads(info["metadata"])
                 except (TypeError, ValueError):
                     meta = {}
-                route = str(meta.get("link1_route") or meta.get("first_route") or "").strip()
+                route = str(
+                    meta.get("label_route")
+                    or meta.get("link1_route")
+                    or meta.get("first_route")
+                    or ""
+                ).strip()
                 if route:
                     label_routes.add(route)
             i += n_atoms + 2

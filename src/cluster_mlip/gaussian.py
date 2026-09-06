@@ -461,20 +461,8 @@ def force_label_quality(text: str) -> tuple[bool, str]:
     return True, ""
 
 
-def parse_final_force_frame(
-    text: str,
-    source: Path,
-    seed: Record | None = None,
-    *,
-    require_converged_scf: bool = False,
-) -> LabeledFrame | None:
-    force_headers = list(_FORCES_HEADER_RE.finditer(text))
-    if not force_headers:
-        return None
-    if require_converged_scf and final_scf_not_converged(text):
-        return None
-    header = force_headers[-1]
-    force_tail = text[header.end():]
+def _forces_after_header(text: str, header_end: int) -> list[tuple[float, float, float]] | None:
+    force_tail = text[header_end:]
     sep = list(re.finditer(r"^\s*-{10,}\s*$", force_tail, re.M))
     if len(sep) < 2:
         return None
@@ -492,6 +480,25 @@ def parse_final_force_frame(
         except ValueError:
             continue
         forces.append((fx * FORCE_AU_TO_EV_ANG, fy * FORCE_AU_TO_EV_ANG, fz * FORCE_AU_TO_EV_ANG))
+    return forces
+
+
+def parse_final_force_frame(
+    text: str,
+    source: Path,
+    seed: Record | None = None,
+    *,
+    require_converged_scf: bool = False,
+) -> LabeledFrame | None:
+    force_headers = list(_FORCES_HEADER_RE.finditer(text))
+    if not force_headers:
+        return None
+    if require_converged_scf and final_scf_not_converged(text):
+        return None
+    header = force_headers[-1]
+    forces = _forces_after_header(text, header.end())
+    if not forces:
+        return None
 
     tables = _orientation_tables(text[:header.start()])
     if not tables:
@@ -520,6 +527,52 @@ def parse_final_force_frame(
         seed.charge = charge
         seed.multiplicity = multiplicity
     return LabeledFrame(seed, energy_h * HARTREE_TO_EV, forces, source)
+
+
+def cm_sections(text: str) -> list[tuple[int, int, str]]:
+    """Split ``text`` at each ``Charge =``/``Multiplicity =`` line into
+    ``(charge, multiplicity, section_text)``. A single-state job is one section;
+    a Link1 spin ladder is one section per multiplicity.
+    """
+    cms = list(_CM_RE.finditer(text))
+    if len(cms) <= 1:
+        charge, multiplicity = (
+            (int(cms[0].group(1)), int(cms[0].group(2))) if cms else (0, 1)
+        )
+        return [(charge, multiplicity, text)]
+    sections: list[tuple[int, int, str]] = []
+    for index, cm in enumerate(cms):
+        end = cms[index + 1].start() if index + 1 < len(cms) else len(text)
+        sections.append((int(cm.group(1)), int(cm.group(2)), text[cm.start():end]))
+    return sections
+
+
+def iter_force_frames(
+    text: str, source: Path
+) -> list[tuple[float, list[Atom], list[tuple[float, float, float]]]]:
+    """Every ``(energy_hartree, atoms, forces_ev_ang)`` in ``text`` -- one per
+    ``Forces`` block -- each paired with the geometry table and ``SCF Done``
+    energy that immediately precede it.
+
+    ``parse_final_force_frame`` keeps only the last; this exposes the full
+    optimisation trajectory so ``collect --include-opt-trajectory`` can turn
+    the intermediate steps into extra off-equilibrium force samples.
+    """
+    frames: list[tuple[float, list[Atom], list[tuple[float, float, float]]]] = []
+    for header in _FORCES_HEADER_RE.finditer(text):
+        forces = _forces_after_header(text, header.end())
+        if not forces:
+            continue
+        pre = text[: header.start()]
+        tables = _orientation_tables(pre)
+        if not tables:
+            continue
+        atoms = tables[-1][2]
+        energies = list(_SCF_RE.finditer(pre)) or list(_HF_RE.finditer(pre))
+        if not energies or len(atoms) != len(forces):
+            continue
+        frames.append((_float(energies[-1].group(1)), atoms, forces))
+    return frames
 
 
 def rms_force(frame: LabeledFrame) -> float:

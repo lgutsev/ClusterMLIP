@@ -746,6 +746,17 @@ the exported energy and forces never converged. Pass `--no-scf-continue` to
 `prepare`/`prepare-spins` to drop the IOP and have Gaussian stop on
 nonconvergence instead.
 
+`collect` also understands a spin campaign: when the directory has
+`spin_jobs.csv` (and no `jobs.csv`), it labels the **converged geometry of every
+multiplicity** in each ladder — not just the last rung — and carries the rung's
+chain id, stage index, high-spin inference, and checkpoint lineage into each
+frame, plus the converged local Fe Mulliken moments as diagnostic metadata (not
+a model input). All rungs of one ladder share a split. `--include-opt-trajectory`
+additionally keeps every intermediate optimisation step as an off-equilibrium
+force sample. Keep the spin dataset separate from the `/Gen` main-campaign
+dataset — the bases differ, so their labels must not share one MACE target head
+(`train` refuses a mixed-route dataset unless `--allow-mixed-method`).
+
 The split is geometry-stratified by default (`--stratify-by
 pes_region,charge_spin_class`): every parent-record group is classified (see
 `cluster_mlip.stratify`) into which PES region it's from (minimum/saddle/irc/

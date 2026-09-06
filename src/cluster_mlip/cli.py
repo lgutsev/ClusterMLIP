@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import csv
 import json
 import sys
 from pathlib import Path
@@ -13,7 +14,14 @@ from .batch_inventory import build_inventory
 from .dataset import grouped_split, read_jobs_manifest, read_labeled_extxyz, write_labeled_extxyz
 from .doctor import MISSING_REQUIRED, format_report, run_checks
 from .evaluate import predict_with_mace, write_evaluation_report
-from .gaussian import extract_document_records, force_label_quality, parse_final_force_frame
+from .gaussian import (
+    HARTREE_TO_EV,
+    cm_sections,
+    extract_document_records,
+    force_label_quality,
+    iter_force_frames,
+    parse_final_force_frame,
+)
 from .io import iter_documents, read_document, read_extxyz, source_tree, write_extxyz, write_manifest
 from .jobs import (
     DEFAULT_LINK1_ROUTE,
@@ -28,11 +36,12 @@ from .literature import DEFAULT_KEYWORDS, run_literature_gap
 from .paper_pdfs import load_pdf_compositions, write_pdf_index
 from .mace_glue import MaceUnavailable
 from .manifest import write_experiment_manifest
-from .models import Record, composition_allowed, geometry_signature
+from .models import LabeledFrame, Record, composition_allowed, geometry_signature
 from .physical_checks import write_physical_checks_report
 from .progress import write_campaign_progress
 from .spin import (
     DEFAULT_SPIN_ROUTE,
+    parse_spin_diagnostics,
     route_with_frequency,
     validate_fragment_specification_shape,
     validate_spin_campaign,
@@ -286,17 +295,16 @@ def command_campaign_status(args: argparse.Namespace) -> int:
     return 0
 
 
-def command_collect(args: argparse.Namespace) -> int:
-    outputs = Path(args.outputs)
-    destination = Path(args.output)
-    destination.mkdir(parents=True, exist_ok=True)
+def _collect_force_frames(
+    outputs: Path,
+) -> tuple[list[LabeledFrame], list[tuple[str, str]]]:
     manifest = read_jobs_manifest(outputs / "jobs.csv")
     manifest_by_output = {
         Path(row.get("output", "")).stem: row
         for row in manifest.values()
         if row.get("output")
     }
-    frames = []
+    frames: list[LabeledFrame] = []
     failures: list[tuple[str, str]] = []
     for path in sorted(list(outputs.rglob("*.log")) + list(outputs.rglob("*.out"))):
         row = manifest.get(path.stem, {}) or manifest_by_output.get(path.stem, {})
@@ -322,6 +330,7 @@ def command_collect(args: argparse.Namespace) -> int:
             )
             metadata = {key: row[key] for key in provenance_keys if row.get(key)}
             metadata["parent_record_id"] = row.get("parent_record_id", job_id)
+            metadata.setdefault("label_route", row.get("link1_route") or row.get("first_route") or "")
             seed = Record(
                 record_id=job_id,
                 source=row.get("source", str(path)),
@@ -350,6 +359,134 @@ def command_collect(args: argparse.Namespace) -> int:
             frames.append(frame)
         except Exception as exc:
             failures.append((str(path), str(exc)))
+    return frames, failures
+
+
+def _spin_stage_metadata(
+    row: dict[str, str], label_route: str, diagnostic: object | None
+) -> dict[str, str]:
+    """Carry a spin ladder rung's provenance -- chain, stage, inference, and
+    checkpoint lineage -- into the training frame, plus the converged local Fe
+    moments as diagnostic metadata (not a model input). ``parent_record_id`` is
+    the chain id so every rung and opt step of one ladder shares a split.
+    """
+    chain = row.get("chain_id") or row.get("parent_record_id") or row.get("job_id", "")
+    meta = {
+        "parent_record_id": chain,
+        "source_record_id": row.get("parent_record_id", ""),
+        "label_route": label_route,
+        "spin_pathway": row.get("pathway", ""),
+        "spin_chain_id": row.get("chain_id", ""),
+        "spin_stage_index": row.get("stage_index", ""),
+        "intended_multiplicity": row.get("intended_multiplicity", ""),
+        "high_spin_multiplicity": row.get("high_spin_multiplicity", ""),
+        "high_spin_inference": row.get("high_spin_inference", ""),
+        "spin_plan_id": row.get("spin_plan_id", ""),
+        "checkpoint_lineage": row.get("checkpoint_lineage", ""),
+        "predecessor_checkpoint": row.get("predecessor_checkpoint", ""),
+        "source_geometry_sha256": row.get("source_geometry_sha256", ""),
+        "variant": "reference",
+    }
+    spins = getattr(diagnostic, "atomic_spins", None)
+    if spins:
+        meta["mulliken_spin_per_atom"] = ",".join(f"{spin:.4f}" for _, _, spin in spins)
+    s2 = None
+    if diagnostic is not None:
+        s2 = getattr(diagnostic, "s2_after", None)
+        if s2 is None:
+            s2 = getattr(diagnostic, "s2_before", None)
+    if s2 is not None:
+        meta["s2"] = f"{s2:.4f}"
+    return {key: value for key, value in meta.items() if value != ""}
+
+
+def _collect_spin_frames(
+    outputs: Path, *, include_opt_trajectory: bool = False
+) -> tuple[list[LabeledFrame], list[tuple[str, str]]]:
+    with (outputs / "spin_jobs.csv").open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    label_route = ""
+    campaign_path = outputs / "spin_campaign.json"
+    if campaign_path.is_file():
+        try:
+            label_route = str(json.loads(campaign_path.read_text(encoding="utf-8")).get("route", ""))
+        except (OSError, json.JSONDecodeError):
+            label_route = ""
+
+    log_by_name: dict[str, Path] = {}
+    for log_path in sorted(list(outputs.rglob("*.log")) + list(outputs.rglob("*.out"))):
+        log_by_name.setdefault(log_path.name, log_path)
+
+    rows_by_output: dict[str, list[dict[str, str]]] = {}
+    for row in rows:
+        name = Path(row.get("output", "")).name
+        if name:
+            rows_by_output.setdefault(name, []).append(row)
+
+    frames: list[LabeledFrame] = []
+    failures: list[tuple[str, str]] = []
+    for out_name, stage_rows in sorted(rows_by_output.items()):
+        path = log_by_name.get(out_name)
+        if path is None:
+            for row in stage_rows:
+                failures.append((out_name, f"spin stage {row.get('job_id', '?')} has no output yet"))
+            continue
+        text = path.read_text(errors="ignore")
+        sections = {(c, m): section for c, m, section in cm_sections(text)}
+        diagnostics = {
+            (d.charge, d.multiplicity): d
+            for d in parse_spin_diagnostics(text)
+            if d.charge is not None and d.multiplicity is not None
+        }
+        for row in stage_rows:
+            charge = int(row.get("intended_charge") or 0)
+            multiplicity = int(row.get("intended_multiplicity") or 1)
+            job_id = row.get("job_id", out_name)
+            section = sections.get((charge, multiplicity))
+            if section is None:
+                failures.append((f"{out_name}#m{multiplicity}", f"multiplicity section absent ({job_id})"))
+                continue
+            usable, reason = force_label_quality(section)
+            if not usable:
+                failures.append((f"{out_name}#m{multiplicity}", f"{reason} ({job_id})"))
+                continue
+            base_meta = _spin_stage_metadata(row, label_route, diagnostics.get((charge, multiplicity)))
+            steps = iter_force_frames(section, path)
+            if not include_opt_trajectory:
+                steps = steps[-1:]
+            for index, (energy_h, atoms, forces) in enumerate(steps):
+                is_final = index == len(steps) - 1
+                meta = dict(base_meta)
+                config_type = f"spin_{row.get('pathway', 'ladder')}_m{multiplicity}"
+                record_id = job_id
+                if not is_final:
+                    config_type += "_opt_step"
+                    record_id = f"{job_id}-step{index:03d}"
+                    meta["variant"] = f"opt_step_{index:03d}"
+                record = Record(
+                    record_id=record_id,
+                    source=row.get("source", str(path)),
+                    atoms=list(atoms),
+                    charge=charge,
+                    multiplicity=multiplicity,
+                    config_type=config_type,
+                    route=label_route,
+                    metadata=meta,
+                )
+                frames.append(LabeledFrame(record, energy_h * HARTREE_TO_EV, forces, path))
+    return frames, failures
+
+
+def command_collect(args: argparse.Namespace) -> int:
+    outputs = Path(args.outputs)
+    destination = Path(args.output)
+    destination.mkdir(parents=True, exist_ok=True)
+    if (outputs / "spin_jobs.csv").is_file() and not (outputs / "jobs.csv").is_file():
+        frames, failures = _collect_spin_frames(
+            outputs, include_opt_trajectory=args.include_opt_trajectory
+        )
+    else:
+        frames, failures = _collect_force_frames(outputs)
     write_labeled_extxyz(frames, destination / "all.extxyz")
     splits = grouped_split(
         frames, args.valid_fraction, args.test_fraction, args.seed, stratify_by=args.stratify_by
@@ -921,6 +1058,14 @@ def build_parser() -> argparse.ArgumentParser:
     collect.add_argument(
         "--force-outlier-threshold", type=float, default=5.0,
         help="flag frames whose force RMS (eV/Angstrom) exceeds this in label_report.md/json",
+    )
+    collect.add_argument(
+        "--include-opt-trajectory", action="store_true",
+        help=(
+            "also keep every intermediate optimisation step's forces as extra "
+            "off-equilibrium samples (spin campaigns only; default keeps just the "
+            "converged geometry of each multiplicity)"
+        ),
     )
     collect.add_argument(
         "--stratify-by", type=_stratify_by, default="pes_region,charge_spin_class",
