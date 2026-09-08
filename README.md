@@ -753,6 +753,14 @@ Put completed `.log`/`.out` files beside `jobs.csv`, then run:
 cluster-mlip collect gaussian_jobs -o dataset
 ```
 
+`collect` is a read-only downstream step -- it never touches checkpoints,
+inputs, or scheduler state, so it is not part of a restart and is normally run
+once at the end. It is single-threaded log parsing and needs no network, so for
+a large warehouse `scripts/run_collect_slurm.sh` submits it to LONI's `single`
+(serial) queue: `sbatch scripts/run_collect_slurm.sh "$CAMPAIGN" -o dataset
+--frames converged --allow-partial` (every argument after the campaign
+directory is forwarded to `collect`).
+
 The collector converts Gaussian energies and forces to eV and eV/Å and writes
 `all.extxyz`, `train.extxyz`, `valid.extxyz`, and `test.extxyz`. All rattles from
 one parent remain in one split, preventing near-duplicate leakage.
