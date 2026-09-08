@@ -777,9 +777,13 @@ force-RMS statistics grouped by charge/multiplicity and by every stratify axis,
 split coverage (how many groups per stratum landed in each split -- a stratum
 showing 0 in valid/test didn't have enough groups to round up to one at the
 requested fractions, and now you can see that instead of finding out later),
-and every frame whose force RMS exceeds `--force-outlier-threshold` (default
-5 eV/Å, adjust for your route and system). A non-converged SCF root or a
-rattle that blew up a geometry shows up here before it ever reaches training.
+every frame whose force RMS exceeds `--force-outlier-threshold` (default
+5 eV/Å, adjust for your route and system), and a **same-state label conflicts**
+table -- frames sharing a formula, charge, multiplicity and geometry whose
+energies or forces disagree beyond 0.01 eV/atom or 0.5 eV/Å, meaning the DFT
+converged to different SCF roots for what the model sees as one input. A
+rattle that blew up a geometry shows up as a force outlier; an inconsistent
+broken-symmetry solution shows up as a conflict.
 
 ## 5. Train from scratch
 
@@ -927,10 +931,14 @@ opinion on where your object storage lives.
   proxy (does the model push/pull separating fragments the right way in one
   labeled geometry); an actual dissociation curve or MD trajectory stability
   check is not implemented;
-- explicit checks for inconsistent broken-symmetry SCF roots -- not yet
-  implemented as a validation-priority check (`validate-spins` already flags
-  `alternative_root` states during spin-campaign preparation, which is a
-  related but earlier-stage check).
+- explicit checks for inconsistent broken-symmetry SCF roots -- implemented at
+  label time: `collect`'s `label_report.md`/`.json` has a "Same-state label
+  conflicts" section listing frames that share a formula, charge, multiplicity
+  and geometry but carry energies or forces that disagree beyond 0.01 eV/atom
+  or 0.5 eV/Angstrom, i.e. the reference DFT settled on different SCF roots for
+  one model input. (`validate-spins` also flags `alternative_root` states
+  during spin-campaign preparation, an earlier-stage version of the same
+  check.)
 
 ## Before a large run
 
