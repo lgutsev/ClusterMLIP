@@ -757,6 +757,17 @@ The collector converts Gaussian energies and forces to eV and eV/Å and writes
 `all.extxyz`, `train.extxyz`, `valid.extxyz`, and `test.extxyz`. All rattles from
 one parent remain in one split, preventing near-duplicate leakage.
 
+Every output is gated before it becomes a label. `IOP(5/13=1)` (SCF-nonconvergence
+continuation) stays on by default -- Gaussian then finishes "Normal termination"
+even when the density behind the exported energy and forces never converged -- so
+`collect` rejects a file whose **final** SCF shows `>>>>>>>>>> Convergence
+criterion not met` (or the hard-failure / "not converged" phrasings) and writes
+it to `failed_outputs.tsv` with a reason instead of `all.extxyz`. With
+`--allow-partial` the whole-file gate is relaxed so a salvaged ladder can still
+contribute its finished rungs, but any individual unconverged force frame is
+still dropped. Pass `--no-scf-continue` to `prepare`/`prepare-spins` to drop the
+IOP so Gaussian error-terminates on nonconvergence instead.
+
 The split is geometry-stratified by default (`--stratify-by
 pes_region,charge_spin_class`): every parent-record group is classified (see
 `cluster_mlip.stratify`) into which PES region it's from (minimum/saddle/irc/
