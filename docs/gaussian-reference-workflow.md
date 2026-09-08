@@ -73,7 +73,12 @@ The default `--frames final` collects one final force frame per manifest job
 (or per spin stage). `--frames all` includes every parseable force-bearing
 step in completed outputs, including optimization and IRC steps when their
 energy, geometry, and force tables are present. It does not infer forces from
-geometry-only archive records, and does not recover partial failed ladders.
+geometry-only archive records. `--frames converged` retains only the last force
+frame from a stage that both completed its optimization and terminated
+normally. Combine it with `--allow-partial` to recover those completed stages
+from an interrupted ladder; that combination rejects all force tables from the
+unfinished optimization. Retained frames record `source_job_complete`,
+`spin_stage_normal_termination`, and `spin_stage_optimized` in their metadata.
 
 Collection reads spin_jobs.csv, maps observed charge/multiplicity to an
 unambiguous stage, and retains checkpoint/plan/source provenance plus available
@@ -134,3 +139,50 @@ markers. `Waiting` includes both queued and unsubmitted calculations. Use
 `squeue` on QB4 does not establish QB3 job status. Output files can change
 while a snapshot is being read; repeat an audit after completion before
 making a final training-data decision.
+
+## Restarting interrupted spin ladders
+
+First confirm on QB3 that the original allocations have stopped. The restart
+command works in place: it finds the first stage lacking both optimization
+completion and normal termination, archives that attempt's log and marker
+files in the same batch folder, copies its checkpoint there, and activates a
+new shortened input in that batch's existing `inputs.txt`.
+
+```bash
+W2=/ddnB/work/lgutsev/ClusterMLIP/campaigns/FenOm_Warehouse2/gaussian_spin_qb3_g09_v3
+
+cluster-mlip prepare-spin-restarts "$W2" \
+  --start 1 --end 30 --assume-stopped --dry-run
+cluster-mlip prepare-spin-restarts "$W2" \
+  --start 1 --end 30 --assume-stopped
+```
+
+`--assume-stopped` is required when a killed Slurm allocation left an unmatched
+`.started` marker. Do not pass it until `squeue` on QB3 confirms those jobs are
+gone. The original input remains under `inputs/`; its interrupted log becomes
+`NAME__before-restartNN.log` beside the replacement run. Each seed copy is
+hashed in `spin_jobs.csv`; the new first stage uses `%oldchk` plus
+`Geom=Checkpoint Guess=Read` and writes a distinct `%chk`. Inspect
+`restart_plan.csv` for each original batch, first unfinished multiplicity,
+source checkpoint, and number of remaining stages. If the unfinished stage's
+checkpoint is absent, the tool can use the immediately preceding completed
+stage checkpoint; it reports that exact choice in the plan. Manifest and
+`inputs.txt` snapshots are kept together under the single `restart_backups/`
+directory.
+
+Do not run `prepare-slurm` again. The existing batch map and QB3 resource
+directives remain active. Submit the same batch range with the existing head
+launcher:
+
+```bash
+bash "$W2/submit_gaussian_batches.sh" --start 1 --end 30
+```
+
+After the retries finish, the one campaign manifest maps both archived and
+current outputs. Collect its converged stages directly:
+
+```bash
+cluster-mlip collect "$W2" \
+  -o /ddnB/work/lgutsev/ClusterMLIP/campaigns/FenOm_Warehouse2/dataset_spin_v1 \
+  --frames converged --allow-partial
+```

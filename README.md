@@ -688,6 +688,29 @@ cluster-mlip prepare-slurm gaussian_spin_jobs --jobs-per-batch 30 --concurrent-j
 cluster-mlip campaign-status gaussian_spin_jobs
 ```
 
+If a wall-time limit interrupts a later Link1 stage, archive that attempt and
+activate a shortened input inside the same batch folder:
+
+```bash
+cluster-mlip prepare-spin-restarts gaussian_spin_jobs --assume-stopped --dry-run
+cluster-mlip prepare-spin-restarts gaussian_spin_jobs --assume-stopped
+./gaussian_spin_jobs/submit_gaussian_batches.sh
+```
+
+The restart input begins with `%oldchk`, `Geom=Checkpoint`, and `Guess=Read`,
+then continues the remaining multiplicity ladder using distinct checkpoints.
+The interrupted log is renamed beside the new run and remains represented in
+the same manifest; `inputs.txt` is updated in place, so the existing Slurm
+launchers remain authoritative.
+`--assume-stopped` is needed only when a killed allocation left an unmatched
+`.started` marker; verify scheduler state before using it. To retain force
+frames printed by the original partial logs and combine them with retry labels:
+
+```bash
+cluster-mlip collect gaussian_spin_jobs \
+  -o dataset --frames converged --allow-partial
+```
+
 For a 29 -> ... -> 17 ladder, `progress.csv` therefore shows m29, m27, ...,
 m17 separately, including whether each stage was observed, optimized, advanced
 to a successor, stable, and characterized by local spins and `<S^2>`. Scheduler

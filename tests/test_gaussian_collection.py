@@ -97,12 +97,26 @@ class GaussianCollectionTests(unittest.TestCase):
                 args.func(args)
             self.assertEqual(len(read_labeled_extxyz(root / 'data/all.extxyz')), 2)
             log.write_text(text.replace('Multiplicity = 1', 'Multiplicity = 3')
-                           + NORMAL + '\nError termination\n')
+                           + '\n Stationary point found.\n' + NORMAL
+                           + '\nError termination\n')
             with redirect_stdout(io.StringIO()):
                 args.func(args)
             self.assertEqual(read_labeled_extxyz(root / 'data/all.extxyz'), [])
             self.assertEqual(json.loads((root / 'data/label_report.json').read_text())['n_frames'], 0)
             self.assertIn('incomplete Gaussian job', (root / 'data/failed_outputs.tsv').read_text())
+
+            args.allow_partial = True
+            args.frames = 'converged'
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(args.func(args), 0)
+            partial = read_labeled_extxyz(root / 'data/all.extxyz')
+            self.assertEqual(len(partial), 1)
+            self.assertFalse(partial[0].record.metadata['source_job_complete'])
+            self.assertTrue(partial[0].record.metadata['spin_stage_normal_termination'])
+
+            args.frames = 'all'
+            with self.assertRaisesRegex(ValueError, 'requires --frames converged'):
+                args.func(args)
 
     def test_resume_submits_partial_ladder(self):
         with tempfile.TemporaryDirectory() as tmp:

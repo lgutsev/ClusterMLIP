@@ -39,6 +39,12 @@ SPIN_MANIFEST_COLUMNS = [
     "input_sha256", "output",
 ]
 
+SPIN_RESTART_COLUMNS = [
+    "submission_active", "restart_root_input",
+    "restart_attempt", "restart_of_job_id", "restart_source_output",
+    "restart_source_checkpoint", "restart_seed_checkpoint", "restart_seed_sha256",
+]
+
 
 
 @dataclass(frozen=True)
@@ -1314,6 +1320,57 @@ def _spin_manifest_audit(
                 problems.append("fragment_spec_not_in_lock")
             if row.get("predecessor_job_id") or row.get("predecessor_checkpoint"):
                 problems.append("fragment_has_checkpoint_predecessor")
+        elif pathway == "multiplicity_ladder_restart":
+            intended = _manifest_int(row.get("intended_multiplicity"))
+            predecessor_id = row.get("predecessor_job_id", "")
+            if stage == 0:
+                if row.get("initialization") != "interrupted_checkpoint_restart":
+                    problems.append("restart_initialization_unmarked")
+                if row.get("audit_classification") != "checkpoint_restart":
+                    problems.append("restart_audit_classification_unmarked")
+                if predecessor_id:
+                    problems.append("restart_has_manifest_predecessor")
+                seed = row.get("restart_seed_checkpoint", "")
+                seed_sha = row.get("restart_seed_sha256", "")
+                if not seed or len(seed_sha) != 64:
+                    problems.append("restart_seed_provenance_missing")
+                else:
+                    seed_path = manifest.parent / seed
+                    if not seed_path.is_file():
+                        problems.append("restart_seed_missing")
+                    elif hashlib.sha256(seed_path.read_bytes()).hexdigest() != seed_sha:
+                        problems.append("restart_seed_hash_mismatch")
+                expected_lineage = f"restart:{seed_sha}:m{intended}:{row.get('checkpoint', '')}"
+            else:
+                predecessor = by_job.get(predecessor_id)
+                if predecessor is None:
+                    problems.append("predecessor_job_missing")
+                    expected_lineage = ""
+                else:
+                    predecessor_stage = _manifest_int(predecessor.get("stage_index"), -1)
+                    predecessor_multiplicity = _manifest_int(
+                        predecessor.get("intended_multiplicity")
+                    )
+                    if predecessor.get("chain_id") != row.get("chain_id"):
+                        problems.append("predecessor_chain_mismatch")
+                    if predecessor_stage != stage - 1:
+                        problems.append("predecessor_stage_not_immediate")
+                    if predecessor_multiplicity - intended != 2:
+                        problems.append("not_one_spin_flip")
+                    if row.get("predecessor_multiplicity") != str(predecessor_multiplicity):
+                        problems.append("predecessor_multiplicity_mismatch")
+                    if row.get("predecessor_checkpoint") != predecessor.get("checkpoint"):
+                        problems.append("predecessor_checkpoint_mismatch")
+                    expected_lineage = (
+                        f"{predecessor.get('checkpoint_lineage', '')}>"
+                        f"m{intended}:{row.get('checkpoint', '')}"
+                    )
+                if row.get("initialization") != "checkpoint_spin_flip":
+                    problems.append("spin_flip_initialization_unmarked")
+                if row.get("audit_classification") != "sequential_checkpoint_spin_flip":
+                    problems.append("spin_flip_audit_classification_unmarked")
+            if row.get("checkpoint_lineage") != expected_lineage:
+                problems.append("checkpoint_lineage_mismatch")
         elif pathway == "multiplicity_ladder":
             intended = _manifest_int(row.get("intended_multiplicity"))
             high = _manifest_int(row.get("high_spin_multiplicity"))

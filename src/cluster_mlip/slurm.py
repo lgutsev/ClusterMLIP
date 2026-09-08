@@ -238,6 +238,8 @@ def _manifest_inputs(campaign: Path) -> tuple[Path, list[str]]:
         if not reader.fieldnames or "input" not in reader.fieldnames:
             raise ValueError(f"{manifest} has no input column")
         for row_number, row in enumerate(reader, start=2):
+            if (row.get("submission_active") or "").strip().lower() in {"false", "0", "no"}:
+                continue
             raw = (row.get("input") or "").strip()
             if not raw:
                 raise ValueError(f"{manifest}:{row_number} has an empty input path")

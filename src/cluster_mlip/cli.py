@@ -32,8 +32,10 @@ from .manifest import write_experiment_manifest
 from .models import Record, composition_allowed, geometry_signature
 from .physical_checks import write_physical_checks_report
 from .progress import write_campaign_progress
+from .restart import prepare_spin_restarts
 from .spin import (
     DEFAULT_SPIN_ROUTE,
+    parse_spin_diagnostics,
     route_with_frequency,
     validate_fragment_specification_shape,
     validate_spin_campaign,
@@ -298,86 +300,112 @@ def command_campaign_status(args: argparse.Namespace) -> int:
 
 
 def command_collect(args: argparse.Namespace) -> int:
-    outputs = Path(args.outputs)
+    output_roots = [Path(item).resolve() for item in args.outputs]
     destination = Path(args.output)
     destination.mkdir(parents=True, exist_ok=True)
-    if not outputs.is_dir():
-        raise NotADirectoryError(outputs)
+    for outputs in output_roots:
+        if not outputs.is_dir():
+            raise NotADirectoryError(outputs)
     if (args.valid_fraction < 0 or args.test_fraction < 0
             or args.valid_fraction + args.test_fraction >= 1):
         raise ValueError("split fractions must be nonnegative and sum to less than one")
-    spin_campaign = (outputs / "spin_jobs.csv").is_file()
-    manifest = read_jobs_manifest(outputs / ("spin_jobs.csv" if spin_campaign else "jobs.csv"))
-    manifest_by_output: dict[str, list[dict[str, str]]] = {}
-    for row in manifest.values():
-        key = Path(row.get("output") or row["job_id"]).stem
-        manifest_by_output.setdefault(key, []).append(row)
+    if args.allow_partial and args.frames != "converged":
+        raise ValueError(
+            "--allow-partial requires --frames converged so interrupted optimization steps "
+            "cannot enter the dataset"
+        )
     frames = []
     failures: list[tuple[str, str]] = []
-    paths = sorted(list(outputs.rglob("*.log")) + list(outputs.rglob("*.out")))
-    counts = collections.Counter(path.stem for path in paths if not path.is_symlink())
-    for path in paths:
-        if path.is_symlink():
-            continue
-        rows = manifest_by_output.get(path.stem, [])
-        if manifest and not rows:
-            continue  # Scheduler logs and unrelated files are not Gaussian labels.
-        try:
-            if counts[path.stem] > 1:
-                raise ValueError("ambiguous duplicate output name; select one campaign copy")
-            rc_path = path.with_suffix(".rc")
-            if rc_path.is_file() and rc_path.read_text().strip() != "0":
-                raise ValueError("Gaussian worker recorded a nonzero or invalid exit code")
-            text = path.read_text(errors="ignore")
-            expected = len(rows) if spin_campaign else 1
-            if rows and rows[0].get("input"):
-                input_path = outputs / rows[0]["input"]
-                if input_path.is_file():
-                    expected = 1 + len(re.findall(
-                        r"^\s*--link1--\s*$", input_path.read_text(errors="ignore"), re.I | re.M
-                    ))
-            if not gaussian_job_complete(text, expected):
-                raise ValueError("incomplete Gaussian job (including Link1 stages)")
-            parsed = parse_force_frames(text, path)
-            if not parsed:
-                raise ValueError("no complete energy/geometry/force frame")
-            grouped: dict[str, list] = {}
-            for frame in parsed:
-                if spin_campaign:
-                    matches = [row for row in rows
-                               if int(row["intended_charge"]) == frame.record.charge
-                               and int(row["intended_multiplicity"]) == frame.record.multiplicity]
-                    if len(matches) != 1:
-                        raise ValueError("force frame has missing or ambiguous spin-stage provenance")
-                    row = matches[0]
-                else:
-                    row = rows[0] if rows else {}
-                job_id = row.get("job_id", path.stem)
-                record = frame.record
-                record.record_id = job_id
-                record.source = row.get("source", str(path))
-                record.config_type = row.get("config_type") or "labeled"
-                record.route = row.get("legacy_route", "")
-                if row.get("legacy_energy_hartree"):
-                    record.legacy_energy_hartree = float(row["legacy_energy_hartree"])
-                # Preserve all manifest provenance, including spin plan and checkpoint lineage.
-                record.metadata.update({key: value for key, value in row.items() if value})
-                record.metadata["parent_record_id"] = row.get("parent_record_id") or job_id
-                record.metadata["gaussian_output"] = str(path.relative_to(outputs))
-                grouped.setdefault(job_id, []).append(frame)
-            if spin_campaign and set(grouped) != {row["job_id"] for row in rows}:
-                raise ValueError("one or more planned spin stages have no force label")
-            selected = []
-            for job_id, members in grouped.items():
-                if args.frames == "all":
-                    for frame in members:
-                        frame.record.record_id = f"{job_id}__frame{frame.record.metadata['force_frame_index']:06d}"
-                    selected.extend(members)
-                else:
-                    selected.append(members[-1])
-            frames.extend(selected)
-        except Exception as exc:
-            failures.append((str(path), str(exc)))
+    for outputs in output_roots:
+        spin_campaign = (outputs / "spin_jobs.csv").is_file()
+        manifest_path = outputs / ("spin_jobs.csv" if spin_campaign else "jobs.csv")
+        manifest = read_jobs_manifest(manifest_path)
+        manifest_by_output: dict[str, list[dict[str, str]]] = {}
+        for row in manifest.values():
+            key = Path(row.get("output") or row["job_id"]).stem
+            manifest_by_output.setdefault(key, []).append(row)
+        paths = sorted(list(outputs.rglob("*.log")) + list(outputs.rglob("*.out")))
+        counts = collections.Counter(path.stem for path in paths if not path.is_symlink())
+        for path in paths:
+            if path.is_symlink():
+                continue
+            rows = manifest_by_output.get(path.stem, [])
+            if manifest and not rows:
+                continue  # Scheduler logs and unrelated files are not Gaussian labels.
+            try:
+                if counts[path.stem] > 1:
+                    raise ValueError("ambiguous duplicate output name within campaign")
+                rc_path = path.with_suffix(".rc")
+                bad_rc = rc_path.is_file() and rc_path.read_text().strip() != "0"
+                if bad_rc and not args.allow_partial:
+                    raise ValueError("Gaussian worker recorded a nonzero or invalid exit code")
+                text = path.read_text(errors="ignore")
+                expected = len(rows) if spin_campaign else 1
+                if rows and rows[0].get("input"):
+                    input_path = outputs / rows[0]["input"]
+                    if input_path.is_file():
+                        expected = 1 + len(re.findall(
+                            r"^\s*--link1--\s*$", input_path.read_text(errors="ignore"), re.I | re.M
+                        ))
+                complete = gaussian_job_complete(text, expected) and not bad_rc
+                if not complete and not args.allow_partial:
+                    raise ValueError("incomplete Gaussian job (including Link1 stages)")
+                parsed = parse_force_frames(text, path)
+                if not parsed:
+                    raise ValueError("no complete energy/geometry/force frame")
+                diagnostics = parse_spin_diagnostics(text)
+                grouped: dict[str, list] = {}
+                for frame in parsed:
+                    if spin_campaign:
+                        matches = [row for row in rows
+                                   if int(row["intended_charge"]) == frame.record.charge
+                                   and int(row["intended_multiplicity"]) == frame.record.multiplicity]
+                        if len(matches) != 1:
+                            raise ValueError("force frame has missing or ambiguous spin-stage provenance")
+                        row = matches[0]
+                    else:
+                        row = rows[0] if rows else {}
+                    job_id = row.get("job_id", path.stem)
+                    record = frame.record
+                    record.record_id = job_id
+                    record.source = row.get("source", str(path))
+                    record.config_type = row.get("config_type") or "labeled"
+                    record.route = row.get("legacy_route", "")
+                    if row.get("legacy_energy_hartree"):
+                        record.legacy_energy_hartree = float(row["legacy_energy_hartree"])
+                    record.metadata.update({key: value for key, value in row.items() if value})
+                    record.metadata["parent_record_id"] = row.get("parent_record_id") or job_id
+                    record.metadata["gaussian_output"] = str(path.relative_to(outputs))
+                    record.metadata["collection_campaign"] = str(outputs)
+                    record.metadata["source_job_complete"] = complete
+                    stage_diagnostics = [item for item in diagnostics
+                                         if item.charge in (None, record.charge)
+                                         and item.multiplicity in (None, record.multiplicity)]
+                    record.metadata["spin_stage_normal_termination"] = any(
+                        item.normal_termination for item in stage_diagnostics
+                    )
+                    record.metadata["spin_stage_optimized"] = any(
+                        item.optimized for item in stage_diagnostics
+                    )
+                    grouped.setdefault(job_id, []).append(frame)
+                if spin_campaign and complete and set(grouped) != {row["job_id"] for row in rows}:
+                    raise ValueError("one or more planned spin stages have no force label")
+                selected = []
+                for job_id, members in grouped.items():
+                    if args.frames == "all":
+                        for frame in members:
+                            frame.record.record_id = f"{job_id}__frame{frame.record.metadata['force_frame_index']:06d}"
+                        selected.extend(members)
+                    elif args.frames == "converged":
+                        final = members[-1]
+                        if (final.record.metadata["spin_stage_normal_termination"]
+                                and final.record.metadata["spin_stage_optimized"]):
+                            selected.append(final)
+                    else:
+                        selected.append(members[-1])
+                frames.extend(selected)
+            except Exception as exc:
+                failures.append((str(path), str(exc)))
     write_labeled_extxyz(frames, destination / "all.extxyz")
     splits = grouped_split(
         frames, args.valid_fraction, args.test_fraction, args.seed, stratify_by=args.stratify_by
@@ -415,6 +443,33 @@ def _multiplicities(value: str) -> list[int]:
         return [int(item.strip()) for item in value.split(",") if item.strip()]
     except ValueError as exc:
         raise argparse.ArgumentTypeError("multiplicities must be comma-separated integers") from exc
+
+
+def command_prepare_spin_restarts(args: argparse.Namespace) -> int:
+    result = prepare_spin_restarts(
+        Path(args.campaign), start=args.start, end=args.end,
+        assume_stopped=args.assume_stopped, dry_run=args.dry_run,
+    )
+    print(
+        f"Prepared {result['input_count']} shortened restart input(s) "
+        f"covering {result['stage_count']} unfinished stage(s)"
+    )
+    print(f"Campaign: {Path(args.campaign).resolve()}")
+    if args.dry_run:
+        for row in result.get("plan", []):
+            print(
+                f"  {row['batch']}: {Path(row['archived_input']).name} -> "
+                f"m{row['restart_multiplicity']} ({row['remaining_stages']} stage(s))"
+            )
+    skipped = result.get("skipped", [])
+    if skipped:
+        reasons = collections.Counter(row["reason"] for row in skipped)
+        print("Skipped: " + ", ".join(f"{name}={count}" for name, count in sorted(reasons.items())))
+    if args.dry_run:
+        print("Dry run only; no files changed.")
+    else:
+        print("Existing batch inputs were updated in place; use the same launchers.")
+    return 0
 
 
 def command_spin_extract(args: argparse.Namespace) -> int:
@@ -932,14 +987,24 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_spins.set_defaults(func=command_prepare_spins)
 
     collect = sub.add_parser("collect", help="collect completed Gaussian force outputs into MACE extxyz")
-    collect.add_argument("outputs", help="campaign directory containing .log/.out files and jobs.csv or spin_jobs.csv")
+    collect.add_argument("outputs", nargs="+", help="one or more campaign directories containing Gaussian outputs and manifests")
     collect.add_argument("-o", "--output", default="dataset")
     collect.add_argument("--valid-fraction", type=float, default=0.10)
     collect.add_argument("--test-fraction", type=float, default=0.10)
     collect.add_argument("--seed", type=int, default=20260811)
     collect.add_argument(
-        "--frames", choices=("final", "all"), default="final",
-        help="final force frame per job/spin stage (default), or every force-bearing step; siblings stay in one split",
+        "--frames", choices=("final", "all", "converged"), default="final",
+        help=(
+            "final force frame per completed job/spin stage (default), every force-bearing step, "
+            "or only the final frame of normally terminated optimized stages"
+        ),
+    )
+    collect.add_argument(
+        "--allow-partial", action="store_true",
+        help=(
+            "recover completed stages from interrupted jobs; requires --frames converged so "
+            "unfinished optimization steps are excluded"
+        ),
     )
     collect.add_argument(
         "--force-outlier-threshold", type=float, default=5.0,
@@ -955,6 +1020,23 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     collect.set_defaults(func=command_collect)
+
+    restart_spins = sub.add_parser(
+        "prepare-spin-restarts",
+        help="archive interrupted attempts and activate shortened inputs in the same batches",
+    )
+    restart_spins.add_argument("campaign", help="original prepared spin campaign")
+    restart_spins.add_argument("--start", type=int, default=1, help="first original batch to inspect")
+    restart_spins.add_argument("--end", type=int, help="last original batch to inspect (inclusive)")
+    restart_spins.add_argument(
+        "--assume-stopped", action="store_true",
+        help="allow copying checkpoints with unmatched .started markers after independently confirming jobs stopped",
+    )
+    restart_spins.add_argument(
+        "--dry-run", action="store_true",
+        help="report restart candidates without renaming or writing files",
+    )
+    restart_spins.set_defaults(func=command_prepare_spin_restarts)
 
     validate_spins = sub.add_parser(
         "validate-spins",
