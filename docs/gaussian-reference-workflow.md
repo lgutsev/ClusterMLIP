@@ -273,6 +273,46 @@ geometry and take a single-point gradient instead -- which is what a rattled
 variant already does, and what makes a perfectly good MLIP training label.
 Filter them out of the relaunch and handle them deliberately.
 
+### Internal-coordinate failures (FormBX / Tors failed)
+
+A different failure, unrelated to the route. Gaussian's Berny optimizer works
+in redundant internal coordinates; `FormBX` builds the Wilson B matrix for that
+transformation, and a torsion whose three defining atoms are near-collinear has
+no well-defined value, which makes the matrix singular:
+
+```text
+ Tors failed for dihedral     1 -     2 -     3 -     4
+ FormBX had a problem.
+```
+
+The job dies before taking a step. This is not affected by the GEDIIS/GDIIS
+optimizer choice, since the breakdown is in forming the coordinates rather than
+in stepping. `audit-routes` reports it as `internal_coordinate_failure`, and a
+relaunch adds `Cartesian` to the existing `Opt` options, optimizing in
+Cartesians and bypassing the transformation entirely. That converges in more
+steps than the redundant-internal default but cannot hit a degenerate torsion,
+and it needs no change to the geometry.
+
+A Z-matrix with dummy atoms is the other valid fix, and often the better one
+for a genuinely linear fragment: it keeps internal-coordinate convergence and
+defines the torsion explicitly. A plain Z-matrix does not help by itself -- a
+Z-matrix dihedral through a ~180 degree angle is undefined for exactly the same
+reason -- which is why a builder such as ChemCraft inserts the dummy atom. The
+tradeoff is per-structure manual work, so `Opt=Cartesian` is the automatic
+default and a hand-built Z-matrix is worth it for a stubborn few.
+
+Inputs carrying a Z-matrix are recognized and **kept in internal
+coordinates**: `Cartesian` is never added to one, since that would discard the
+dummy-atom construction that repaired it. Such a job still receives its route
+correction, and `route_fix_plan.csv` records `coordinate_system` as
+`zmatrix_preserved` rather than `cartesian`. Dummy atoms are already dropped
+when outputs are parsed for labels, so a Z-matrix job collects normally.
+
+If a job fails this way *even in Cartesians*, it is reported as
+`internal_coordinate_failure_in_cartesian` and deliberately not relaunched: no
+route change can fix it, and the geometry itself needs attention -- usually a
+nudged starting structure or the dummy-atom Z-matrix.
+
 ### Launcher safety
 
 The generated batch scripts are driven strictly by each batch's `inputs.txt`

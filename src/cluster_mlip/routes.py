@@ -155,6 +155,46 @@ def corrected_saddle_route(route: str, order: int = 1) -> str:
     return corrected
 
 
+# Gaussian's Berny optimizer works in redundant internal coordinates by
+# default. FormBX builds the Wilson B matrix for that transformation, and a
+# torsion whose three defining atoms are near-collinear has no well-defined
+# value, which makes the matrix singular. Both markers report the same
+# breakdown; neither is a route mistake, and neither is affected by the choice
+# of GEDIIS/GDIIS step, because the failure is in forming the coordinates
+# rather than in taking a step.
+_INTERNAL_COORDINATE_FAILURE_RE = re.compile(
+    r"FormBX had a problem|Tors failed for dihedral|"
+    r"Error in internal coordinate system|Linear angle in (?:Tors|Bend)",
+    re.IGNORECASE,
+)
+
+
+def internal_coordinate_failure(text: str) -> str:
+    """The internal-coordinate breakdown marker in an output, or ``""``."""
+    match = _INTERNAL_COORDINATE_FAILURE_RE.search(text)
+    return match.group(0) if match else ""
+
+
+def route_uses_cartesian(route: str) -> bool:
+    return "cartesian" in opt_options(route)
+
+
+def corrected_cartesian_route(route: str) -> str:
+    """Move an optimizing route off internal coordinates.
+
+    ``Opt=Cartesian`` optimizes in Cartesians, bypassing the B-matrix
+    transformation that failed. It typically needs more steps than the
+    redundant-internal default, but it cannot hit a degenerate torsion, and it
+    keeps the input's existing geometry rather than requiring the structure to
+    be rebuilt as a Z-matrix with dummy atoms to dodge the same collinearity.
+    """
+    if not route_optimizes(route) or route_uses_cartesian(route):
+        return route
+    tokens = _opt_option_tokens(route)
+    merged = list(dict.fromkeys(tokens + ["Cartesian"]))
+    return _replace_opt_keyword(route, f"Opt=({','.join(merged)})")
+
+
 def corrected_minimum_route(route: str) -> str:
     """Strip saddle-search keywords from a route that should minimize.
 
@@ -255,14 +295,50 @@ _COORDINATE_RE = re.compile(
 )
 
 
-def _has_coordinates(section: str) -> bool:
-    """Whether a stage carries a Cartesian molecular specification.
+# The charge/multiplicity line: one or more "charge multiplicity" integer pairs
+# (a fragment guess supplies several). It is the anchor for the molecular
+# specification that follows, which is the only place a geometry can live --
+# looking anywhere else in the stage means a Gen basis block's element-led
+# shell lines get mistaken for atoms.
+_CHARGE_MULT_LINE_RE = re.compile(r"[ \t]*-?\d+[ \t]+\d+(?:[ \t]+-?\d+[ \t]+\d+)*[ \t]*")
 
-    A Gen basis block also contains element-led lines, so require three
-    coordinate-shaped numbers on one line, which a basis shell specification
-    never has.
+
+def _molecular_specification(section: str) -> list[str]:
+    """The atom lines between a stage's charge/multiplicity line and the next blank."""
+    lines = section.splitlines()
+    for index, line in enumerate(lines):
+        if not _CHARGE_MULT_LINE_RE.fullmatch(line):
+            continue
+        block: list[str] = []
+        for following in lines[index + 1:]:
+            if not following.strip():
+                break
+            block.append(following)
+        return block
+    return []
+
+
+def _has_coordinates(section: str) -> bool:
+    """Whether a stage carries its own molecular specification, in any form."""
+    return bool(_molecular_specification(section))
+
+
+def input_is_zmatrix(text: str) -> bool:
+    """Whether the first stage's geometry is a Z-matrix rather than Cartesians.
+
+    Decided on the first atom line, which is the one unambiguous difference: a
+    Z-matrix opens with a bare element symbol, because the first atom has
+    nothing to reference, whereas a Cartesian line always carries three
+    coordinates. Judging individual later lines cannot work -- a Z-matrix line
+    such as ``X 1 1.0 2 90.0`` has exactly the shape of a Cartesian one.
+
+    This matters because a Z-matrix built with dummy atoms is itself a
+    deliberate fix for a degenerate internal coordinate, so such a job must
+    keep optimizing in internals: adding ``Opt=Cartesian`` would discard the
+    very construction that makes its torsions well defined.
     """
-    return bool(_COORDINATE_RE.search(section))
+    block = _molecular_specification(_LINK1_SPLIT_RE.split(text)[0] if text else "")
+    return bool(block) and len(block[0].split()) == 1
 
 
 def log_routes(text: str) -> list[str]:
@@ -333,6 +409,17 @@ FINDINGS: dict[str, tuple[str, bool, str]] = {
         "finished output's last frequency analysis has no imaginary mode: the "
         "geometry is a minimum, not the labeled saddle",
     ),
+    "internal_coordinate_failure": (
+        "error", True,
+        "Gaussian could not build internal coordinates (FormBX/Tors failed), so "
+        "the optimizer never took a step: a near-linear angle leaves a torsion "
+        "undefined. Relaunching with Opt=Cartesian avoids that transformation",
+    ),
+    "internal_coordinate_failure_in_cartesian": (
+        "error", False,
+        "the coordinate system failed even though the route already optimizes in "
+        "Cartesians; this one needs the geometry looked at, not a route change",
+    ),
     "input_route_disagrees_with_output": (
         "error", True,
         "the route Gaussian executed differs from the route in the current "
@@ -394,6 +481,14 @@ def inspect_job(config_type: str, input_text: str, output_text: str = "") -> dic
             findings.add("input_route_disagrees_with_output")
         if intent == "saddle" and executed and "saddle" not in executed_kinds:
             findings.add("saddle_launched_as_minimum_search")
+        # Independent of intent: a minimization can break the coordinate
+        # system just as a saddle search can.
+        if internal_coordinate_failure(output_text) and optimizing:
+            findings.add(
+                "internal_coordinate_failure_in_cartesian"
+                if all(route_uses_cartesian(route) for route in optimizing)
+                else "internal_coordinate_failure"
+            )
         imaginary = final_imaginary_count(output_text)
         expected = expected_imaginary_modes(config_type)
         if intent == "saddle" and imaginary == 0:

@@ -24,7 +24,10 @@ from cluster_mlip.restart import prepare_spin_restarts
 from cluster_mlip.route_audit import audit_campaign_routes
 from cluster_mlip.routes import (
     config_type_from_stem,
+    corrected_cartesian_route,
     geometry_source,
+    input_is_zmatrix,
+    route_uses_cartesian,
     corrected_minimum_route,
     corrected_saddle_route,
     inspect_job,
@@ -602,6 +605,146 @@ class RelaunchTests(BrokenCampaign, unittest.TestCase):
             self.assertEqual(main(['collect', str(root), '-o', str(destination)]), 2)
             self.assertIn('saddle_launched_as_minimum_search',
                           (destination / 'failed_outputs.tsv').read_text())
+
+
+class InternalCoordinateFailureTests(BrokenCampaign, unittest.TestCase):
+    """FormBX/Tors failures are a coordinate-system problem, not a route one."""
+
+    # The tail of a real g09 failure: forces printed, then the optimizer dies
+    # building internal coordinates because a torsion is degenerate.
+    FORMBX_LOG = (
+        " #p UBPW91/Gen SCF=(VShift=5) NoSymm Opt=(TS,CalcFC,NoEigenTest) Freq"
+        " IOP(5/13=1) Int=UltraFine\n"
+        " Charge = 0 Multiplicity = 4\n"
+        + _GEOMETRY
+        + _FORCES
+        + " Cartesian Forces:  Max     0.005072867 RMS     0.001994465\n"
+        " Berny optimization.\n"
+        " Using GEDIIS/GDIIS optimizer.\n"
+        " Tors failed for dihedral     1 -     2 -     3 -     4\n"
+        " FormBX had a problem.\n"
+        " Error termination via Lnk1e in /g09/l103.exe\n"
+    )
+
+    def test_the_marker_is_detected_and_flagged_for_relaunch(self):
+        verdict = inspect_job(
+            'transition_state',
+            f'%chk=a.chk\n{DEFAULT_SADDLE_ROUTE}\n\nt\n\n0 4\nFe 0. 0. 0.\n',
+            self.FORMBX_LOG,
+        )
+        self.assertIn('internal_coordinate_failure', verdict['findings'])
+        self.assertTrue(verdict['must_relaunch'])
+
+    def test_a_minimization_can_break_the_coordinate_system_too(self):
+        verdict = inspect_job(
+            'minimum',
+            f'%chk=a.chk\n{DEFAULT_ROUTE}\n\nt\n\n0 4\nFe 0. 0. 0.\n',
+            self.FORMBX_LOG.replace('Opt=(TS,CalcFC,NoEigenTest)', 'Opt'),
+        )
+        self.assertEqual(verdict['findings'], ['internal_coordinate_failure'])
+
+    def test_relaunch_switches_to_cartesian_keeping_the_saddle_search(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, batch, stem = self.campaign(Path(tmp), break_route=False, finished=False)
+            (batch / f'{stem}.log').write_text(self.FORMBX_LOG)
+            (batch / f'{stem}.rc').write_text('1')
+            audit = audit_campaign_routes(root)
+            self.assertEqual(audit['rows'][0]['state'], 'failed')
+            self.assertEqual(audit['rows'][0]['findings'], 'internal_coordinate_failure')
+
+            result = prepare_route_relaunch(root)
+            plan = result['plan'][0]
+            self.assertEqual(plan['coordinate_system'], 'cartesian')
+            route = plan['route_after']
+            self.assertTrue(route_uses_cartesian(route))
+            # The search it already had correctly is preserved.
+            self.assertEqual(route_search_kind(route), 'saddle')
+            self.assertEqual(saddle_route_gaps(route), [])
+            # And the non-optimizing Force stage keeps internal coordinates
+            # irrelevant to it.
+            rebuilt = (root / plan['new_input']).read_text()
+            routes = [l.strip() for l in rebuilt.splitlines() if l.startswith('#')]
+            self.assertTrue(route_uses_cartesian(routes[0]))
+            self.assertEqual(route_search_kind(routes[1]), 'none')
+            self.assertNotIn('Cartesian', routes[1])
+
+    def test_a_mislaunched_saddle_that_also_broke_gets_both_fixes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, batch, stem = self.campaign(Path(tmp), finished=False)
+            (batch / f'{stem}.log').write_text(
+                self.FORMBX_LOG.replace('Opt=(TS,CalcFC,NoEigenTest)', 'Opt'))
+            (batch / f'{stem}.rc').write_text('1')
+            plan = prepare_route_relaunch(root, dry_run=True)['plan'][0]
+            route = plan['route_after']
+            self.assertEqual(route_search_kind(route), 'saddle')
+            self.assertTrue(route_uses_cartesian(route))
+            self.assertEqual(saddle_route_gaps(route), [])
+
+    def test_a_zmatrix_input_keeps_its_internal_coordinates(self):
+        # A dummy-atom Z-matrix (what ChemCraft produces) is itself the fix for
+        # a degenerate torsion. Bolting Opt=Cartesian onto it would discard
+        # that construction, so the route correction must leave it in
+        # internals.
+        with tempfile.TemporaryDirectory() as tmp:
+            root, batch, stem = self.campaign(Path(tmp), finished=False)
+            job_input = root / f'{stem}.gjf'
+            body = job_input.read_text()
+            zmatrix = body.split('0 4')[0] + '\n'.join([
+                '0 4',
+                'Fe',
+                'Fe   1    B1',
+                'X    1    1.0000    2   90.0',
+                'H    1    B2        3   A1     2   D1',
+                '',
+                'B1   2.2000',
+                'B2   1.7000',
+                'A1   90.000',
+                'D1   180.000',
+                '',
+            ])
+            job_input.write_text(zmatrix, encoding='utf-8')
+            (batch / f'{stem}.gjf').write_text(zmatrix, encoding='utf-8')
+            (batch / f'{stem}.log').write_text(
+                self.FORMBX_LOG.replace('Opt=(TS,CalcFC,NoEigenTest)', 'Opt'))
+            (batch / f'{stem}.rc').write_text('1')
+
+            self.assertTrue(input_is_zmatrix(zmatrix))
+            plan = prepare_route_relaunch(root, dry_run=True)['plan'][0]
+            self.assertEqual(plan['coordinate_system'], 'zmatrix_preserved')
+            route = plan['route_after']
+            self.assertFalse(route_uses_cartesian(route))
+            # The route is still corrected to a saddle search.
+            self.assertEqual(route_search_kind(route), 'saddle')
+            self.assertEqual(saddle_route_gaps(route), [])
+
+    def test_a_zmatrix_geometry_is_not_mistaken_for_a_checkpoint_seed(self):
+        # Before Z-matrices were recognized these fell through to "unknown"
+        # and were skipped, so a hand-repaired input could not be corrected.
+        zmatrix = (
+            '%chk=a.chk\n#p UBPW91/Gen Opt\n\nt\n\n0 4\nFe\n'
+            'Fe   1    2.2000\nX    1    1.0    2   90.0\n\n'
+        )
+        self.assertEqual(geometry_source(zmatrix), 'input_coordinates')
+
+    def test_failing_in_cartesian_is_reported_as_needing_a_human(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, batch, stem = self.campaign(Path(tmp), break_route=False, finished=False)
+            cartesian_route = corrected_cartesian_route(DEFAULT_SADDLE_ROUTE)
+            job_input = root / f'{stem}.gjf'
+            job_input.write_text(
+                job_input.read_text().replace(DEFAULT_SADDLE_ROUTE, cartesian_route),
+                encoding='utf-8',
+            )
+            (batch / f'{stem}.gjf').write_text(job_input.read_text(), encoding='utf-8')
+            (batch / f'{stem}.log').write_text(
+                self.FORMBX_LOG.replace(
+                    'Opt=(TS,CalcFC,NoEigenTest)', 'Opt=(TS,CalcFC,NoEigenTest,Cartesian)'))
+            (batch / f'{stem}.rc').write_text('1')
+            audit = audit_campaign_routes(root)
+            self.assertEqual(
+                audit['rows'][0]['findings'], 'internal_coordinate_failure_in_cartesian')
+            # Reported, but not claimed to be fixable by a route rewrite.
+            self.assertEqual(audit['summary']['must_relaunch'], 0)
 
 
 class SpinLadderRelaunchTests(unittest.TestCase):

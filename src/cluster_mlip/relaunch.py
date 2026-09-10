@@ -40,10 +40,13 @@ from typing import Any
 
 from .route_audit import audit_campaign_routes, find_manifest, read_manifest
 from .routes import (
+    corrected_cartesian_route,
     corrected_minimum_route,
     corrected_saddle_route,
     geometry_source,
+    input_is_zmatrix,
     route_optimizes,
+    route_uses_cartesian,
     stage_route,
 )
 
@@ -63,7 +66,8 @@ RELAUNCH_COLUMNS = [
 
 PLAN_COLUMNS = [
     "attempt", "batch", "original_input", "new_input", "config_type", "findings",
-    "previous_state", "geometry_source", "saddle_order", "saddle_order_source",
+    "previous_state", "geometry_source", "coordinate_system",
+    "saddle_order", "saddle_order_source",
     "rebuilt_from", "retired_inputs",
     "ladder_stages", "archived_output", "new_output", "route_before", "route_after",
     "checkpoints_renamed", "preserved_body_sha256",
@@ -135,12 +139,19 @@ def _next_attempt(rows: list[dict[str, str]]) -> int:
     return max(values, default=0) + 1
 
 
-def _rewrite_routes(text: str, intent: str, order: int) -> tuple[str, str, str]:
+def _rewrite_routes(
+    text: str, intent: str, order: int, cartesian: bool = False
+) -> tuple[str, str, str]:
     """Correct every optimizing route in a multi-stage input.
 
     Returns the rewritten text plus the before/after of the first optimizing
     route, for the plan and manifest record. Non-optimizing stages -- the
     ``Force`` label stage of a generated job -- are left exactly as they were.
+
+    ``cartesian`` additionally moves each optimizing stage off redundant
+    internal coordinates, for a job whose previous attempt died in FormBX. It
+    composes with the search correction, so a mislaunched saddle that also
+    broke the coordinate system gets both fixes in one relaunch.
     """
     pieces = _LINK1_SPLIT_RE.split(text)
     before = after = ""
@@ -154,6 +165,8 @@ def _rewrite_routes(text: str, intent: str, order: int) -> tuple[str, str, str]:
             corrected_saddle_route(route, order) if intent == "saddle"
             else corrected_minimum_route(route)
         )
+        if cartesian:
+            corrected = corrected_cartesian_route(corrected)
         if corrected == route:
             continue
         if not before:
@@ -538,13 +551,30 @@ def prepare_route_relaunch(
 
         text = rebuild_text
         intent = row["intent"]
-        rewritten, before, after = _rewrite_routes(text, intent, order)
+        # A previous attempt that died in FormBX needs its coordinate system
+        # changed as well as (or instead of) its search -- unless the input is
+        # already a Z-matrix, which is itself a deliberate fix for a
+        # degenerate internal coordinate (a builder such as ChemCraft inserts
+        # dummy atoms to define the torsion). Switching that to Cartesians
+        # would throw away exactly the construction that repaired it, so those
+        # keep their internals and receive only the route correction.
+        broke_coordinates = "internal_coordinate_failure" in row["findings"].split(";")
+        zmatrix = input_is_zmatrix(rebuild_text)
+        cartesian = broke_coordinates and not zmatrix
+        rewritten, before, after = _rewrite_routes(text, intent, order, cartesian)
         if not before:
-            skip(row, (
-                "route already requests the right search, so a rewrite would change "
-                f"nothing ({row['findings']}); this needs a better guess geometry, "
-                "not a relaunch"
-            ))
+            if "internal_coordinate_failure_in_cartesian" in row["findings"]:
+                skip(row, (
+                    "coordinate system failed even in Cartesians; no route change can "
+                    "fix this. Inspect the geometry -- a near-linear fragment usually "
+                    "needs a nudged starting structure, or a Z-matrix with dummy atoms"
+                ))
+            else:
+                skip(row, (
+                    "route already requests the right search, so a rewrite would change "
+                    f"nothing ({row['findings']}); this needs a better guess geometry, "
+                    "not a relaunch"
+                ))
             continue
         rewritten, renamed = _rename_checkpoints(rewritten, suffix)
         if _body_digest(rewritten) != _body_digest(text):
@@ -606,6 +636,11 @@ def prepare_route_relaunch(
             "findings": row["findings"],
             "previous_state": row["state"],
             "geometry_source": origin,
+            "coordinate_system": (
+                "cartesian" if cartesian
+                else "zmatrix_preserved" if zmatrix
+                else "unchanged"
+            ),
             "saddle_order": str(order),
             "saddle_order_source": order_source,
             "rebuilt_from": lineage_root,
