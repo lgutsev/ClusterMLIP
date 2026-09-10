@@ -388,6 +388,7 @@ def prepare_route_relaunch(
 
     actions: list[RelaunchAction] = []
     skipped: list[dict[str, str]] = []
+    overridden: list[dict[str, str]] = []
 
     def skip(row: dict[str, Any], reason: str) -> None:
         skipped.append({"input": row["input"], "batch": row["batch"], "reason": reason})
@@ -409,9 +410,20 @@ def prepare_route_relaunch(
         source_input = campaign / reference
         stem = source_input.stem
         directory = batch if batch is not None else source_input.parent
-        if _attempt_is_unconfirmed(directory, stem) and not assume_stopped:
-            skip(row, "activity_unconfirmed: pass --assume-stopped once squeue is clear")
-            continue
+        if _attempt_is_unconfirmed(directory, stem):
+            if not assume_stopped:
+                skip(row, "activity_unconfirmed: pass --assume-stopped once squeue is clear")
+                continue
+            # --assume-stopped is a claim about the scheduler that this machine
+            # cannot check -- QB4 cannot see QB3's queue. Overriding it
+            # silently is how a still-running job gets its log archived out
+            # from under it and a duplicate replacement submitted, so every
+            # override is counted and reported rather than just applied.
+            overridden.append({
+                "input": reference,
+                "batch": row["batch"],
+                "detail": "unmatched .started marker; --assume-stopped overrode it",
+            })
 
         group = rows_by_input.get(reference, [])
         if not group:
@@ -567,6 +579,7 @@ def prepare_route_relaunch(
         "job_row_count": sum(len(action.new_rows) for action in actions),
         "plan": [action.plan_row for action in actions],
         "skipped": skipped,
+        "overridden_active_attempts": overridden,
         "dry_run": dry_run,
         "report": str(audit["destination"]),
     }
@@ -649,6 +662,9 @@ def prepare_route_relaunch(
                existing_plan + [action.plan_row for action in actions])
     _write_csv(campaign / "skipped_route_fixes.csv",
                ["input", "batch", "reason"], skipped)
+    if overridden:
+        _write_csv(campaign / "route_fix_overrides.csv",
+                   ["input", "batch", "detail"], overridden)
     # Read back what is now on disk. The preflight checked the plan; this
     # checks the result, so the campaign is never left in a state the
     # launchers would run incorrectly without anyone being told.

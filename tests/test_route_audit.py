@@ -760,6 +760,43 @@ class LauncherSafetyTests(SpinLadderRelaunchTests):
             rebuilt = (campaign / result['plan'][0]['new_input']).read_text()
             self.assertEqual(set(re.findall(r'%nprocshared=(\d+)', rebuilt)), {'12'})
 
+    def test_assume_stopped_overrides_are_counted_not_silent(self):
+        # QB4 cannot see QB3's queue, so --assume-stopped is an unverifiable
+        # claim. Applying it silently is how a live job gets its log archived
+        # from under it.
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign, batch, name, _ = self.campaign(Path(tmp))
+            (batch / f'{Path(name).stem}.started').write_text('now')
+            blocked = prepare_route_relaunch(campaign, dry_run=True)
+            self.assertEqual(blocked['input_count'], 0)
+            self.assertEqual(blocked['overridden_active_attempts'], [])
+            self.assertIn('assume-stopped', blocked['skipped'][0]['reason'])
+
+            result = prepare_route_relaunch(campaign, assume_stopped=True)
+            self.assertEqual(result['input_count'], 1)
+            self.assertEqual(len(result['overridden_active_attempts']), 1)
+            self.assertEqual(
+                result['overridden_active_attempts'][0]['input'], f'inputs/{name}')
+            self.assertTrue((campaign / 'route_fix_overrides.csv').is_file())
+
+    def test_relaunch_range_confines_changes_to_the_selected_batches(self):
+        # Matters because a submission range and a relaunch range have to
+        # agree: batches outside the range must be left completely alone.
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign, batch, name, _ = self.campaign(Path(tmp))
+            second = campaign / 'slurm_batches/batch_0002'
+            second.mkdir()
+            shutil.copy2(batch / name, second / name)
+            (second / 'inputs.txt').write_text(name + '\n', encoding='utf-8')
+            before = (second / 'inputs.txt').read_text()
+            result = prepare_route_relaunch(campaign, start=2, end=2, dry_run=True)
+            # batch_0001 holds the manifest's copy of this input, so a range of
+            # 2 only ever touches what batch_0002 lists.
+            self.assertTrue(all(row['batch'] == 'batch_0002' for row in result['plan']))
+            self.assertEqual((second / 'inputs.txt').read_text(), before)
+            with self.assertRaises(ValueError):
+                prepare_route_relaunch(campaign, start=1, end=99, dry_run=True)
+
     def test_nproc_mismatch_is_reported_against_the_saved_plan(self):
         with tempfile.TemporaryDirectory() as tmp:
             campaign, batch, name, _ = self.campaign(Path(tmp))

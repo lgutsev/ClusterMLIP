@@ -277,8 +277,25 @@ def command_relaunch_routes(args: argparse.Namespace) -> int:
         print(f"          -> {row['route_after']}")
     for row in result["skipped"]:
         print(f"SKIPPED {row['input']}: {row['reason']}", file=sys.stderr)
+    overridden = result["overridden_active_attempts"]
+    if overridden:
+        print(
+            f"WARNING: --assume-stopped overrode {len(overridden)} input(s) that still "
+            "look active (a .started marker with no matching .finished). This machine "
+            "cannot see the QB3 queue. If any of those jobs is still running, its log is "
+            "being archived out from under it and a duplicate will be submitted.",
+            file=sys.stderr,
+        )
+        for row in overridden[:10]:
+            print(f"  OVERRODE {row['batch']} {row['input']}", file=sys.stderr)
+        if len(overridden) > 10:
+            print(f"  ... and {len(overridden) - 10} more", file=sys.stderr)
     if args.dry_run:
         print("Dry run: nothing was written. Re-run without --dry-run to apply.")
+        if result["launcher_problems"]:
+            print("Launcher problems that would block the real run:", file=sys.stderr)
+            for problem in result["launcher_problems"]:
+                print(f"  {problem}", file=sys.stderr)
     else:
         print(f"Manifest and batch listings backed up under: {result['backup']}")
         print("Resubmit the same batch range with the existing head launcher; do not "
