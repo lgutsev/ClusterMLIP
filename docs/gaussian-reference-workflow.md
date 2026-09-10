@@ -278,11 +278,49 @@ loudly if a manifest hash, an archived output, or a batch listing does not match
 what it intended to write. The batch map itself is never regenerated, so
 `slurm_plan.json` and the QB3 resource directives stay exactly as submitted.
 
+### Which machine runs what
+
+`relaunch-routes` changes only data: the files under `inputs/`, each batch's
+`inputs.txt`, the manifest, and the plan CSVs. It regenerates no script and
+never alters the batch map, so nothing new is needed on QB3. The generated
+launchers are pure bash/awk/Slurm with no reference to the Python package;
+`run_batch.sbatch` reads its input list at run time (`mapfile -t inputs <
+"$batch_file"`) rather than globbing, so replacing an entry is enough; and
+`gaussian_complete` derives the expected Link1 stage count from the input file
+itself, so a rebuilt three-stage ladder is automatically required to produce
+three normal terminations. `submit_gaussian_batches.sh` and
+`gaussian_batch_status.sh` hard-code only the batch count, which a relaunch
+never changes.
+
+Prepare on QB4, submit on QB3. `gaussian_batch_status.sh` only reports;
+`submit_gaussian_batches.sh` is what launches.
+
+**Match the ranges.** `relaunch-routes` defaults to every batch, so scope it to
+the range you are about to submit, and only after `squeue` shows that range
+idle:
+
+```bash
+# QB4
+cluster-mlip relaunch-routes "$W2" --start 31 --end 50 --dry-run
+cluster-mlip relaunch-routes "$W2" --start 31 --end 50 --assume-stopped
+```
+
+```bash
+# QB3
+bash "$W2/submit_gaussian_batches.sh" --start 31 --end 50
+```
+
+`--assume-stopped` is an assertion about a scheduler QB4 cannot see. Every
+input it overrides -- one whose `.started` marker has no matching `.finished`
+-- is counted, printed as a warning naming the input, and written to
+`route_fix_overrides.csv`. If any of those is still running, its log is being
+archived out from under a live process and a duplicate will be submitted, so
+treat a nonzero override count as a reason to stop and check the queue.
+
 Do not run `prepare-slurm` again. Resubmit the same range with the existing head
 launcher, then re-audit before collecting:
 
 ```bash
-bash "$W2/submit_gaussian_batches.sh" --start 1 --end 30
 cluster-mlip audit-routes "$W2"
 ```
 
