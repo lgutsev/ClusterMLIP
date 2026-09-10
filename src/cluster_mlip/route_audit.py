@@ -22,13 +22,16 @@ from pathlib import Path
 from typing import Any
 
 from .gaussian import gaussian_job_complete
-from .routes import FINDINGS, config_type_from_stem, inspect_job
+from .routes import FINDINGS, config_type_from_stem, geometry_source, inspect_job
 
 AUDIT_COLUMNS = [
     "input", "batch", "job_ids", "config_type", "config_type_source", "intent",
     "search_kinds", "executed_search_kinds", "state", "expected_imaginary_modes",
-    "final_imaginary_modes", "severity", "must_relaunch", "findings", "output",
-    "route",
+    "final_imaginary_modes", "severity", "must_relaunch", "findings",
+    # How a relaunch would have to rebuild this job: an input carrying its own
+    # coordinates is corrected in place, whereas a spin-ladder restart seeded
+    # by Geom=Checkpoint has to be rebuilt from its root ladder.
+    "geometry_source", "restart_root_input", "output", "route",
 ]
 
 
@@ -167,6 +170,8 @@ def audit_campaign_routes(
         rows.append({
             "input": reference,
             "batch": batch.name if batch else "",
+            "geometry_source": geometry_source(input_text),
+            "restart_root_input": (group[0].get("restart_root_input") or "").strip(),
             "job_ids": ";".join(row.get("job_id", "") for row in group),
             "config_type": config_type,
             "config_type_source": label_source,
@@ -190,9 +195,8 @@ def audit_campaign_routes(
         code for row in rows for code in row["findings"].split(";") if code
     )
     relaunch_rows = [row for row in rows if row["must_relaunch"] == "true"]
-    wasted = collections.Counter(
-        row["state"] for row in relaunch_rows
-    )
+    wasted = collections.Counter(row["state"] for row in relaunch_rows)
+    rebuild = collections.Counter(row["geometry_source"] for row in relaunch_rows)
     summary: dict[str, Any] = {
         "campaign": str(campaign),
         "generated_utc": datetime.now(timezone.utc).isoformat(),
@@ -203,6 +207,7 @@ def audit_campaign_routes(
         "findings": dict(finding_counts),
         "must_relaunch": len(relaunch_rows),
         "must_relaunch_by_state": dict(wasted),
+        "must_relaunch_by_geometry_source": dict(rebuild),
         "completed_but_invalid": wasted.get("complete", 0),
         "unreadable": unreadable,
     }
@@ -263,15 +268,28 @@ def _report(campaign: Path, summary: dict[str, Any], rows: list[dict[str, Any]],
         lines.append("Every job's route matches its structural label.")
     lines += ["", "## Jobs to relaunch", ""]
     if relaunch:
+        sources = summary["must_relaunch_by_geometry_source"]
         lines += [
-            "| Input | Batch | Label | Route search | State | Imag modes | Findings |",
-            "|---|---|---|---|---|---:|---|",
+            "How each one has to be rebuilt:",
+            "",
+            f"- `input_coordinates` ({sources.get('input_coordinates', 0)}): the input "
+            "carries its own geometry, so its routes are corrected in place and its "
+            "spin-flip chain is preserved stage by stage.",
+            f"- `checkpoint` ({sources.get('checkpoint', 0)}): a spin-ladder restart with "
+            "no coordinates of its own, seeded by `Geom=Checkpoint` from the run being "
+            "discarded. The whole restart lineage is retired and the root ladder is "
+            "rebuilt from its real coordinates, restoring the complete pathway.",
+            f"- `unknown` ({sources.get('unknown', 0)}): skipped; needs a look by hand.",
+            "",
+            "| Input | Batch | Label | Route search | State | Imag | Rebuild from | Findings |",
+            "|---|---|---|---|---|---:|---|---|",
         ]
         for row in relaunch:
             lines.append(
                 f"| `{row['input']}` | {row['batch']} | {row['config_type']} | "
                 f"{row['search_kinds'] or 'none'} | {row['state']} | "
-                f"{row['final_imaginary_modes']} | {row['findings']} |"
+                f"{row['final_imaginary_modes']} | {row['geometry_source']} | "
+                f"{row['findings']} |"
             )
         lines += [
             "",

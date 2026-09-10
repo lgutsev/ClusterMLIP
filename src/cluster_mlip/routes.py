@@ -215,6 +215,56 @@ def input_stage_routes(text: str) -> list[str]:
     return [stage_route(section) for section in _LINK1_SPLIT_RE.split(text)]
 
 
+def route_reads_checkpoint_geometry(route: str) -> bool:
+    """Whether this stage takes its geometry from a checkpoint file.
+
+    ``Guess=Read`` alone only reuses orbitals; it is ``Geom=Checkpoint`` (or
+    ``AllCheck``/``Check``) that replaces the molecular specification.
+    """
+    match = re.search(r"\bgeom\s*=\s*(\([^)]*\)|[^\s,]+)", route, re.IGNORECASE)
+    return bool(match and "check" in match.group(1).lower())
+
+
+def geometry_source(text: str) -> str:
+    """Where a multi-stage input's *first* stage gets its geometry.
+
+    ``checkpoint`` means the input carries no coordinates of its own: a
+    spin-ladder restart produced by ``prepare-spin-restarts`` begins with
+    ``%oldchk`` plus ``Geom=Checkpoint``. Such an input cannot be corrected in
+    place -- there is no geometry in it to correct, and the checkpoint it would
+    read was written by the run being discarded -- so a route relaunch has to
+    go back to the root input that still holds real coordinates.
+    """
+    sections = _LINK1_SPLIT_RE.split(text)
+    if not sections:
+        return "unknown"
+    first = sections[0]
+    if route_reads_checkpoint_geometry(stage_route(first)):
+        return "checkpoint"
+    return "input_coordinates" if _has_coordinates(first) else "unknown"
+
+
+# Intra-line whitespace only: "\s" would match newlines and let a Gen basis
+# shell header plus its first exponent row ("S 2 1.00\n 10.47 -0.229") pass as
+# a coordinate line, so an input carrying only a basis block would look like it
+# still had a geometry.
+_COORDINATE_RE = re.compile(
+    r"^[ \t]*[A-Z][a-z]?(?:\(Fragment=\d+\))?(?:[ \t]+-?\d+)?"
+    r"(?:[ \t]+[+-]?(?:\d+(?:\.\d*)?|\.\d+)){3}[ \t]*$",
+    re.MULTILINE,
+)
+
+
+def _has_coordinates(section: str) -> bool:
+    """Whether a stage carries a Cartesian molecular specification.
+
+    A Gen basis block also contains element-led lines, so require three
+    coordinate-shaped numbers on one line, which a basis shell specification
+    never has.
+    """
+    return bool(_COORDINATE_RE.search(section))
+
+
 def log_routes(text: str) -> list[str]:
     """Every route Gaussian echoed into an output, in order."""
     from .gaussian import _routes

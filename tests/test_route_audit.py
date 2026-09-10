@@ -1,6 +1,9 @@
 """Transition states must be launched as saddle searches, not ordinary Opt."""
 import csv
 import hashlib
+import json
+import re
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,9 +19,11 @@ from cluster_mlip.jobs import (
 )
 from cluster_mlip.models import Atom, Record
 from cluster_mlip.relaunch import prepare_route_relaunch
+from cluster_mlip.restart import prepare_spin_restarts
 from cluster_mlip.route_audit import audit_campaign_routes
 from cluster_mlip.routes import (
     config_type_from_stem,
+    geometry_source,
     corrected_minimum_route,
     corrected_saddle_route,
     inspect_job,
@@ -28,7 +33,11 @@ from cluster_mlip.routes import (
     saddle_route_gaps,
 )
 from cluster_mlip.slurm import SlurmConfig, prepare_slurm_batches
-from cluster_mlip.spin import DEFAULT_SPIN_ROUTE, write_spin_jobs
+from cluster_mlip.spin import (
+    DEFAULT_SPIN_ROUTE,
+    SPIN_MANIFEST_COLUMNS,
+    write_spin_jobs,
+)
 
 ATOMS = [Atom('Fe', 0.0, 0.0, 0.0), Atom('N', 1.7, 0.0, 0.0), Atom('O', 2.85, 0.0, 0.0)]
 
@@ -544,6 +553,221 @@ class RelaunchTests(BrokenCampaign, unittest.TestCase):
             self.assertEqual(main(['collect', str(root), '-o', str(destination)]), 2)
             self.assertIn('saddle_launched_as_minimum_search',
                           (destination / 'failed_outputs.tsv').read_text())
+
+
+class SpinLadderRelaunchTests(unittest.TestCase):
+    """A ladder's one-spin-flip-at-a-time chain must survive a route relaunch."""
+
+    ROUTE = '#p UBPW91/6-311++G* NoSymm Opt IOP(5/13=1) Int=UltraFine'
+
+    def campaign(self, root, mults=(11, 9, 7)):
+        campaign = root / 'w2'
+        inputs, batch = campaign / 'inputs', campaign / 'slurm_batches/batch_0001'
+        inputs.mkdir(parents=True)
+        batch.mkdir(parents=True)
+        name = ('seed__fe2o2__transition-state__q0-m11__reference__abc1234567'
+                '__spin-ladder-m11-to-m7.gjf')
+        sections, rows, previous = [], [], ''
+        for stage, mult in enumerate(mults):
+            chk = f'chain-s{stage:02d}-m{mult}.chk'
+            header = (f'%oldchk={previous}\n' if previous else '') + (
+                f'%chk={chk}\n%mem=24GB\n%nprocshared=12\n')
+            route = self.ROUTE + (' Geom=Checkpoint Guess=Read' if stage else '')
+            body = f'\n\nstage {stage}\n\n0 {mult}\n'
+            if not stage:
+                body += ('Fe   0.000000  0.000000  0.000000\n'
+                         'Fe   2.200000  0.000000  0.000000\n'
+                         'O    1.100000  1.100000  0.000000\n'
+                         'O    1.100000 -1.100000  0.000000\n')
+            sections.append(f'{header}{route}{body}')
+            row = {column: '' for column in SPIN_MANIFEST_COLUMNS}
+            row.update({
+                'job_id': f'chain-s{stage:02d}', 'chain_id': 'chain',
+                'stage_index': str(stage), 'pathway': 'multiplicity_ladder',
+                'config_type': 'transition_state', 'intended_charge': '0',
+                'intended_multiplicity': str(mult), 'high_spin_multiplicity': str(mults[0]),
+                'final_target_multiplicity': str(mults[-1]), 'checkpoint': chk,
+                'predecessor_checkpoint': previous, 'parent_record_id': 'parent',
+                'source': 'warehouse/Fe2O2_ts.txt', 'formula': 'Fe2O2',
+                'input': f'inputs/{name}', 'output': f'{Path(name).stem}.log',
+            })
+            rows.append(row)
+            previous = chk
+        (inputs / name).write_text('\n--Link1--\n'.join(sections), encoding='utf-8')
+        digest = hashlib.sha256((inputs / name).read_bytes()).hexdigest()
+        for row in rows:
+            row['input_sha256'] = digest
+        with (campaign / 'spin_jobs.csv').open('w', newline='', encoding='utf-8') as handle:
+            writer = csv.DictWriter(handle, fieldnames=SPIN_MANIFEST_COLUMNS)
+            writer.writeheader()
+            writer.writerows(rows)
+        shutil.copy2(inputs / name, batch / name)
+        (batch / 'inputs.txt').write_text(name + '\n', encoding='utf-8')
+        for row in rows:
+            (batch / row['checkpoint']).write_bytes(b'collapsed-minimum')
+        return campaign, batch, name, rows
+
+    def _stages(self, text):
+        """(route, oldchk, chk) per stage of a rendered input."""
+        out = []
+        for section in re.split(r'^\s*--Link1--\s*$', text, flags=re.M):
+            route = next((l.strip() for l in section.splitlines()
+                          if l.strip().startswith('#')), '')
+            def directive(key):
+                return next((l.split('=', 1)[1].strip() for l in section.splitlines()
+                             if l.strip().lower().startswith(key)), '')
+            out.append((route, directive('%oldchk'), directive('%chk')))
+        return out
+
+    def test_ladder_chain_is_preserved_and_every_stage_becomes_a_ts_search(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign, batch, name, _ = self.campaign(Path(tmp))
+            result = prepare_route_relaunch(campaign)
+            rebuilt = (campaign / result['plan'][0]['new_input']).read_text()
+            stages = self._stages(rebuilt)
+            self.assertEqual(len(stages), 3)
+            for route, _, _ in stages:
+                self.assertEqual(route_search_kind(route), 'saddle')
+                self.assertEqual(saddle_route_gaps(route), [])
+            # Stage k must still read stage k-1's checkpoint: the spin-flip
+            # pathway is the point of the ladder.
+            self.assertEqual(stages[0][1], '')
+            self.assertEqual(stages[1][1], stages[0][2])
+            self.assertEqual(stages[2][1], stages[1][2])
+            # And none of them may touch the collapsed originals.
+            for _, oldchk, chk in stages:
+                for reference in (oldchk, chk):
+                    if reference:
+                        self.assertIn('-routefix01', reference)
+            # Later stages still take their geometry from the checkpoint, not
+            # from coordinates that were never there.
+            self.assertIn('Geom=Checkpoint', stages[1][0])
+            self.assertNotIn('Geom=Checkpoint', stages[0][0])
+
+    def test_a_checkpoint_seeded_restart_is_rebuilt_from_the_root_ladder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign, batch, name, rows = self.campaign(Path(tmp))
+            # Stage 0 finished (collapsed), stage 1 was cut off by wall time.
+            (batch / f'{Path(name).stem}.log').write_text(
+                f' {self.ROUTE}\n Charge = 0 Multiplicity = 11\n'
+                ' SCF Done:  E(UBPW91) =  -100.0 A.U.\n Stationary point found\n'
+                ' Optimization completed.\n Normal termination of Gaussian 09\n'
+                ' Link1:  Proceeding to internal job step number  2.\n'
+                f' {self.ROUTE} Geom=Checkpoint Guess=Read\n'
+                ' Charge = 0 Multiplicity = 9\n SCF Done:  E(UBPW91) =  -99.0 A.U.\n'
+            )
+            restart = prepare_spin_restarts(campaign, assume_stopped=True)
+            continuation = campaign / restart['plan'][0]['new_input']
+            seed = campaign / restart['plan'][0]['seed_checkpoint']
+            self.assertEqual(geometry_source(continuation.read_text()), 'checkpoint')
+
+            audit = audit_campaign_routes(campaign)
+            row = next(r for r in audit['rows'] if r['must_relaunch'] == 'true')
+            self.assertEqual(row['geometry_source'], 'checkpoint')
+            self.assertEqual(
+                audit['summary']['must_relaunch_by_geometry_source'], {'checkpoint': 1})
+
+            result = prepare_route_relaunch(campaign, assume_stopped=True)
+            plan = result['plan'][0]
+            self.assertEqual(plan['geometry_source'], 'checkpoint')
+            self.assertEqual(plan['rebuilt_from'], f'inputs/{name}')
+            # The complete ladder is restored, not the two-stage tail the
+            # restart was reduced to.
+            self.assertEqual(plan['ladder_stages'], '3')
+            rebuilt = (campaign / plan['new_input']).read_text()
+            stages = self._stages(rebuilt)
+            self.assertEqual(len(stages), 3)
+            self.assertIn('Fe   0.000000', rebuilt)
+            self.assertEqual([s[1] for s in stages][0], '')
+
+            # The poisoned seed checkpoint is neither renamed nor referenced.
+            self.assertTrue(seed.is_file())
+            self.assertNotIn(seed.name, rebuilt)
+            self.assertNotIn(f'{seed.stem}-routefix01', rebuilt)
+
+            # Both lineage inputs are retired, and only the rebuild is active.
+            self.assertEqual(
+                set(plan['retired_inputs'].split(';')),
+                {f'inputs/{name}', restart['plan'][0]['new_input']},
+            )
+            with (campaign / 'spin_jobs.csv').open(newline='') as handle:
+                manifest = list(csv.DictReader(handle))
+            active = [r for r in manifest if r['submission_active'] == 'true']
+            self.assertEqual(len(active), 3)
+            self.assertEqual({r['input'] for r in active}, {plan['new_input']})
+            self.assertEqual(
+                [r['intended_multiplicity'] for r in active], ['11', '9', '7'])
+            for retired in (r for r in manifest if r['submission_active'] == 'false'):
+                self.assertTrue(retired['route_invalidated'])
+            # The earlier attempt keeps the archived log it actually produced.
+            root_rows = [r for r in manifest if r['relaunch_attempt'] == ''
+                         and r['input'] == f'inputs/{name}']
+            self.assertTrue(all('before-restart01' in r['output'] for r in root_rows))
+
+            listing = (batch / 'inputs.txt').read_text().split()
+            self.assertEqual(listing, [Path(plan['new_input']).name])
+            self.assertEqual(audit_campaign_routes(campaign)['summary']['must_relaunch'], 0)
+
+
+class LauncherSafetyTests(SpinLadderRelaunchTests):
+    def test_preflight_refuses_a_checkpoint_name_that_already_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign, batch, name, rows = self.campaign(Path(tmp))
+            # A leftover file with the name the rebuild would write to.
+            (batch / 'chain-s01-m9-routefix01.chk').write_bytes(b'live job')
+            plan = prepare_route_relaunch(campaign, dry_run=True)
+            self.assertTrue(any('would be overwritten' in p
+                                for p in plan['launcher_problems']))
+            with self.assertRaises(RuntimeError) as caught:
+                prepare_route_relaunch(campaign)
+            self.assertIn('refusing to relaunch', str(caught.exception))
+            # Nothing was touched.
+            self.assertEqual((batch / 'inputs.txt').read_text().split(), [name])
+            self.assertFalse(list((campaign / 'inputs').glob('*routefix*')))
+
+    def test_preflight_refuses_a_stage_count_that_disagrees_with_the_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign, batch, name, rows = self.campaign(Path(tmp))
+            # Drop a manifest row so the ladder would be misdescribed.
+            with (campaign / 'spin_jobs.csv').open('w', newline='', encoding='utf-8') as h:
+                writer = csv.DictWriter(h, fieldnames=SPIN_MANIFEST_COLUMNS)
+                writer.writeheader()
+                writer.writerows(rows[:2])
+            plan = prepare_route_relaunch(campaign, dry_run=True)
+            self.assertTrue(any('manifest rows' in p for p in plan['launcher_problems']))
+            with self.assertRaises(RuntimeError):
+                prepare_route_relaunch(campaign)
+
+    def test_launchers_keep_a_consistent_inputs_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign, batch, name, _ = self.campaign(Path(tmp))
+            result = prepare_route_relaunch(campaign)
+            listing = [
+                line.strip()
+                for line in (batch / 'inputs.txt').read_text().splitlines()
+                if line.strip()
+            ]
+            # Every listed input resolves, stems are unique (so .log files
+            # cannot collide), and the retired input is gone.
+            self.assertEqual(len(set(listing)), len(listing))
+            self.assertEqual(len({Path(n).stem for n in listing}), len(listing))
+            for entry in listing:
+                self.assertTrue((batch / entry).exists(), entry)
+            self.assertNotIn(name, listing)
+            self.assertIn(Path(result['plan'][0]['new_input']).name, listing)
+            self.assertEqual(result['launcher_problems'], [])
+            # %nprocshared still matches what the batch scripts allocate.
+            rebuilt = (campaign / result['plan'][0]['new_input']).read_text()
+            self.assertEqual(set(re.findall(r'%nprocshared=(\d+)', rebuilt)), {'12'})
+
+    def test_nproc_mismatch_is_reported_against_the_saved_plan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign, batch, name, _ = self.campaign(Path(tmp))
+            (campaign / 'slurm_plan.json').write_text(
+                json.dumps({'batch_count': 1, 'config': {'cpus_per_job': 16}}))
+            plan = prepare_route_relaunch(campaign, dry_run=True)
+            self.assertTrue(any('%nprocshared disagrees' in p
+                                for p in plan['launcher_problems']))
 
 
 if __name__ == '__main__':

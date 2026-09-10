@@ -242,6 +242,17 @@ def command_audit_routes(args: argparse.Namespace) -> int:
         print("Every job's route matches its structural label.")
     print(f"Must relaunch: {summary['must_relaunch']} "
           f"({summary['completed_but_invalid']} of them already finished)")
+    sources = summary["must_relaunch_by_geometry_source"]
+    if sources:
+        print("  How they must be rebuilt:")
+        for name, count in sorted(sources.items()):
+            explanation = {
+                "input_coordinates": "corrected in place; spin-flip chain preserved",
+                "checkpoint": "spin-ladder restart with no coordinates; "
+                              "root ladder rebuilt, whole restart lineage retired",
+                "unknown": "geometry source unclear; skipped for manual review",
+            }.get(name, "")
+            print(f"    {count:5} {name}: {explanation}")
     for item in summary["unreadable"]:
         print(f"NOT AUDITED: {item['input']}: {item['reason']}", file=sys.stderr)
     print(f"Reports: {result['destination']}")

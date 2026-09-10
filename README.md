@@ -778,6 +778,37 @@ archived and untouched beside it. Only the optimizing stages of an input are
 rewritten; a `--Link1--` `Force` label stage stays exactly as it was, and
 existing `Opt` options such as `ModRedundant` are preserved.
 
+The audit's `geometry_source` column splits the work into two cases, and the
+console summary counts them:
+
+- **`input_coordinates`** - a ladder from `prepare-spins`, which carries its own
+  geometry. Corrected stage by stage, and **the spin-flip chain is preserved**:
+  every stage becomes a TS search, and since every `%chk`/`%oldchk` is renamed
+  identically, stage *k* still reads stage *k-1*. The one-spin-flip-at-a-time
+  pathway and its per-multiplicity `Geom=Checkpoint` initialization are
+  unchanged.
+- **`checkpoint`** - a continuation from `prepare-spin-restarts`, which has *no
+  coordinates at all*: its first stage reads `Geom=Checkpoint` from a seed
+  copied out of the interrupted run. It cannot be corrected in place (there is
+  no geometry in it to correct, and that seed holds the collapsed minimum), so
+  the whole restart lineage is retired and the **root ladder** is rebuilt from
+  its real coordinates, restoring the complete high-to-low pathway instead of
+  the truncated tail. The restart seed checkpoints are left untouched and
+  unreferenced.
+
+A restart with no recorded `restart_root_input`, or whose root input is gone, is
+skipped with that reason rather than guessed at.
+
+Because the generated batch scripts read each batch's `inputs.txt` and never
+glob for `*.gjf`, a superseded input left in a batch folder is inert. Before
+writing anything, `relaunch-routes` validates the end state those scripts
+depend on - unique output stems, every replacement listed, every retired input
+removed, no pre-existing log or checkpoint the rebuild would overwrite,
+`%nprocshared` still matching `slurm_plan.json` - and **refuses the entire run**
+if any check fails, since a half-applied relaunch is worse than none.
+`--dry-run` reports the same checks under `launcher_problems`; after applying,
+the result is read back off disk and any mismatch fails loudly.
+
 Nothing is deleted. The invalid log and its marker files become
 `NAME__before-routefixNN.log`, the replacement is activated in that batch's
 existing `inputs.txt`, and the manifest retires the old rows with
