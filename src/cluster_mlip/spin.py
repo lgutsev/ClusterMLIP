@@ -18,6 +18,7 @@ from .gaussian import (
 from .io import iter_documents, read_document, read_extxyz, source_tree, write_extxyz
 from .jobs import human_job_stem
 from .models import Atom, Record
+from .routes import intended_stationary_point, route_search_kind
 
 
 # The archived spin-refinement jobs use Gaussian 09's built-in 6-311++G*
@@ -32,7 +33,8 @@ SPIN_MANIFEST_COLUMNS = [
     "job_id", "chain_id", "stage_index", "pathway", "initialization", "audit_classification",
     "spin_plan_id", "spin_group_key", "target_record_multiplicity", "high_spin_inference",
     "high_spin_evidence_record_ids",
-    "parent_record_id", "source", "formula", "source_geometry_sha256", "high_spin_multiplicity",
+    "parent_record_id", "source", "formula", "config_type", "route_search_kind",
+    "source_geometry_sha256", "high_spin_multiplicity",
     "final_target_multiplicity", "intended_charge", "intended_multiplicity", "spin_flip_index",
     "predecessor_job_id", "predecessor_multiplicity", "predecessor_checkpoint", "checkpoint",
     "checkpoint_lineage", "fragment_label", "fragment_count", "fragment_spec_sha256", "input",
@@ -437,6 +439,8 @@ def render_ladder_input(
             "parent_record_id": record.record_id,
             "source": record.source,
             "formula": record.formula,
+            "config_type": record.config_type,
+            "route_search_kind": route_search_kind(stage_route),
             "source_geometry_sha256": _source_geometry_sha256(record),
             "high_spin_multiplicity": str(high_spin),
             "final_target_multiplicity": str(sequence[-1]),
@@ -588,9 +592,10 @@ def render_fragment_input(
     job_id = f"{record.record_id}-fragment-{label}-m{target}"
     checkpoint = f"{job_id}.chk"
     fragment_state = " ".join(f"{charge} {multiplicity}" for charge, multiplicity in states)
+    fragment_route = _route_with(route, f"Guess=(Fragment={len(states)},Always)")
     lines = _link_header(checkpoint, memory, nproc)
     lines.extend([
-        _route_with(route, f"Guess=(Fragment={len(states)},Always)"),
+        fragment_route,
         "",
         "ClusterMLIP spin pathway; strategy=manual_fragment_guess; "
         f"record={record.record_id}; label={label}; multiplicity={target}",
@@ -614,6 +619,8 @@ def render_fragment_input(
         "parent_record_id": record.record_id,
         "source": record.source,
         "formula": record.formula,
+        "config_type": record.config_type,
+        "route_search_kind": route_search_kind(fragment_route),
         "source_geometry_sha256": _source_geometry_sha256(record),
         "high_spin_multiplicity": str(record.multiplicity),
         "final_target_multiplicity": str(target),
@@ -662,6 +669,23 @@ def write_spin_jobs(
         raise ValueError(f"fragment specifications reference unselected records: {unknown}")
     if strategy in {"fragment", "both"} and not fragment_specifications:
         raise ValueError(f"--strategy {strategy} requires --fragment-spec")
+    # A spin ladder inherits the campaign route at every stage, so a route with
+    # a plain Opt relaxes a transition-state seed to a minimum on the very
+    # first stage and then propagates that wrong geometry down the whole ladder
+    # by Geom=Checkpoint.  Refuse rather than produce a campaign whose labels
+    # and geometries disagree; the saddle types need their own route.
+    saddle_seeds = [
+        record for record in high_spin_records
+        if intended_stationary_point(record.config_type) == "saddle"
+    ]
+    if saddle_seeds and route_search_kind(route) != "saddle":
+        preview = ", ".join(f"{record.record_id}:{record.config_type}" for record in saddle_seeds[:5])
+        raise ValueError(
+            f"{len(saddle_seeds)} seed(s) are labeled saddle points but --route requests a "
+            f"{route_search_kind(route)} search; a plain Opt relaxes them to minima and the "
+            f"ladder carries that geometry to every later multiplicity: {preview}. Pass a route "
+            "with Opt=(TS,CalcFC,NoEigenTest) or filter those seeds out."
+        )
     if strategy == "fragment":
         missing_specs: list[str] = []
         for record in high_spin_records:

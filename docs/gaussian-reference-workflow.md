@@ -16,8 +16,12 @@ https://arxiv.org/html/2408.11538v2 (particularly section II.2).
 
 The latest default spin route keeps UBPW91/6-311++G*, NoSymm, ordinary Opt,
 UltraFine, and IOP(5/13=1,5/36=1,8/11=1). Successor stages use Guess=Read.
-Freq is optional. Stable=Opt is not combined with Opt; Pop=Full is not required.
-The inventory does not need to be rerun for launcher/collector updates.
+Freq is optional. Ordinary Opt applies only to minima and to records whose
+curvature was never established: a saddle-labeled seed needs
+Opt=(TS,CalcFC,NoEigenTest) and is now refused with a minimizing route (see
+"Transition states launched as ordinary Opt"). Stable=Opt is not combined with
+Opt; Pop=Full is not required. The inventory does not need to be rerun for
+launcher/collector updates.
 
 `run_one.sh` in spin campaigns now defaults to g09, accepts a
 GAUSSIAN_COMMAND override, and runs beside the supplied input so relative
@@ -128,8 +132,9 @@ separate snapshot. Inspection does not modify inputs, checkpoints, or results.
 No regeneration of the campaign is required to use these commands.
 
 `--audit` additionally checks manifest hashes, CPU settings, contradictory
-Guess=(Read,Always), failed calculations, and availability of final force
-labels. Audit errors produce exit code 2. SCF convergence warnings are
+Guess=(Read,Always), failed calculations, availability of final force labels,
+and whether each job's route searches for the stationary point its label
+claims. Audit errors produce exit code 2. SCF convergence warnings are
 reported without changing IOP settings or automatically rejecting labels.
 
 These are filesystem snapshots, not scheduler queries: `Active?` means a
@@ -139,6 +144,88 @@ markers. `Waiting` includes both queued and unsubmitted calculations. Use
 `squeue` on QB4 does not establish QB3 job status. Output files can change
 while a snapshot is being read; repeat an audit after completion before
 making a final training-data decision.
+
+## Transition states launched as ordinary Opt
+
+The completion-oriented audit above cannot see this class of error. A saddle
+point launched with a plain `Opt` follows the energy downhill to the nearest
+minimum: the job terminates normally, converges, and produces a clean final
+force frame, and the geometry it reports is simply not the stationary point the
+record exists for. Only the route says so. The same applies to the archived
+`first_order_saddle` and `higher_order_saddle` records.
+
+Both default routes carried a bare `Opt` for every seed regardless of
+`config_type`, so any saddle-labeled record prepared before this change was
+launched as a minimization. Diagnose it per campaign:
+
+```bash
+W2=/ddnB/work/lgutsev/ClusterMLIP/campaigns/FenOm_Warehouse2/gaussian_spin_qb3_g09_v3
+cluster-mlip audit-routes "$W2"
+```
+
+Exit code 2 means at least one job must be relaunched. The console summary
+counts each finding; `monitoring/route_audit.csv` has one row per input with its
+label, the search its route requests, the search Gaussian actually executed,
+the job state, and the imaginary-mode count of its last frequency analysis.
+`monitoring/route_relaunch_candidates.csv` is just the rows that must be redone,
+and `monitoring/route_audit.md` is the readable version of the same.
+
+The structural label is read from the manifest's `config_type` column, falling
+back to the label encoded in the generated filename. Spin campaigns prepared
+before this change have no such column, so that fallback is the only label they
+have; the audit reports which source it used per row in `config_type_source`.
+Records whose curvature was never established (`warehouse_structure`,
+`optimized_unverified`, `checkpoint_geometry`, IRC points), and every rattled
+variant, are `unconstrained` and are never flagged.
+
+Preparation now refuses to create this state: `prepare` gives saddle-labeled
+seeds `Opt=(TS,CalcFC,NoEigenTest) Freq` and rejects a `--saddle-route` that is
+not a saddle search, and `prepare-spins` rejects a minimizing `--route` while
+any saddle-labeled seed is selected. `collect` refuses labels from a
+mislaunched job unless `--allow-route-mismatch` is given, so an affected
+campaign cannot quietly contribute a minimum labeled as a saddle to a dataset.
+
+## Relaunching those jobs
+
+First confirm on QB3 that the affected allocations have stopped. Then:
+
+```bash
+cluster-mlip relaunch-routes "$W2" --start 1 --end 30 --dry-run
+cluster-mlip relaunch-routes "$W2" --start 1 --end 30 --assume-stopped
+```
+
+This is not a checkpoint restart, and that difference is the point. The
+converged geometry and every checkpoint written from a collapsed run hold the
+wrong stationary point, so `relaunch-routes` rebuilds each input from its
+**original guess geometry** and renames every `%chk`/`%oldchk` to a fresh
+`-routefixNN` name. The old checkpoints stay on disk, unread and unoverwritten.
+Only optimizing stages are rewritten: a `Force` label stage keeps its route, and
+for a spin ladder every stage becomes a TS search, so the corrected geometry
+propagates down the chain rather than a collapsed one.
+
+Nothing is deleted. Each invalid log and its `.rc`/`.status`/`.started`/
+`.finished` markers become `NAME__before-routefixNN.*` in the same batch folder,
+the replacement input is activated in that batch's existing `inputs.txt`, and
+the superseded manifest rows are marked `submission_active=false` with a
+`route_invalidated` reason and a `superseded_by_job_id` pointer. Inspect
+`route_fix_plan.csv` for each job's before/after route, previous state, renamed
+checkpoints, and rebuilt-geometry hash, and `skipped_route_fixes.csv` for
+anything left alone. Manifest and `inputs.txt` snapshots go to
+`route_fix_backups/`.
+
+`--assume-stopped` is required for inputs with an unmatched `.started` marker;
+do not pass it until `squeue` on QB3 confirms those jobs are gone.
+`higher_order_saddle` records are skipped unless `--saddle-order N` is supplied,
+because their intended order is recorded nowhere and defaulting them to a
+first-order TS search would be a guess rather than a correction.
+
+Do not run `prepare-slurm` again. Resubmit the same range with the existing head
+launcher, then re-audit before collecting:
+
+```bash
+bash "$W2/submit_gaussian_batches.sh" --start 1 --end 30
+cluster-mlip audit-routes "$W2"
+```
 
 ## Restarting interrupted spin ladders
 

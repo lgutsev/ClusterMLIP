@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .basis import render_gen_basis
 from .models import Atom, Record
+from .routes import intended_stationary_point, route_optimizes, route_search_kind
 
 
 _LEGACY_SCF = "SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc)"
@@ -25,6 +26,17 @@ _LEGACY_IOP = "IOP(5/13=1,5/36=1,8/11=1)"
 # the input body rather than naming a basis keyword.
 DEFAULT_ROUTE = (
     f"#p UBPW91/Gen {_LEGACY_SCF} NoSymm Opt Freq {_LEGACY_IOP} Int=UltraFine"
+)
+# A saddle point needs its own search. DEFAULT_ROUTE's plain Opt walks downhill
+# to the nearest minimum, which for a transition-state seed silently discards
+# the stationary point the record exists for: the job terminates normally and
+# yields a converged geometry that is simply the wrong one. TS selects the
+# saddle search, CalcFC supplies a starting Hessian with usable curvature, and
+# NoEigenTest keeps Gaussian from aborting a guess whose estimated Hessian does
+# not already have exactly one negative eigenvalue.
+DEFAULT_SADDLE_ROUTE = (
+    f"#p UBPW91/Gen {_LEGACY_SCF} NoSymm Opt=(TS,CalcFC,NoEigenTest) Freq "
+    f"{_LEGACY_IOP} Int=UltraFine"
 )
 DEFAULT_RATTLE_ROUTE = (
     f"#p UBPW91/Gen SP {_LEGACY_SCF} NoSymm {_LEGACY_IOP} Int=UltraFine"
@@ -118,6 +130,26 @@ def _file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def first_stage_route(
+    record: Record,
+    route: str,
+    rattle_route: str,
+    saddle_route: str,
+) -> tuple[str, str]:
+    """Pick the first-stage route that matches what the record actually is.
+
+    Returns the route and the intent it serves, which goes into jobs.csv so an
+    audit can tell a deliberate choice from an accident. Rattled variants keep
+    the single-point route whatever their parent was: their value is the
+    displaced geometry, so nothing about them may be optimized.
+    """
+    if "rattle_index" in record.metadata:
+        return rattle_route, "displaced_single_point"
+    if intended_stationary_point(record.config_type) == "saddle":
+        return saddle_route, "saddle"
+    return route, "minimum" if route_optimizes(route) else "single_point"
+
+
 def write_gaussian_jobs(
     records: list[Record],
     output: Path,
@@ -126,7 +158,20 @@ def write_gaussian_jobs(
     nproc: int = 16,
     rattle_route: str = DEFAULT_RATTLE_ROUTE,
     link1_route: str = DEFAULT_LINK1_ROUTE,
+    saddle_route: str = DEFAULT_SADDLE_ROUTE,
 ) -> None:
+    saddle_records = [
+        record for record in records
+        if "rattle_index" not in record.metadata
+        and intended_stationary_point(record.config_type) == "saddle"
+    ]
+    if saddle_records and route_search_kind(saddle_route) != "saddle":
+        raise ValueError(
+            f"{len(saddle_records)} seed(s) are labeled saddle points, but the saddle route "
+            f"requests a {route_search_kind(saddle_route)} search: {saddle_route!r}; a plain Opt "
+            "relaxes a transition state to the nearest minimum. Supply a route with "
+            "Opt=(TS,CalcFC,NoEigenTest), or exclude those types with --types."
+        )
     output.mkdir(parents=True, exist_ok=True)
     protected_suffixes = {".log", ".out", ".chk", ".status", ".rc", ".started", ".finished"}
     protected = [path for path in output.rglob("*") if path.is_file() and path.suffix.lower() in protected_suffixes]
@@ -147,7 +192,9 @@ def write_gaussian_jobs(
         filename = f"{stem}.gjf"
         path = output / filename
         parent = record.metadata.get("parent_record_id", record.record_id)
-        first_route = rattle_route if "rattle_index" in record.metadata else route
+        first_route, route_intent = first_stage_route(
+            record, route, rattle_route, saddle_route
+        )
         gen_basis = render_gen_basis({a.symbol for a in record.atoms})
         lines = [
             f"%chk={stem}.chk",
@@ -208,6 +255,9 @@ def write_gaussian_jobs(
                 ),
                 "legacy_route": record.route,
                 "state_inference": record.metadata.get("state_inference", ""),
+                "intended_stationary_point": intended_stationary_point(record.config_type),
+                "route_intent": route_intent,
+                "route_search_kind": route_search_kind(first_route),
                 "first_route": first_route,
                 "link1_route": link1_route,
                 "input": filename,
@@ -230,6 +280,7 @@ def write_gaussian_jobs(
         "memory": memory,
         "nprocshared": nproc,
         "seed_route": route,
+        "saddle_route": saddle_route,
         "rattle_route": rattle_route,
         "link1_route": link1_route,
         "jobs_csv_sha256": _file_sha256(manifest),

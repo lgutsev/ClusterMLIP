@@ -21,6 +21,7 @@ from .jobs import (
     DEFAULT_LINK1_ROUTE,
     DEFAULT_RATTLE_ROUTE,
     DEFAULT_ROUTE,
+    DEFAULT_SADDLE_ROUTE,
     expanded_records,
     write_gaussian_jobs,
 )
@@ -32,7 +33,10 @@ from .manifest import write_experiment_manifest
 from .models import Record, composition_allowed, geometry_signature
 from .physical_checks import write_physical_checks_report
 from .progress import write_campaign_progress
+from .relaunch import prepare_route_relaunch
 from .restart import prepare_spin_restarts
+from .route_audit import audit_campaign_routes, resolve_config_type
+from .routes import FINDINGS, inspect_job, intended_stationary_point
 from .spin import (
     DEFAULT_SPIN_ROUTE,
     parse_spin_diagnostics,
@@ -216,6 +220,61 @@ def command_audit(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_audit_routes(args: argparse.Namespace) -> int:
+    result = audit_campaign_routes(
+        Path(args.campaign),
+        Path(args.output) if args.output else None,
+        include_inactive=args.include_inactive,
+    )
+    summary = result["summary"]
+    print(f"Inputs audited: {summary['inputs_audited']}")
+    print("Route intent: " + ", ".join(
+        f"{name}={count}" for name, count in sorted(summary["by_intent"].items())
+    ))
+    if summary["findings"]:
+        print("Findings:")
+        for code, count in sorted(summary["findings"].items(), key=lambda item: -item[1]):
+            severity, relaunch, explanation = FINDINGS[code]
+            print(f"  {count:5} {severity:7} {code}: {explanation}")
+            if relaunch:
+                print("        -> results unusable; these jobs must be relaunched")
+    else:
+        print("Every job's route matches its structural label.")
+    print(f"Must relaunch: {summary['must_relaunch']} "
+          f"({summary['completed_but_invalid']} of them already finished)")
+    for item in summary["unreadable"]:
+        print(f"NOT AUDITED: {item['input']}: {item['reason']}", file=sys.stderr)
+    print(f"Reports: {result['destination']}")
+    return 2 if summary["must_relaunch"] else 0
+
+
+def command_relaunch_routes(args: argparse.Namespace) -> int:
+    result = prepare_route_relaunch(
+        Path(args.campaign),
+        start=args.start,
+        end=args.end,
+        assume_stopped=args.assume_stopped,
+        dry_run=args.dry_run,
+        saddle_order=args.saddle_order,
+    )
+    verb = "Would relaunch" if args.dry_run else "Relaunched"
+    print(f"{verb} {result['input_count']} input(s), {result['job_row_count']} manifest row(s)")
+    for row in result["plan"]:
+        print(f"  {row['batch'] or '-'} {row['original_input']} [{row['config_type']}, "
+              f"was {row['previous_state']}] -> {row['new_input']}")
+        print(f"      route: {row['route_before']}")
+        print(f"          -> {row['route_after']}")
+    for row in result["skipped"]:
+        print(f"SKIPPED {row['input']}: {row['reason']}", file=sys.stderr)
+    if args.dry_run:
+        print("Dry run: nothing was written. Re-run without --dry-run to apply.")
+    else:
+        print(f"Manifest and batch listings backed up under: {result['backup']}")
+        print("Resubmit the same batch range with the existing head launcher; do not "
+              "re-run prepare-slurm.")
+    return 0
+
+
 def command_prepare(args: argparse.Namespace) -> int:
     records = read_extxyz(Path(args.seeds))
     records = [r for r in records if _record_allowed(r, args)]
@@ -232,9 +291,17 @@ def command_prepare(args: argparse.Namespace) -> int:
         args.nproc,
         args.rattle_route,
         args.link1_route,
+        args.saddle_route,
+    )
+    saddles = sum(
+        1 for record in jobs
+        if "rattle_index" not in record.metadata
+        and intended_stationary_point(record.config_type) == "saddle"
     )
     print(f"Prepared {len(jobs)} Gaussian force jobs from {len(records)} seeds")
     print(f"Seed route: {args.route}")
+    if saddles:
+        print(f"Saddle route ({saddles} labeled saddle seeds): {args.saddle_route}")
     print(f"Rattled route: {args.rattle_route}")
     print(f"Link1 force route: {args.link1_route}")
     return 0
@@ -341,12 +408,33 @@ def command_collect(args: argparse.Namespace) -> int:
                     raise ValueError("Gaussian worker recorded a nonzero or invalid exit code")
                 text = path.read_text(errors="ignore")
                 expected = len(rows) if spin_campaign else 1
+                input_text = ""
                 if rows and rows[0].get("input"):
                     input_path = outputs / rows[0]["input"]
                     if input_path.is_file():
+                        input_text = input_path.read_text(errors="ignore")
                         expected = 1 + len(re.findall(
-                            r"^\s*--link1--\s*$", input_path.read_text(errors="ignore"), re.I | re.M
+                            r"^\s*--link1--\s*$", input_text, re.I | re.M
                         ))
+                # A job that searched for the wrong stationary point terminates
+                # normally and yields a parseable force frame, so completeness
+                # checks cannot catch it: a transition state run with a plain
+                # Opt contributes a minimum labeled as a saddle, which is worse
+                # for training than having no frame at all.
+                invalidated = (rows[0].get("route_invalidated", "") if rows else "")
+                verdict = None
+                if input_text and rows:
+                    config_type, _ = resolve_config_type(rows[0], Path(rows[0]["input"]).name)
+                    if config_type:
+                        verdict = inspect_job(config_type, input_text, text)
+                if not args.allow_route_mismatch and (
+                        invalidated or (verdict and verdict["must_relaunch"])):
+                    codes = invalidated or ";".join(verdict["findings"])
+                    raise ValueError(
+                        f"route does not search for the labeled stationary point ({codes}); "
+                        "relaunch with cluster-mlip relaunch-routes, or pass "
+                        "--allow-route-mismatch to accept the label anyway"
+                    )
                 complete = gaussian_job_complete(text, expected) and not bad_rc
                 if not complete and not args.allow_partial:
                     raise ValueError("incomplete Gaussian job (including Link1 stages)")
@@ -865,6 +953,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="first-stage route for unperturbed seeds (default: legacy BPW91 optimization/frequency)",
     )
     prepare.add_argument(
+        "--saddle-route",
+        default=DEFAULT_SADDLE_ROUTE,
+        help="first-stage route for seeds labeled transition_state/first_order_saddle/"
+             "higher_order_saddle; must request a TS/QST search, not a plain Opt",
+    )
+    prepare.add_argument(
         "--rattle-route",
         default=DEFAULT_RATTLE_ROUTE,
         help="first-stage route for rattled structures; must not optimize away the displacement",
@@ -936,6 +1030,44 @@ def build_parser() -> argparse.ArgumentParser:
     campaign_status.add_argument("--end", type=int, help="last batch to inspect (inclusive)")
     campaign_status.set_defaults(func=command_campaign_status)
 
+    audit_routes = sub.add_parser(
+        "audit-routes",
+        help="check every job's route against its structural label (finds transition "
+             "states launched as ordinary Opt); exit 2 when any job must be relaunched",
+    )
+    audit_routes.add_argument(
+        "campaign", help="prepared Gaussian campaign containing jobs.csv or spin_jobs.csv"
+    )
+    audit_routes.add_argument(
+        "-o", "--output", help="report directory (default: CAMPAIGN/monitoring)"
+    )
+    audit_routes.add_argument(
+        "--include-inactive", action="store_true",
+        help="also audit superseded manifest rows from earlier restarts/relaunches",
+    )
+    audit_routes.set_defaults(func=command_audit_routes)
+
+    relaunch_routes = sub.add_parser(
+        "relaunch-routes",
+        help="rebuild and activate corrected inputs for jobs whose route searched for "
+             "the wrong stationary point",
+    )
+    relaunch_routes.add_argument("campaign", help="prepared Gaussian campaign")
+    relaunch_routes.add_argument("--start", type=int, default=1, help="first batch (inclusive)")
+    relaunch_routes.add_argument("--end", type=int, help="last batch (inclusive)")
+    relaunch_routes.add_argument(
+        "--assume-stopped", action="store_true",
+        help="proceed for inputs left with an unmatched .started marker; pass only after "
+             "squeue confirms the allocations are gone",
+    )
+    relaunch_routes.add_argument(
+        "--saddle-order", type=int,
+        help="imaginary-mode order for higher_order_saddle records (Opt=(Saddle=N)); "
+             "without it those records are skipped rather than retargeted to order 1",
+    )
+    relaunch_routes.add_argument("--dry-run", action="store_true")
+    relaunch_routes.set_defaults(func=command_relaunch_routes)
+
     prepare_spins = sub.add_parser(
         "prepare-spins",
         help="prepare high-spin-to-low-spin Link1 ladders and optional fragment AFM guesses",
@@ -1004,6 +1136,14 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "recover completed stages from interrupted jobs; requires --frames converged so "
             "unfinished optimization steps are excluded"
+        ),
+    )
+    collect.add_argument(
+        "--allow-route-mismatch", action="store_true",
+        help=(
+            "ingest labels from jobs whose route searched for a different stationary point "
+            "than their label claims (for example a transition state run with a plain Opt). "
+            "Off by default: such a frame is a minimum labeled as a saddle"
         ),
     )
     collect.add_argument(

@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from .gaussian import gaussian_job_complete, parse_final_force_frame
+from .route_audit import resolve_config_type
+from .routes import FINDINGS, inspect_job
 from .spin import parse_spin_diagnostics
 
 STATES = ('complete', 'failed', 'incomplete', 'activity_unconfirmed', 'not_started', 'missing_input')
@@ -99,6 +101,8 @@ def write_batch_progress(campaign: Path, destination: Path | None = None, *,
                         else:
                             status = ''
             diagnostics = parse_spin_diagnostics(text) if text else []
+            config_type, label_source = resolve_config_type(rows[0] if rows else {}, name)
+            route_verdict = inspect_job(config_type, input_text, text)
             if not inp.is_file():
                 state = 'missing_input'
                 issue(batch_name, name, 'error', 'Batch input is missing or its link is broken')
@@ -128,9 +132,22 @@ def write_batch_progress(campaign: Path, destination: Path | None = None, *,
                          output_bytes=output.stat().st_size if output.is_file() else 0,
                          output_updated_utc=datetime.fromtimestamp(output.stat().st_mtime, timezone.utc).isoformat()
                              if output.is_file() else '',
+                         route_intent=route_verdict['intent'],
+                         route_search_kind=route_verdict['search_kinds'],
+                         route_severity=route_verdict['severity'],
+                         route_findings=';'.join(route_verdict['findings']),
+                         must_relaunch='true' if route_verdict['must_relaunch'] else 'false',
                          return_code=rc, output=str(output.relative_to(campaign)))
             members.append(entry)
             if audit:
+                if not config_type:
+                    issue(batch_name, name, 'warning',
+                          'No config_type in the manifest or filename; route intent unverified')
+                for code in route_verdict['findings']:
+                    severity, relaunch, explanation = FINDINGS[code]
+                    issue(batch_name, name, severity,
+                          f'{code} ({config_type} via {label_source}): {explanation}'
+                          + ('; relaunch required' if relaunch else ''))
                 if spin_rows and len(spin_rows) != expected:
                     issue(batch_name, name, 'error', 'Number of Link1 stages differs from spin manifest')
                 if state == 'failed':
@@ -171,7 +188,9 @@ def write_batch_progress(campaign: Path, destination: Path | None = None, *,
                    start=start, end=end, audit=audit, scheduler_queried=False,
                    planned=len(jobs), by_state=dict(collections.Counter(j['state'] for j in jobs)),
                    errors=sum(i['severity'] == 'error' for i in issues),
-                   warnings=sum(i['severity'] == 'warning' for i in issues), batches=batches)
+                   warnings=sum(i['severity'] == 'warning' for i in issues),
+                   route_relaunch_required=sum(j['must_relaunch'] == 'true' for j in jobs),
+                   batches=batches)
     _write_csv(destination / 'batch_progress.csv', batches, list(batches[0]))
     _write_csv(destination / 'job_progress.csv', jobs, list(jobs[0]) if jobs else ['batch', 'input', 'state'])
     _write_csv(destination / 'audit_issues.csv', issues, ['batch', 'input', 'severity', 'detail'])

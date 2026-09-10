@@ -324,8 +324,27 @@ unperturbed seed first runs:
 #p UBPW91/Gen SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc) NoSymm Opt Freq IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine
 ```
 
+A seed labeled `transition_state`, `first_order_saddle`, or
+`higher_order_saddle` gets a saddle search instead, because the plain `Opt`
+above walks downhill and converges on the nearest *minimum*, discarding the
+stationary point the record exists for:
+
+```text
+#p UBPW91/Gen SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc) NoSymm Opt=(TS,CalcFC,NoEigenTest) Freq IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine
+```
+
+`TS` selects the saddle search, `CalcFC` supplies a starting Hessian with
+usable curvature, `NoEigenTest` stops Gaussian aborting a guess whose estimated
+Hessian does not already have exactly one negative eigenvalue, and `Freq`
+confirms the converged point has one imaginary mode. Override it with
+`--saddle-route`; `prepare` rejects a `--saddle-route` that is not actually a
+TS/QST search while any labeled saddle seed is selected. `prepare-spins`
+applies the same rule to `--route`, since a spin ladder inherits its route at
+every stage and would carry a collapsed geometry down the whole chain.
+
 Rattled structures instead use the same method as a non-optimizing SP so their
-off-equilibrium displacements are not erased. Both paths then use `--Link1--`
+off-equilibrium displacements are not erased — including rattled saddles,
+whose value is the displaced geometry itself. Both paths then use `--Link1--`
 and the existing checkpoint for the final force label, on the same Gen basis:
 
 ```text
@@ -444,6 +463,43 @@ reports the raw new-minus-legacy energy difference. That raw difference must
 not be interpreted as an error when the legacy and label routes/bases differ;
 the two route columns remain beside it specifically to make that distinction
 auditable.
+
+### Check that every job searched for the stationary point its label claims
+
+Completion checks cannot catch a job launched with the wrong kind of
+optimization. A transition state run with a plain `Opt` terminates normally,
+reports a converged geometry, and yields a clean final force frame — it is just
+a minimum wearing a saddle's label. Compare each job's route against its
+structural label:
+
+```bash
+cluster-mlip audit-routes gaussian_jobs
+```
+
+This writes `monitoring/route_audit.csv`, `route_relaunch_candidates.csv`,
+`route_audit.md`, and `route_audit.json`, and exits 2 when any job needs
+relaunching. It reads every job in the campaign — unstarted, running, and long
+finished alike — and reports:
+
+| Finding | Meaning |
+|---|---|
+| `saddle_launched_as_minimum_search` | labeled a saddle, launched with a plain `Opt`; the saddle was discarded |
+| `saddle_converged_to_minimum` | a finished run's last frequency analysis has no imaginary mode |
+| `saddle_route_missing_noeigentest` | Gaussian judged the search on the guess Hessian instead of optimizing |
+| `minimum_launched_as_saddle_search` | a verified minimum run as a TS/QST search |
+| `input_route_disagrees_with_output` | the executed route is not the route now in the input |
+| `saddle_route_missing_hessian` | no `CalcFC`/`CalcAll`/`ReadFC` (warning) |
+| `saddle_order_unverified` | saddle search without `Freq` (warning) |
+| `saddle_order_mismatch` | imaginary-mode count differs from the labeled order (warning) |
+
+The structural label comes from the manifest's `config_type`, falling back to
+the label encoded in the generated filename so campaigns prepared before that
+column existed are still audited. Types whose curvature was never established
+(`warehouse_structure`, `optimized_unverified`, `checkpoint_geometry`, IRC
+points) and rattled variants are reported as `unconstrained` and never flagged:
+a plain `Opt` on them is a legitimate choice. `campaign-status --audit` runs the
+same check per batch, and `collect` refuses labels from a mislaunched job unless
+`--allow-route-mismatch` is passed.
 
 Each batch can also be watched or resubmitted on its own:
 
@@ -702,6 +758,43 @@ then continues the remaining multiplicity ladder using distinct checkpoints.
 The interrupted log is renamed beside the new run and remains represented in
 the same manifest; `inputs.txt` is updated in place, so the existing Slurm
 launchers remain authoritative.
+
+### Relaunch jobs that searched for the wrong stationary point
+
+When `audit-routes` reports jobs that must be relaunched, rebuild them in place:
+
+```bash
+cluster-mlip relaunch-routes gaussian_spin_jobs --dry-run
+cluster-mlip relaunch-routes gaussian_spin_jobs --assume-stopped
+./gaussian_spin_jobs/submit_gaussian_batches.sh
+```
+
+This is deliberately *not* a checkpoint restart. A transition state relaxed by a
+plain `Opt` converged on a minimum, so its geometry and every checkpoint written
+from it are the wrong answer — resuming from them would just re-derive it. Each
+replacement therefore starts from the **original input geometry** and writes to
+**fresh checkpoint names**, leaving the previous outputs and checkpoints
+archived and untouched beside it. Only the optimizing stages of an input are
+rewritten; a `--Link1--` `Force` label stage stays exactly as it was, and
+existing `Opt` options such as `ModRedundant` are preserved.
+
+Nothing is deleted. The invalid log and its marker files become
+`NAME__before-routefixNN.log`, the replacement is activated in that batch's
+existing `inputs.txt`, and the manifest retires the old rows with
+`submission_active=false` plus a `route_invalidated` reason and a
+`superseded_by_job_id` pointer — which is also how `collect` knows to refuse
+those archived labels. `route_fix_plan.csv` records each job's before/after
+route, previous state, renamed checkpoints, and rebuilt-geometry hash;
+`skipped_route_fixes.csv` records anything not touched and why. The manifest and
+batch listings are snapshotted under `route_fix_backups/` first.
+
+`--assume-stopped` is required for any input left with an unmatched `.started`
+marker; do not pass it until `squeue` confirms those allocations are gone.
+`higher_order_saddle` records are skipped unless `--saddle-order N` is given,
+since their intended imaginary-mode order is not recorded anywhere and
+retargeting them to order 1 would be a guess. Do not re-run `prepare-slurm`:
+the existing batch map stays valid, so resubmit the same range with the
+existing head launcher.
 `--assume-stopped` is needed only when a killed allocation left an unmatched
 `.started` marker; verify scheduler state before using it. To retain force
 frames printed by the original partial logs and combine them with retry labels:
