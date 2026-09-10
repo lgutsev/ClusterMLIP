@@ -821,9 +821,28 @@ batch listings are snapshotted under `route_fix_backups/` first.
 
 `--assume-stopped` is required for any input left with an unmatched `.started`
 marker; do not pass it until `squeue` confirms those allocations are gone.
-`higher_order_saddle` records are skipped unless `--saddle-order N` is given,
-since their intended imaginary-mode order is not recorded anywhere and
-retargeting them to order 1 would be a guess. Do not re-run `prepare-slurm`:
+`higher_order_saddle` records are skipped unless their order is supplied. That
+label only says the archived log reported more than one imaginary mode, and
+`Opt=(Saddle=N)` needs the actual N, which no campaign manifest holds. Recover
+it per record from the seeds file `extract` wrote:
+
+```bash
+cluster-mlip relaunch-routes CAMPAIGN --saddle-order-from extracted/seeds.extxyz
+```
+
+`extract` stores each record's `imaginary_frequencies` in the seeds extxyz, so
+every record gets **its own** order, matched through `parent_record_id`.
+`route_fix_plan.csv` records the `saddle_order` and the `saddle_order_source`.
+A record whose seed reports one imaginary mode while its label says higher-order
+is skipped as a disagreement rather than silently resolved. `--saddle-order N`
+forces a single order for everything, appropriate only when they truly share it.
+
+Worth checking what those records actually are first: a `higher_order_saddle`
+label is often an artifact rather than a target, since an IRC path point is not
+a stationary point and a fragmenting structure has soft modes that read as
+imaginary. For those an Nth-order saddle search is probably not what you want,
+and keeping the geometry with a single-point gradient makes a better training
+label anyway. Do not re-run `prepare-slurm`:
 the existing batch map stays valid, so resubmit the same range with the
 existing head launcher.
 `--assume-stopped` is needed only when a killed allocation left an unmatched

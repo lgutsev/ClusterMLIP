@@ -267,6 +267,7 @@ def command_relaunch_routes(args: argparse.Namespace) -> int:
         assume_stopped=args.assume_stopped,
         dry_run=args.dry_run,
         saddle_order=args.saddle_order,
+        saddle_order_from=Path(args.saddle_order_from) if args.saddle_order_from else None,
     )
     verb = "Would relaunch" if args.dry_run else "Relaunched"
     print(f"{verb} {result['input_count']} input(s), {result['job_row_count']} manifest row(s)")
@@ -1090,8 +1091,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     relaunch_routes.add_argument(
         "--saddle-order", type=int,
-        help="imaginary-mode order for higher_order_saddle records (Opt=(Saddle=N)); "
-             "without it those records are skipped rather than retargeted to order 1",
+        help="force one imaginary-mode order for every higher_order_saddle record "
+             "(Opt=(Saddle=N)); prefer --saddle-order-from, which uses each record's own",
+    )
+    relaunch_routes.add_argument(
+        "--saddle-order-from", metavar="SEEDS.EXTXYZ",
+        help="take each higher_order_saddle record's imaginary-mode order from the "
+             "seeds extxyz the campaign was prepared from, where extract recorded it "
+             "from the archived log. Without this (or --saddle-order) those records are "
+             "skipped rather than retargeted to a first-order TS search",
     )
     relaunch_routes.add_argument("--dry-run", action="store_true")
     relaunch_routes.set_defaults(func=command_relaunch_routes)

@@ -17,6 +17,7 @@ from cluster_mlip.jobs import (
     expanded_records,
     write_gaussian_jobs,
 )
+from cluster_mlip.io import write_extxyz
 from cluster_mlip.models import Atom, Record
 from cluster_mlip.relaunch import prepare_route_relaunch
 from cluster_mlip.restart import prepare_spin_restarts
@@ -518,6 +519,54 @@ class RelaunchTests(BrokenCampaign, unittest.TestCase):
             self.assertIn('assume-stopped', plan['skipped'][0]['reason'])
             forced = prepare_route_relaunch(root, dry_run=True, assume_stopped=True)
             self.assertEqual(forced['input_count'], 1)
+
+    def test_higher_order_saddle_order_comes_from_the_seed_record(self):
+        # "higher_order_saddle" only means >1 imaginary mode. The real count is
+        # in the seeds extxyz, so each record gets its own Saddle=N rather than
+        # one blanket guess across records whose orders differ.
+        with tempfile.TemporaryDirectory() as tmp:
+            root, _, _ = self.campaign(Path(tmp), config_type='higher_order_saddle')
+            record = _record('higher_order_saddle')
+            record.imaginary_frequencies = 3
+            seeds = Path(tmp) / 'seeds.extxyz'
+            write_extxyz([record], seeds)
+
+            plan = prepare_route_relaunch(root, dry_run=True, saddle_order_from=seeds)
+            self.assertEqual(plan['input_count'], 1)
+            self.assertEqual(plan['plan'][0]['saddle_order'], '3')
+            self.assertEqual(plan['plan'][0]['saddle_order_source'],
+                             'seed_imaginary_frequencies')
+            self.assertIn('Saddle=3', plan['plan'][0]['route_after'])
+            # An explicit order still wins, for a deliberate override.
+            forced = prepare_route_relaunch(
+                root, dry_run=True, saddle_order=2, saddle_order_from=seeds)
+            self.assertEqual(forced['plan'][0]['saddle_order_source'],
+                             'explicit_saddle_order')
+            self.assertIn('Saddle=2', forced['plan'][0]['route_after'])
+
+    def test_seed_order_disagreeing_with_the_label_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, _, _ = self.campaign(Path(tmp), config_type='higher_order_saddle')
+            record = _record('higher_order_saddle')
+            record.imaginary_frequencies = 1
+            seeds = Path(tmp) / 'seeds.extxyz'
+            write_extxyz([record], seeds)
+            plan = prepare_route_relaunch(root, dry_run=True, saddle_order_from=seeds)
+            self.assertEqual(plan['input_count'], 0)
+            self.assertIn('disagree', plan['skipped'][0]['reason'])
+
+    def test_first_order_labels_never_consult_the_seed_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, _, _ = self.campaign(Path(tmp), config_type='transition_state')
+            record = _record('transition_state')
+            record.imaginary_frequencies = 4
+            seeds = Path(tmp) / 'seeds.extxyz'
+            write_extxyz([record], seeds)
+            plan = prepare_route_relaunch(root, dry_run=True, saddle_order_from=seeds)
+            self.assertEqual(plan['plan'][0]['saddle_order'], '1')
+            self.assertEqual(plan['plan'][0]['saddle_order_source'], 'first_order')
+            self.assertIn('TS', plan['plan'][0]['route_after'])
+            self.assertNotIn('Saddle=', plan['plan'][0]['route_after'])
 
     def test_higher_order_saddles_need_an_explicit_order(self):
         with tempfile.TemporaryDirectory() as tmp:

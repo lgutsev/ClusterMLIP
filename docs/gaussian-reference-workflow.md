@@ -244,9 +244,34 @@ anything left alone. Manifest and `inputs.txt` snapshots go to
 
 `--assume-stopped` is required for inputs with an unmatched `.started` marker;
 do not pass it until `squeue` on QB3 confirms those jobs are gone.
-`higher_order_saddle` records are skipped unless `--saddle-order N` is supplied,
-because their intended order is recorded nowhere and defaulting them to a
-first-order TS search would be a guess rather than a correction.
+### higher_order_saddle records
+
+`transition_state` and `first_order_saddle` get `Opt=(TS,...)`. A
+`higher_order_saddle` label only says the archived log reported more than one
+imaginary mode, and `Opt=(Saddle=N)` needs the actual N, which no campaign
+manifest records. Rather than default them to a first-order search, they are
+skipped unless the order is supplied:
+
+```bash
+cluster-mlip relaunch-routes "$W2" --saddle-order-from extracted/seeds.extxyz
+```
+
+`extract` writes each record's `imaginary_frequencies` into the seeds extxyz,
+so this gives every record **its own** order, matched through the manifest's
+`parent_record_id`. `route_fix_plan.csv` records the `saddle_order` used and
+the `saddle_order_source` it came from. A record whose seed reports only one
+imaginary mode while the label says higher-order is skipped as a disagreement
+rather than silently resolved. `--saddle-order N` still forces one order for
+everything, which is only appropriate when they genuinely share it.
+
+Before running that, look at what these records are. A `higher_order_saddle`
+label is often an artifact rather than a target: an IRC path point is not a
+stationary point at all, and a dissociating or fragmenting structure has soft
+modes that register as imaginary. For those, an Nth-order saddle search is
+unlikely to be what anyone wants, and the useful alternative is to keep the
+geometry and take a single-point gradient instead -- which is what a rattled
+variant already does, and what makes a perfectly good MLIP training label.
+Filter them out of the relaunch and handle them deliberately.
 
 ### Launcher safety
 

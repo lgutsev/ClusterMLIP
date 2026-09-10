@@ -63,7 +63,8 @@ RELAUNCH_COLUMNS = [
 
 PLAN_COLUMNS = [
     "attempt", "batch", "original_input", "new_input", "config_type", "findings",
-    "previous_state", "geometry_source", "rebuilt_from", "retired_inputs",
+    "previous_state", "geometry_source", "saddle_order", "saddle_order_source",
+    "rebuilt_from", "retired_inputs",
     "ladder_stages", "archived_output", "new_output", "route_before", "route_after",
     "checkpoints_renamed", "preserved_body_sha256",
 ]
@@ -103,6 +104,25 @@ def _attempt_is_unconfirmed(directory: Path, stem: str) -> bool:
     return started.is_file() and (
         not finished.is_file() or started.stat().st_mtime > finished.stat().st_mtime
     )
+
+
+def seed_saddle_orders(seeds: Path) -> dict[str, int]:
+    """Per-record imaginary-mode counts from the extxyz a campaign was built from.
+
+    ``higher_order_saddle`` only says "more than one imaginary mode", and
+    Gaussian's ``Opt=(Saddle=N)`` needs the actual N. That number is not in any
+    campaign manifest, but ``write_extxyz`` records each record's
+    ``imaginary_frequencies`` from the archived log, so the seeds file can
+    supply the real order per job instead of one blanket guess across records
+    whose orders differ.
+    """
+    from .io import read_extxyz
+
+    orders: dict[str, int] = {}
+    for record in read_extxyz(seeds):
+        if record.imaginary_frequencies is not None:
+            orders[record.record_id] = record.imaginary_frequencies
+    return orders
 
 
 def _next_attempt(rows: list[dict[str, str]]) -> int:
@@ -357,9 +377,11 @@ def prepare_route_relaunch(
     assume_stopped: bool = False,
     dry_run: bool = False,
     saddle_order: int | None = None,
+    saddle_order_from: Path | None = None,
 ) -> dict[str, Any]:
     """Audit routes, then rebuild and activate corrected inputs in place."""
     campaign = campaign.resolve()
+    seed_orders = seed_saddle_orders(saddle_order_from) if saddle_order_from else {}
     manifest = find_manifest(campaign)
     audit = audit_campaign_routes(campaign)
     candidates = audit["relaunch"]
@@ -403,10 +425,42 @@ def prepare_route_relaunch(
         elif final_batch:
             skip(row, "input is not listed in any batch inputs.txt")
             continue
-        if row["config_type"].removesuffix("_rattled") == "higher_order_saddle" \
-                and saddle_order is None:
-            skip(row, "higher_order_saddle needs an explicit --saddle-order")
-            continue
+        manifest_group = rows_by_input.get(reference, [])
+        # A first-order search is right for transition_state and
+        # first_order_saddle. higher_order_saddle only means "more than one
+        # imaginary mode", so its order has to come from somewhere real.
+        order, order_source = 1, "first_order"
+        if row["config_type"].removesuffix("_rattled") == "higher_order_saddle":
+            if saddle_order is not None:
+                order, order_source = saddle_order, "explicit_saddle_order"
+            elif seed_orders:
+                parent = (
+                    (manifest_group[0].get("parent_record_id") or "").strip()
+                    if manifest_group else ""
+                )
+                recovered = seed_orders.get(parent)
+                if recovered is None:
+                    skip(row, (
+                        "higher_order_saddle whose seed record is not in the supplied "
+                        f"--saddle-order-from file (parent_record_id={parent or 'unknown'})"
+                    ))
+                    continue
+                if recovered < 2:
+                    skip(row, (
+                        f"labeled higher_order_saddle but its seed record reports "
+                        f"{recovered} imaginary mode(s); the label and the source data "
+                        "disagree, so the intended order is unclear"
+                    ))
+                    continue
+                order, order_source = recovered, "seed_imaginary_frequencies"
+            else:
+                skip(row, (
+                    "higher_order_saddle: its imaginary-mode order is recorded in no "
+                    "campaign file. Pass --saddle-order-from SEEDS.extxyz to take each "
+                    "record's own order from the archived log, or --saddle-order N to "
+                    "force one"
+                ))
+                continue
         source_input = campaign / reference
         stem = source_input.stem
         directory = batch if batch is not None else source_input.parent
@@ -425,7 +479,7 @@ def prepare_route_relaunch(
                 "detail": "unmatched .started marker; --assume-stopped overrode it",
             })
 
-        group = rows_by_input.get(reference, [])
+        group = manifest_group
         if not group:
             skip(row, "input is absent from the campaign manifest")
             continue
@@ -484,7 +538,6 @@ def prepare_route_relaunch(
 
         text = rebuild_text
         intent = row["intent"]
-        order = saddle_order or 1
         rewritten, before, after = _rewrite_routes(text, intent, order)
         if not before:
             skip(row, (
@@ -553,6 +606,8 @@ def prepare_route_relaunch(
             "findings": row["findings"],
             "previous_state": row["state"],
             "geometry_source": origin,
+            "saddle_order": str(order),
+            "saddle_order_source": order_source,
             "rebuilt_from": lineage_root,
             "retired_inputs": ";".join(sorted(lineage_inputs)),
             "ladder_stages": str(len(new_rows)),
