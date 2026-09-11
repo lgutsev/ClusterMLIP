@@ -31,7 +31,10 @@ AUDIT_COLUMNS = [
     # How a relaunch would have to rebuild this job: an input carrying its own
     # coordinates is corrected in place, whereas a spin-ladder restart seeded
     # by Geom=Checkpoint has to be rebuilt from its root ladder.
-    "geometry_source", "restart_root_input", "output", "route",
+    "geometry_source", "restart_root_input",
+    # The atom centres of the dihedral Gaussian could not define, so a
+    # structure needing a hand rebuild says which torsion to fix.
+    "failed_torsion_atoms", "output", "route",
 ]
 
 
@@ -184,6 +187,7 @@ def audit_campaign_routes(
                 "" if verdict["final_imaginary_modes"] is None
                 else verdict["final_imaginary_modes"]
             ),
+            "failed_torsion_atoms": verdict["failed_torsion_atoms"],
             "severity": verdict["severity"],
             "must_relaunch": "true" if verdict["must_relaunch"] else "false",
             "findings": ";".join(findings),

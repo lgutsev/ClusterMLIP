@@ -169,10 +169,28 @@ _INTERNAL_COORDINATE_FAILURE_RE = re.compile(
 )
 
 
+# Gaussian names the offending atoms: "Tors failed for dihedral 1 - 2 - 3 - 4".
+# Those centre numbers are what a rebuild in a builder needs, so carry them
+# through rather than making someone reopen every log to find them.
+_FAILED_TORSION_RE = re.compile(
+    r"Tors failed for dihedral\s+(\d+)\s*-\s*(\d+)\s*-\s*(\d+)\s*-\s*(\d+)",
+    re.IGNORECASE,
+)
+
+
 def internal_coordinate_failure(text: str) -> str:
     """The internal-coordinate breakdown marker in an output, or ``""``."""
     match = _INTERNAL_COORDINATE_FAILURE_RE.search(text)
     return match.group(0) if match else ""
+
+
+def failed_torsion_atoms(text: str) -> str:
+    """The atom centres of the degenerate dihedral, e.g. ``1-2-3-4``.
+
+    Empty when the output reports the breakdown without naming a torsion.
+    """
+    match = _FAILED_TORSION_RE.search(text)
+    return "-".join(match.groups()) if match else ""
 
 
 def route_uses_cartesian(route: str) -> bool:
@@ -474,6 +492,7 @@ def inspect_job(config_type: str, input_text: str, output_text: str = "") -> dic
 
     imaginary: int | None = None
     executed_kinds: list[str] = []
+    failed_torsion = ""
     if output_text:
         executed = [route for route in log_routes(output_text) if route_optimizes(route)]
         executed_kinds = [route_search_kind(route) for route in executed]
@@ -489,6 +508,7 @@ def inspect_job(config_type: str, input_text: str, output_text: str = "") -> dic
                 if all(route_uses_cartesian(route) for route in optimizing)
                 else "internal_coordinate_failure"
             )
+        failed_torsion = failed_torsion_atoms(output_text)
         imaginary = final_imaginary_count(output_text)
         expected = expected_imaginary_modes(config_type)
         if intent == "saddle" and imaginary == 0:
@@ -504,6 +524,7 @@ def inspect_job(config_type: str, input_text: str, output_text: str = "") -> dic
         "executed_search_kinds": ",".join(executed_kinds),
         "optimizing_routes": optimizing,
         "final_imaginary_modes": imaginary,
+        "failed_torsion_atoms": failed_torsion,
         "findings": ordered,
         "severity": (
             "error" if any(FINDINGS[code][0] == "error" for code in ordered)

@@ -680,6 +680,16 @@ class InternalCoordinateFailureTests(BrokenCampaign, unittest.TestCase):
             self.assertTrue(route_uses_cartesian(route))
             self.assertEqual(saddle_route_gaps(route), [])
 
+    def test_the_failing_torsion_atoms_are_carried_into_the_audit(self):
+        # Whoever rebuilds a stuck structure by hand needs to know which
+        # dihedral broke; Gaussian prints it, so do not make them reopen logs.
+        with tempfile.TemporaryDirectory() as tmp:
+            root, batch, stem = self.campaign(Path(tmp), break_route=False, finished=False)
+            (batch / f'{stem}.log').write_text(self.FORMBX_LOG)
+            (batch / f'{stem}.rc').write_text('1')
+            row = audit_campaign_routes(root)['rows'][0]
+            self.assertEqual(row['failed_torsion_atoms'], '1-2-3-4')
+
     def test_a_zmatrix_input_keeps_its_internal_coordinates(self):
         # A dummy-atom Z-matrix (what ChemCraft produces) is itself the fix for
         # a degenerate torsion. Bolting Opt=Cartesian onto it would discard
