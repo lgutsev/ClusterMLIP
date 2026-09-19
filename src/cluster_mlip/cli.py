@@ -432,16 +432,16 @@ def command_collect(args: argparse.Namespace) -> int:
                 if counts[path.stem] > 1:
                     raise ValueError("ambiguous duplicate output name within campaign")
                 rc_path = path.with_suffix(".rc")
-                bad_rc = rc_path.is_file() and rc_path.read_text().strip() != "0"
+                bad_rc = rc_path.is_file() and rc_path.read_text(encoding="utf-8").strip() != "0"
                 if bad_rc and not args.allow_partial:
                     raise ValueError("Gaussian worker recorded a nonzero or invalid exit code")
-                text = path.read_text(errors="ignore")
+                text = path.read_text(encoding="utf-8", errors="ignore")
                 expected = len(rows) if spin_campaign else 1
                 input_text = ""
                 if rows and rows[0].get("input"):
                     input_path = outputs / rows[0]["input"]
                     if input_path.is_file():
-                        input_text = input_path.read_text(errors="ignore")
+                        input_text = input_path.read_text(encoding="utf-8", errors="ignore")
                         expected = 1 + len(re.findall(
                             r"^\s*--link1--\s*$", input_text, re.I | re.M
                         ))
@@ -458,7 +458,7 @@ def command_collect(args: argparse.Namespace) -> int:
                         verdict = inspect_job(config_type, input_text, text)
                 if not args.allow_route_mismatch and (
                         invalidated or (verdict and verdict["must_relaunch"])):
-                    codes = invalidated or ";".join(verdict["findings"])
+                    codes = invalidated or (";".join(verdict["findings"]) if verdict else "")
                     raise ValueError(
                         f"route does not search for the labeled stationary point ({codes}); "
                         "relaunch with cluster-mlip relaunch-routes, or pass "

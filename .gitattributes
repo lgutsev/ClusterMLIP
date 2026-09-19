@@ -1,0 +1,14 @@
+# The cluster runs Linux. Anything bash or SLURM executes must keep LF endings
+# even when the working copy is checked out on Windows with core.autocrlf=true,
+# or it fails with "bad interpreter: /bin/bash^M".
+#
+# Files the pipeline *generates* are written LF-unconditionally by
+# io.write_text_lf(); this file covers the ones committed to the repo.
+*.sh      text eol=lf
+*.sbatch  text eol=lf
+
+# Gaussian inputs and the extxyz datasets are consumed by Gaussian/MACE on the
+# cluster and are hashed into the campaign manifests -- keep them byte-identical
+# across platforms so `input_sha256` verifies wherever the campaign was built.
+*.gjf     text eol=lf
+*.extxyz  text eol=lf

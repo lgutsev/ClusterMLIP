@@ -157,6 +157,24 @@ def quote_extxyz(value: str) -> str:
     return json.dumps(value, ensure_ascii=True)
 
 
+
+def write_text_lf(path: Path, text: str) -> None:
+    """Write `text` to `path` as UTF-8 with LF endings on every platform.
+
+    Use this for anything the *cluster* consumes -- shell scripts, .sbatch
+    files, inputs.txt listings, Gaussian .gjf inputs. ``Path.write_text``
+    applies universal-newline translation, so a campaign generated on Windows
+    would otherwise ship CRLF: bash's ``mapfile -t`` then leaves a trailing
+    carriage return on every filename in inputs.txt and the batch matches none
+    of its jobs, and a CRLF script fails with "bad interpreter: ...^M".
+
+    Writing LF unconditionally also makes `input_sha256` in the manifests
+    reproducible across platforms, so a campaign prepared on one host verifies
+    on another.
+    """
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(text)
+
 def write_extxyz(records: list[Record], path: Path) -> None:
     with path.open("w", encoding="utf-8") as handle:
         for rec in records:

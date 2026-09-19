@@ -9,6 +9,8 @@ import shlex
 import shutil
 import subprocess
 from dataclasses import asdict, dataclass
+
+from .io import write_text_lf
 from pathlib import Path
 from typing import TypedDict
 
@@ -179,17 +181,17 @@ def prepare_extract_slurm(
     arguments = list(extract_arguments or [])
     sbatch_path = output / "run_extract.sbatch"
     submit_path = output / "submit_extract.sh"
-    sbatch_path.write_text(
-        _extract_sbatch_script(source, output, config, arguments), encoding="utf-8"
+    write_text_lf(
+        sbatch_path, _extract_sbatch_script(source, output, config, arguments)
     )
-    submit_path.write_text(
+    write_text_lf(
+        submit_path,
         """#!/usr/bin/env bash
 set -euo pipefail
 
 output=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 sbatch "$@" --chdir="$output" "$output/run_extract.sbatch"
 """,
-        encoding="utf-8",
     )
     sbatch_path.chmod(0o755)
     submit_path.chmod(0o755)
@@ -764,15 +766,13 @@ def prepare_slurm_batches(
                 # production and never silently changes production behavior.
                 shutil.copy2(source, destination)
             input_names.append(input_name)
-        (batch_dir / "inputs.txt").write_text(
-            "\n".join(input_names) + "\n", encoding="utf-8"
-        )
+        write_text_lf(batch_dir / "inputs.txt", "\n".join(input_names) + "\n")
         for name, content in {
             "run_batch.sbatch": _batch_script(config, index),
             "submit.sh": _batch_submit_script(worker_init_name),
         }.items():
             path = batch_dir / name
-            path.write_text(content, encoding="utf-8")
+            write_text_lf(path, content)
             path.chmod(0o755)
 
     generated = {
@@ -782,7 +782,7 @@ def prepare_slurm_batches(
     }
     for name, content in generated.items():
         path = campaign / name
-        path.write_text(content, encoding="utf-8")
+        write_text_lf(path, content)
         path.chmod(0o755)
     for obsolete in (
         "run_gaussian_array.sbatch",

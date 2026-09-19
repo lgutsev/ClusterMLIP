@@ -37,7 +37,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, TypedDict
 
-from .io import parse_extxyz_info_line
+from .io import parse_extxyz_info_line, write_text_lf
 
 SCHEMA_VERSION = 1
 
@@ -467,7 +467,7 @@ def write_training_campaign(config: TrainingConfig) -> TrainingPlan:
         seed_dir = output / f"seed_{seed}"
         seed_dir.mkdir(parents=True, exist_ok=True)
         script = seed_dir / "run.sh"
-        script.write_text(_render_script(argv), encoding="utf-8")
+        write_text_lf(script, _render_script(argv))
         script.chmod(0o755)
         seed_runs.append(
             {
@@ -514,12 +514,12 @@ def write_training_campaign(config: TrainingConfig) -> TrainingPlan:
 
     if len(seeds) > 1:
         submit = output / "run_all_seeds.sh"
-        submit.write_text(
+        write_text_lf(
+            submit,
             "#!/usr/bin/env bash\nset -euo pipefail\n\n"
             'cd "$(dirname -- "${BASH_SOURCE[0]}")"\n\n'
             + "\n".join(f"bash {run['script']}" for run in seed_runs)
             + "\n",
-            encoding="utf-8",
         )
         submit.chmod(0o755)
 

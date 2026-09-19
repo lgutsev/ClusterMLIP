@@ -9,6 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from .basis import render_gen_basis
+from .io import write_text_lf
 from .models import Atom, Record
 from .routes import intended_stationary_point, route_optimizes, route_search_kind
 
@@ -227,7 +228,7 @@ def write_gaussian_jobs(
                 "",
             ]
         )
-        path.write_text("\n".join(lines), encoding="utf-8")
+        write_text_lf(path, "\n".join(lines))
         rows.append(
             {
                 "human_id": stem,
@@ -290,8 +291,8 @@ def write_gaussian_jobs(
     )
 
     runner = output / "run_one.sh"
-    runner.write_text(
+    write_text_lf(
+        runner,
         "#!/usr/bin/env bash\nset -euo pipefail\ninput=$1\noutput=${input%.gjf}.log\ng16 \"$input\" > \"$output\"\n",
-        encoding="utf-8",
     )
     runner.chmod(0o755)

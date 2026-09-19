@@ -19,7 +19,7 @@ STATES = ('complete', 'failed', 'incomplete', 'activity_unconfirmed', 'not_start
 
 
 def _optional(path: Path) -> str:
-    return path.read_text(errors='replace').strip() if path.is_file() else ''
+    return path.read_text(encoding='utf-8', errors='replace').strip() if path.is_file() else ''
 
 
 def _write_csv(path: Path, rows: list[dict[str, Any]], fields: list[str]) -> None:
@@ -43,7 +43,7 @@ def write_batch_progress(campaign: Path, destination: Path | None = None, *,
     for row in manifest_rows:
         by_input[Path(row['input']).name].append(row)
     plan_path = campaign / 'slurm_plan.json'
-    plan = json.loads(plan_path.read_text()) if plan_path.is_file() else {}
+    plan = json.loads(plan_path.read_text(encoding="utf-8")) if plan_path.is_file() else {}
     directories = {int(p.name[6:]): p for p in (campaign / 'slurm_batches').glob('batch_*')
                    if p.is_dir() and p.name[6:].isdigit()}
     final = int(plan.get('batch_count', max(directories, default=0)))
@@ -194,5 +194,7 @@ def write_batch_progress(campaign: Path, destination: Path | None = None, *,
     _write_csv(destination / 'batch_progress.csv', batches, list(batches[0]))
     _write_csv(destination / 'job_progress.csv', jobs, list(jobs[0]) if jobs else ['batch', 'input', 'state'])
     _write_csv(destination / 'audit_issues.csv', issues, ['batch', 'input', 'severity', 'detail'])
-    (destination / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+    (destination / 'summary.json').write_text(
+        json.dumps(summary, indent=2) + '\n', encoding='utf-8'
+    )
     return dict(summary=summary, batches=batches, jobs=jobs, issues=issues, destination=destination)

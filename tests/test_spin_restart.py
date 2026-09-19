@@ -1,6 +1,7 @@
 import csv
 import hashlib
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -69,7 +70,14 @@ class SpinRestartTests(unittest.TestCase):
             "manifest_sha256": manifest_hash,
         }))
         (batch / "inputs.txt").write_text(name + "\n")
-        (batch / name).symlink_to("../../inputs/ladder.gjf")
+        # prepare-slurm links the input into the batch dir but falls back to a
+        # copy when symlink creation is not permitted (unprivileged Windows).
+        # Mirror that fallback here, or this fixture is less portable than the
+        # production code it exercises and the whole module fails on Windows.
+        try:
+            (batch / name).symlink_to("../../inputs/ladder.gjf")
+        except OSError:
+            shutil.copy2(campaign / "inputs" / "ladder.gjf", batch / name)
         log = batch / "ladder.log"
         log.write_text(
             " Charge = 0 Multiplicity = 55\n Stationary point found.\n"

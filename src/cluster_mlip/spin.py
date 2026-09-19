@@ -15,7 +15,9 @@ from .gaussian import (
     ATOMIC_SYMBOLS, _CM_RE, _SCF_RE, _S2_RE, _MULLIKEN_SPIN_RE,
     _MULLIKEN_ROW_RE, _float, extract_document_records,
 )
-from .io import iter_documents, read_document, read_extxyz, source_tree, write_extxyz
+from .io import (
+    iter_documents, read_document, read_extxyz, source_tree, write_extxyz, write_text_lf,
+)
 from .jobs import human_job_stem
 from .models import Atom, Record
 from .routes import intended_stationary_point, route_search_kind
@@ -753,7 +755,7 @@ def write_spin_jobs(
     inputs = output / input_directory
     inputs.mkdir()
     for filename, text in files:
-        (inputs / filename).write_text(text, encoding="utf-8")
+        write_text_lf(inputs / filename, text)
     # Hash what was actually written, not the pre-write string: write_text's
     # universal-newline translation turns "\n" into the platform line
     # separator on disk (a no-op on Linux, but "\r\n" on Windows), which
@@ -814,11 +816,11 @@ def write_spin_jobs(
     (output / "spin_campaign.json").write_text(
         json.dumps(campaign, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    (output / "run_one.sh").write_text(
+    write_text_lf(
+        output / "run_one.sh",
         "#!/usr/bin/env bash\nset -euo pipefail\ninput=$1\n"
         'cd -- "$(dirname -- "$input")"\ninput=$(basename -- "$input")\n'
         'output=${input%.*}.log\ntime "${GAUSSIAN_COMMAND:-g09}" < "$input" > "$output" 2>&1\n',
-        encoding="utf-8",
     )
     (output / "run_one.sh").chmod(0o755)
     return len(rows)
@@ -954,7 +956,7 @@ def write_automatic_fe_spin_jobs(
     inputs = output / input_directory
     inputs.mkdir()
     for filename, text in files:
-        (inputs / filename).write_text(text, encoding="utf-8")
+        write_text_lf(inputs / filename, text)
     # See write_spin_jobs for why this hashes the file after writing rather
     # than the pre-write string.
     written_hashes = {
@@ -1046,11 +1048,11 @@ def write_automatic_fe_spin_jobs(
     (output / "spin_campaign.json").write_text(
         json.dumps(campaign, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    (output / "run_one.sh").write_text(
+    write_text_lf(
+        output / "run_one.sh",
         "#!/usr/bin/env bash\nset -euo pipefail\ninput=$1\n"
         'cd -- "$(dirname -- "$input")"\ninput=$(basename -- "$input")\n'
         'output=${input%.*}.log\ntime "${GAUSSIAN_COMMAND:-g09}" < "$input" > "$output" 2>&1\n',
-        encoding="utf-8",
     )
     (output / "run_one.sh").chmod(0o755)
     return len(rows)

@@ -67,7 +67,7 @@ def batch_locations(campaign: Path) -> dict[str, Path]:
         listing = batch / "inputs.txt"
         if not listing.is_file():
             continue
-        for name in listing.read_text(errors="replace").splitlines():
+        for name in listing.read_text(encoding="utf-8", errors="replace").splitlines():
             name = name.strip()
             if name:
                 locations.setdefault(name, batch)
@@ -93,7 +93,7 @@ def resolve_config_type(row: dict[str, str], input_name: str) -> tuple[str, str]
 def _job_state(output: Path, input_text: str) -> tuple[str, str]:
     if not output.is_file():
         return "not_started", ""
-    text = output.read_text(errors="replace")
+    text = output.read_text(encoding="utf-8", errors="replace")
     stages = 1 + sum(
         1 for line in input_text.splitlines() if line.strip().lower() == "--link1--"
     )
@@ -150,7 +150,7 @@ def audit_campaign_routes(
         if not input_path.is_file():
             unreadable.append({"input": reference, "reason": "input file is missing"})
             continue
-        input_text = input_path.read_text(errors="replace")
+        input_text = input_path.read_text(encoding="utf-8", errors="replace")
         config_type, label_source = resolve_config_type(group[0], input_name)
         if label_source == "unavailable":
             unreadable.append({

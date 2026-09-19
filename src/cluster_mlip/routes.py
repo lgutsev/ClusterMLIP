@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import TypedDict
 
 from .stratify import pes_region
 
@@ -463,7 +464,28 @@ FINDINGS: dict[str, tuple[str, bool, str]] = {
 MUST_RELAUNCH = frozenset(code for code, (_, relaunch, _) in FINDINGS.items() if relaunch)
 
 
-def inspect_job(config_type: str, input_text: str, output_text: str = "") -> dict[str, object]:
+class RouteVerdict(TypedDict):
+    """One job's route intent and, where it finished, its result.
+
+    Typed rather than ``dict[str, object]`` so callers can join
+    ``findings`` and test ``must_relaunch`` without mypy losing the
+    element types -- these fields drive the collect route gate and the
+    campaign audit, so a silent type error here is a silent data-quality
+    error.
+    """
+
+    intent: str
+    search_kinds: str
+    executed_search_kinds: str
+    optimizing_routes: list[str]
+    final_imaginary_modes: int | None
+    failed_torsion_atoms: str
+    findings: list[str]
+    severity: str
+    must_relaunch: bool
+
+
+def inspect_job(config_type: str, input_text: str, output_text: str = "") -> RouteVerdict:
     """Classify one job's route intent and, where it finished, its result."""
     intent = intended_stationary_point(config_type)
     routes = [route for route in input_stage_routes(input_text) if route]
@@ -518,20 +540,20 @@ def inspect_job(config_type: str, input_text: str, output_text: str = "") -> dic
             findings.add("saddle_order_mismatch")
 
     ordered = [code for code in FINDINGS if code in findings]
-    return {
-        "intent": intent,
-        "search_kinds": ",".join(kinds),
-        "executed_search_kinds": ",".join(executed_kinds),
-        "optimizing_routes": optimizing,
-        "final_imaginary_modes": imaginary,
-        "failed_torsion_atoms": failed_torsion,
-        "findings": ordered,
-        "severity": (
+    return RouteVerdict(
+        intent=intent,
+        search_kinds=",".join(kinds),
+        executed_search_kinds=",".join(executed_kinds),
+        optimizing_routes=optimizing,
+        final_imaginary_modes=imaginary,
+        failed_torsion_atoms=failed_torsion,
+        findings=ordered,
+        severity=(
             "error" if any(FINDINGS[code][0] == "error" for code in ordered)
             else "warning" if ordered else "ok"
         ),
-        "must_relaunch": any(code in MUST_RELAUNCH for code in ordered),
-    }
+        must_relaunch=any(code in MUST_RELAUNCH for code in ordered),
+    )
 
 
 _STEM_CONFIG_TYPES = {

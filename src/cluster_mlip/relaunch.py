@@ -38,6 +38,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .io import write_text_lf
 from .route_audit import audit_campaign_routes, find_manifest, read_manifest
 from .routes import (
     corrected_cartesian_route,
@@ -255,7 +256,7 @@ def _planned_listing(batch: Path, actions: list[RelaunchAction]) -> list[str]:
         for name in action.retired_inputs
     } - set(replacements)
     names: list[str] = []
-    for raw in (batch / "inputs.txt").read_text(errors="replace").splitlines():
+    for raw in (batch / "inputs.txt").read_text(encoding="utf-8", errors="replace").splitlines():
         name = raw.strip()
         if not name or name in retired:
             continue
@@ -360,7 +361,7 @@ def _verify(campaign: Path, actions: list[RelaunchAction]) -> None:
     for batch in sorted({a.batch for a in actions if a.batch is not None}):
         listed = [
             name.strip()
-            for name in (batch / "inputs.txt").read_text(errors="replace").splitlines()
+            for name in (batch / "inputs.txt").read_text(encoding="utf-8", errors="replace").splitlines()
             if name.strip()
         ]
         retired = {
@@ -699,7 +700,7 @@ def prepare_route_relaunch(
 
     for action in actions:
         action.new_input.parent.mkdir(parents=True, exist_ok=True)
-        action.new_input.write_text(action.new_text, encoding="utf-8")
+        write_text_lf(action.new_input, action.new_text)
         written = _sha256_file(action.new_input)
         for row in action.new_rows:
             row["input_sha256"] = written
@@ -720,7 +721,7 @@ def prepare_route_relaunch(
 
     for batch in touched:
         names = _planned_listing(batch, actions)
-        (batch / "inputs.txt").write_text("\n".join(names) + "\n", encoding="utf-8")
+        write_text_lf(batch / "inputs.txt", "\n".join(names) + "\n")
 
     for action in actions:
         replacement_by_job = {

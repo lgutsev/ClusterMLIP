@@ -11,7 +11,9 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TypedDict
 
+from .io import write_text_lf
 from .spin import SPIN_MANIFEST_COLUMNS, SPIN_RESTART_COLUMNS, parse_spin_diagnostics
 
 
@@ -54,7 +56,7 @@ def _batch_locations(campaign: Path) -> dict[str, Path]:
         listing = batch / "inputs.txt"
         if not listing.is_file():
             continue
-        for name in listing.read_text(errors="replace").splitlines():
+        for name in listing.read_text(encoding="utf-8", errors="replace").splitlines():
             name = name.strip()
             if not name:
                 continue
@@ -127,6 +129,22 @@ def _write_csv(path: Path, fields: list[str], rows: list[dict[str, str]]) -> Non
     temporary.replace(path)
 
 
+class RestartResult(TypedDict):
+    """What `prepare-spin-restarts` did, or would do under --dry-run.
+
+    Typed rather than ``dict[str, object]`` so the CLI can iterate `plan` and
+    `skipped` -- as plain object members those loops were invisible to mypy.
+    """
+
+    campaign: str
+    input_count: int
+    stage_count: int
+    plan: list[dict[str, str]]
+    skipped: list[dict[str, str]]
+    dry_run: bool
+    backup: str  # "" under --dry-run, where nothing is backed up
+
+
 def prepare_spin_restarts(
     campaign: Path,
     *,
@@ -134,7 +152,7 @@ def prepare_spin_restarts(
     end: int | None = None,
     assume_stopped: bool = False,
     dry_run: bool = False,
-) -> dict[str, object]:
+) -> RestartResult:
     """Archive interrupted attempts and activate shortened inputs in place."""
     campaign = campaign.resolve()
     manifest = campaign / "spin_jobs.csv"
@@ -176,7 +194,7 @@ def prepare_spin_restarts(
                 "input": input_path, "batch": batch.name, "reason": "activity_unconfirmed"
             })
             continue
-        text = source_output.read_text(errors="replace")
+        text = source_output.read_text(encoding="utf-8", errors="replace")
         diagnostics = parse_spin_diagnostics(text)
         unfinished_index = next((
             index for index, row in enumerate(rows)
@@ -297,16 +315,18 @@ def prepare_spin_restarts(
         ))
 
     if not actions and not dry_run:
-        reasons = defaultdict(int)
+        reasons: defaultdict[str, int] = defaultdict(int)
         for row in skipped:
             reasons[row["reason"]] += 1
         detail = ", ".join(f"{key}={value}" for key, value in sorted(reasons.items()))
         raise RuntimeError(f"no interrupted checkpoint-backed inputs to restart ({detail})")
     if dry_run:
-        return {"campaign": str(campaign), "input_count": len(actions),
-                "stage_count": sum(len(action.new_rows) for action in actions),
-                "plan": [action.plan_row for action in actions], "skipped": skipped,
-                "dry_run": True}
+        return RestartResult(
+            campaign=str(campaign), input_count=len(actions),
+            stage_count=sum(len(action.new_rows) for action in actions),
+            plan=[action.plan_row for action in actions], skipped=skipped,
+            dry_run=True, backup="",
+        )
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     backup_dir = campaign / "restart_backups"
@@ -320,7 +340,7 @@ def prepare_spin_restarts(
         shutil.copy2(batch / "inputs.txt", backup_dir / f"{batch.name}.inputs.{stamp}.txt")
 
     for action in actions:
-        action.new_input.write_text(action.new_text, encoding="utf-8")
+        write_text_lf(action.new_input, action.new_text)
         shutil.copy2(action.source_checkpoint, action.seed_checkpoint)
         if _sha256(action.seed_checkpoint) != action.new_rows[0]["restart_seed_sha256"]:
             raise RuntimeError(f"checkpoint changed while copied: {action.source_checkpoint}")
@@ -342,10 +362,9 @@ def prepare_spin_restarts(
             action.input_name: action.new_input_name for action in actions if action.batch == batch
         }
         listing = batch / "inputs.txt"
-        names = listing.read_text(errors="replace").splitlines()
-        listing.write_text(
-            "\n".join(replacements.get(name, name) for name in names) + "\n",
-            encoding="utf-8",
+        names = listing.read_text(encoding="utf-8", errors="replace").splitlines()
+        write_text_lf(
+            listing, "\n".join(replacements.get(name, name) for name in names) + "\n"
         )
     for action in actions:
         archived_name = action.archived_output.name
@@ -371,8 +390,12 @@ def prepare_spin_restarts(
             "batch_range": [start, end], "input_count": len(actions),
             "stage_count": sum(len(action.new_rows) for action in actions),
         })
-        campaign_metadata.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
-    return {"campaign": str(campaign), "input_count": len(actions),
-            "stage_count": sum(len(action.new_rows) for action in actions),
-            "plan": [action.plan_row for action in actions], "skipped": skipped,
-            "dry_run": False, "backup": str(backup_dir)}
+        campaign_metadata.write_text(
+            json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+    return RestartResult(
+        campaign=str(campaign), input_count=len(actions),
+        stage_count=sum(len(action.new_rows) for action in actions),
+        plan=[action.plan_row for action in actions], skipped=skipped,
+        dry_run=False, backup=str(backup_dir),
+    )

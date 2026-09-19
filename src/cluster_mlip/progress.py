@@ -27,7 +27,7 @@ def _sha256(path: Path) -> str:
 def _read_optional(path: Path | None) -> str:
     if path is None or not path.is_file():
         return ""
-    return path.read_text(errors="ignore").strip()
+    return path.read_text(encoding="utf-8", errors="ignore").strip()
 
 
 def _one(index: dict[str, list[Path]], name: str) -> tuple[Path | None, bool]:
@@ -74,7 +74,7 @@ def write_campaign_progress(campaign: Path, destination: Path | None = None) -> 
         spin_stage_advanced = False
         parse_error = ""
         if output is not None:
-            text = output.read_text(errors="ignore")
+            text = output.read_text(encoding="utf-8", errors="ignore")
             if spin_campaign:
                 try:
                     if output not in spin_cache:
@@ -99,7 +99,7 @@ def write_campaign_progress(campaign: Path, destination: Path | None = None) -> 
                 expected = 1
                 if input_path.is_file():
                     expected += len(re.findall(r"^\s*--link1--\s*$",
-                                               input_path.read_text(errors="ignore"), re.I | re.M))
+                                               input_path.read_text(encoding="utf-8", errors="ignore"), re.I | re.M))
                 normal = gaussian_job_complete(text, expected) and (not rc or rc == "0")
                 try:
                     frame = parse_final_force_frame(text, output)
