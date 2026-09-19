@@ -36,6 +36,15 @@ SPIN_MANIFEST_COLUMNS = [
     "spin_plan_id", "spin_group_key", "target_record_multiplicity", "high_spin_inference",
     "high_spin_evidence_record_ids",
     "parent_record_id", "source", "formula", "config_type", "route_search_kind",
+    # `first_route` records the level of theory that actually labeled this
+    # stage, and `state_inference` whether its charge/multiplicity was
+    # measured or guessed from a filename. `collect` copies every non-empty
+    # manifest cell into frame metadata, so these are the only way either fact
+    # reaches the dataset: without `first_route` training.scan_dataset sees no
+    # label route at all for a spin campaign and the --allow-mixed-method
+    # guard cannot fire, and without `state_inference`
+    # stratify.provenance_tier reports every spin frame as "validated".
+    "first_route", "state_inference",
     "source_geometry_sha256", "high_spin_multiplicity",
     "final_target_multiplicity", "intended_charge", "intended_multiplicity", "spin_flip_index",
     "predecessor_job_id", "predecessor_multiplicity", "predecessor_checkpoint", "checkpoint",
@@ -443,6 +452,8 @@ def render_ladder_input(
             "formula": record.formula,
             "config_type": record.config_type,
             "route_search_kind": route_search_kind(stage_route),
+            "first_route": stage_route,
+            "state_inference": str(record.metadata.get("state_inference", "")),
             "source_geometry_sha256": _source_geometry_sha256(record),
             "high_spin_multiplicity": str(high_spin),
             "final_target_multiplicity": str(sequence[-1]),
@@ -623,6 +634,8 @@ def render_fragment_input(
         "formula": record.formula,
         "config_type": record.config_type,
         "route_search_kind": route_search_kind(fragment_route),
+        "first_route": fragment_route,
+        "state_inference": str(record.metadata.get("state_inference", "")),
         "source_geometry_sha256": _source_geometry_sha256(record),
         "high_spin_multiplicity": str(record.multiplicity),
         "final_target_multiplicity": str(target),

@@ -180,6 +180,7 @@ def scan_dataset(dataset_dir: Path) -> DatasetFacts:
     multiplicities: set[int] = set()
     label_routes: set[str] = set()
     n_frames = 0
+    unlabeled = 0
 
     for name in ("all.extxyz", *REQUIRED_SPLITS):
         path = dataset_dir / name
@@ -210,13 +211,31 @@ def scan_dataset(dataset_dir: Path) -> DatasetFacts:
                     meta = json.loads(info["metadata"])
                 except (TypeError, ValueError):
                     meta = {}
-                route = str(meta.get("link1_route") or meta.get("first_route") or "").strip()
+                # `first_route` is the route that actually optimized and
+                # labeled this frame, and relaunch-routes rewrites it when it
+                # corrects a job; `link1_route` is only the campaign-wide
+                # force-stage default. Prefer the specific one, or a dataset
+                # mixing pre- and post-relaunch routes looks uniform.
+                route = str(meta.get("first_route") or meta.get("link1_route") or "").strip()
                 if route:
                     label_routes.add(route)
+                else:
+                    unlabeled += 1
+            else:
+                unlabeled += 1
             i += n_atoms + 2
 
     if n_frames == 0:
         raise ValueError(f"{dataset_dir}: split files contain no frames")
+    if unlabeled:
+        raise ValueError(
+            f"{dataset_dir}: {unlabeled} of {n_frames} frame(s) record no label route, "
+            "so the electronic-structure method behind them cannot be checked. Datasets "
+            "collected before spin_jobs.csv carried `first_route` look like this; re-run "
+            "`cluster-mlip collect` against a manifest that has it. Training a single MACE "
+            "head on frames from different methods is unsound, and an absent route is not "
+            "evidence that they match."
+        )
     return DatasetFacts(files, charges, multiplicities, label_routes, n_frames)
 
 

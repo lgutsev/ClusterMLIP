@@ -1,10 +1,24 @@
 """Gaussian ``Gen`` (general/custom) basis set content shared by jobs.py and spin.py.
 
-Every Gaussian input this pipeline writes uses a mixed basis: a simple
-Pople-style keyword basis for the light/organic elements, and an explicit
-def2-TZVP contraction (with the f-functions dropped -- not needed for this
-application) for Fe. Both pieces of text live here, once, so jobs.py and
-spin.py can't drift apart on what "the basis" actually is.
+A ``Gen`` input uses a mixed basis: a simple Pople-style keyword basis for the
+light/organic elements, and an explicit def2-TZVP contraction (with the
+f-functions dropped -- not needed for this application) for Fe. Both pieces of
+text live here, once, so jobs.py and spin.py can't drift apart on what "the
+basis" actually is.
+
+This is NOT the only basis the pipeline emits. `prepare` (jobs.DEFAULT_ROUTE)
+requests ``/Gen`` and so renders the blocks below, but `prepare-spins`
+(spin.DEFAULT_SPIN_ROUTE) requests ``UBPW91/6-311++G*`` inline, which puts an
+all-electron Pople basis -- diffuse functions included -- on Fe as well, and
+emits no Gen block at all. That is deliberate, but it means the two commands
+label frames at *different levels of theory*, and total energies from the two
+are not comparable.
+
+Nothing downstream can merge them safely on its own, so the guard is at
+training time: spin_jobs.csv and jobs.csv both carry `first_route`, `collect`
+copies it into frame metadata, and `training.scan_dataset` refuses a dataset
+that mixes distinct label routes unless `--allow-mixed-method` is passed.
+Keep `first_route` populated by any new job writer, or that guard goes blind.
 """
 
 from __future__ import annotations

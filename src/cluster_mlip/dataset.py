@@ -78,6 +78,19 @@ def _parent_group(frame: LabeledFrame) -> str:
     return frame.record.metadata.get("parent_record_id", frame.record.record_id)
 
 
+def _stratum_take(n: int, fraction: float, available: int) -> int:
+    """How many of a stratum's `n` groups to take for one held-out split.
+
+    The proportional share, but never more than `available` and -- when the
+    caller asked for a non-zero fraction and there is at least one group to
+    spare -- never zero. Rounding alone starves small strata: with the default
+    0.10, round(n * 0.10) is 0 for every n <= 5.
+    """
+    if fraction <= 0 or available <= 0:
+        return 0
+    return max(1, min(round(n * fraction), available))
+
+
 def grouped_split(
     frames: list[LabeledFrame],
     valid_fraction: float,
@@ -140,8 +153,13 @@ def grouped_split(
             key=lambda gid: hashlib.sha256(f"{seed}|{key}|{gid}".encode()).digest(),
         )
         n = len(ordered)
-        n_test = min(round(n * test_fraction), n)
-        n_valid = min(round(n * valid_fraction), n - n_test)
+        # round(n * 0.10) is 0 for every n <= 5 (Python rounds half to even, so
+        # round(0.5) == 0 too), which would put every small stratum entirely in
+        # train -- turning the 73% chance of an empty bucket described above
+        # into a certainty, for exactly the rare strata this mode exists to
+        # protect. Give a stratum with something to spare at least one group.
+        n_test = _stratum_take(n, test_fraction, available=n - 1)
+        n_valid = _stratum_take(n, valid_fraction, available=n - n_test - 1)
         test_ids = set(ordered[:n_test])
         valid_ids = set(ordered[n_test:n_test + n_valid])
         for group_id in ordered:

@@ -77,16 +77,24 @@ def stationary_point_check(
     reference data (a saddle is a stationary point with different curvature
     than a minimum, not a non-stationary one) -- a model that has learned
     the surface should predict near-zero force at both.
+
+    Rattled variants are excluded. `pes_region` deliberately strips the
+    `_rattled` suffix, so `minimum_rattled` reports as `minimum`; but a
+    rattled frame is displaced off its stationary point on purpose and
+    carries a large reference force, so scoring the model for predicting a
+    near-zero force there penalizes it for being right. Only relaxed frames
+    are stationary points.
     """
     values = [
         _force_rms(pred_forces)
         for frame, (_, pred_forces) in zip(frames, predictions)
         if pes_region(frame.record.config_type) in ("minimum", "saddle")
+        and displacement_class(frame.record.config_type) == "relaxed"
     ]
     if not values:
         return _no_data_result(
             "stationary_point_force", "predicted_force_rms_ev_ang_mean", threshold_ev_ang,
-            "No frames were labeled minimum or saddle.",
+            "No relaxed (non-rattled) frames were labeled minimum or saddle.",
         )
     mean_value = statistics.mean(values)
     return {
@@ -267,42 +275,75 @@ def _cluster_by_geometry(records: list[Record], tolerance: float) -> list[list[i
     return clusters
 
 
+def _ladder_key(record: Record) -> str:
+    """Provenance identity of a prepare-spins ladder, or "" if unknown.
+
+    Every stage of one ladder shares a `chain_id` in spin_jobs.csv, which
+    `collect` copies into frame metadata -- so this states directly what the
+    geometry heuristic below can only guess at.
+    """
+    chain = str(record.metadata.get("chain_id", "")).strip()
+    return f"{chain}|{record.charge}" if chain else ""
+
+
 def spin_ordering_check(
     frames: list[LabeledFrame],
     predictions: list[Prediction],
-    geometry_tolerance: float = 0.05,
+    geometry_tolerance: float = 0.3,
     threshold: float = 0.8,
 ) -> CheckResult:
-    """charge_spin_class: for frames sharing a formula/charge and a near-
-    identical geometry (spin.geometry_distance) but different multiplicity
-    -- typically siblings of a prepare-spins ladder -- does the model agree
-    with DFT on which multiplicity is lowest-energy (the ground spin state)?
-    A model that gets forces/energies right in aggregate can still invert
-    the spin-state ordering, which validate-spins-style per-frame checks
-    can't see since it needs a same-geometry, cross-multiplicity comparison.
-    """
-    by_formula_charge: dict[tuple[str, int], list[int]] = {}
-    for index, frame in enumerate(frames):
-        by_formula_charge.setdefault((frame.record.formula, frame.record.charge), []).append(index)
+    """charge_spin_class: for frames that are the same species at different
+    multiplicities -- typically siblings of a prepare-spins ladder -- does the
+    model agree with DFT on which multiplicity is lowest-energy (the ground
+    spin state)? A model that gets forces/energies right in aggregate can
+    still invert the spin-state ordering, which validate-spins-style per-frame
+    checks can't see since it needs a cross-multiplicity comparison.
 
-    agreements = 0
-    total = 0
+    Siblings are grouped by ladder provenance (`chain_id`) where the manifest
+    recorded it, and only otherwise by geometry. Geometry alone was the wrong
+    instrument: each ladder stage is separately optimized at its own
+    multiplicity, and a high-spin/low-spin change moves the Fe-ligand shell by
+    ~0.1-0.2 Angstrom (stratify.COVALENT_RADII_ANGSTROM carries Fe at its
+    high-spin 1.52 against a low-spin 1.32). The previous 0.05 Angstrom
+    tolerance was narrower than the very effect being measured, so real
+    ladders fell into separate clusters and the check returned "no data" --
+    indistinguishable from a dataset that has no ladders at all.
+    """
+    provenance: dict[str, list[int]] = {}
+    unattributed: list[int] = []
+    for index, frame in enumerate(frames):
+        key = _ladder_key(frame.record)
+        if key:
+            provenance.setdefault(key, []).append(index)
+        else:
+            unattributed.append(index)
+
+    groups: list[list[int]] = list(provenance.values())
+
+    by_formula_charge: dict[tuple[str, int], list[int]] = {}
+    for index in unattributed:
+        record = frames[index].record
+        by_formula_charge.setdefault((record.formula, record.charge), []).append(index)
     for indices in by_formula_charge.values():
         records = [frames[i].record for i in indices]
         for cluster in _cluster_by_geometry(records, geometry_tolerance):
-            if len({records[j].multiplicity for j in cluster}) < 2:
-                continue  # need >=2 distinct spin states to compare an ordering
-            group = [indices[j] for j in cluster]
-            ref_ground = min((frames[k].energy_ev, frames[k].record.multiplicity) for k in group)[1]
-            pred_ground = min((predictions[k][0], frames[k].record.multiplicity) for k in group)[1]
-            total += 1
-            agreements += ref_ground == pred_ground
+            groups.append([indices[j] for j in cluster])
+
+    agreements = 0
+    total = 0
+    for group in groups:
+        if len({frames[k].record.multiplicity for k in group}) < 2:
+            continue  # need >=2 distinct spin states to compare an ordering
+        ref_ground = min((frames[k].energy_ev, frames[k].record.multiplicity) for k in group)[1]
+        pred_ground = min((predictions[k][0], frames[k].record.multiplicity) for k in group)[1]
+        total += 1
+        agreements += ref_ground == pred_ground
 
     if total == 0:
         return _no_data_result(
             "spin_state_ordering", "ground_state_agreement_fraction", threshold,
-            "No same-formula/charge, same-geometry, multi-multiplicity groups found "
-            "(typically produced by prepare-spins ladders).",
+            "No multi-multiplicity groups found (typically produced by prepare-spins "
+            "ladders, grouped by chain_id where the manifest recorded it).",
         )
     fraction = agreements / total
     return {
@@ -313,9 +354,10 @@ def spin_ordering_check(
         "threshold": threshold,
         "passed": fraction >= threshold,
         "notes": (
-            f"Fraction of same-formula/charge, same-geometry (RMS <= {geometry_tolerance} "
-            "Angstrom) multiplicity groups where the model agrees with DFT on the "
-            "lowest-energy (ground) spin state. n_frames_considered counts groups, "
+            "Fraction of multiplicity groups where the model agrees with DFT on the "
+            "lowest-energy (ground) spin state. Groups come from ladder provenance "
+            f"(chain_id), falling back to same-formula/charge geometry clustering at "
+            f"RMS <= {geometry_tolerance} Angstrom. n_frames_considered counts groups, "
             "not individual frames."
         ),
     }
