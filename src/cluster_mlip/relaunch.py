@@ -230,6 +230,72 @@ def _body_digest(text: str) -> str:
     return hashlib.sha256("\n".join(body).encode()).hexdigest()
 
 
+def _reseat_rebuilt_row(row: dict[str, str], checkpoint_renames: dict[str, str]) -> None:
+    """Point a rebuilt manifest row at the relaunch's own checkpoints.
+
+    ``%chk``/``%oldchk`` were renamed inside the input; the manifest columns
+    naming the same files must follow. restart.py resolves ``checkpoint`` and
+    ``predecessor_checkpoint`` straight to paths on disk, where the
+    pre-relaunch checkpoints deliberately still live -- so a rebuilt row
+    carrying the old name would make the next prepare-spin-restarts seed from
+    the collapsed geometry this relaunch exists to discard.
+
+    The ``restart_*`` provenance is cleared for the same reason: a rebuilt job
+    is not a continuation of anything, and inheriting the root's restart
+    attempt would reset restart.py's ``-rNN`` counter so the next restart
+    derives checkpoint names that already exist.
+    """
+    for column in ("checkpoint", "predecessor_checkpoint"):
+        current = row.get(column, "")
+        if current:
+            row[column] = checkpoint_renames.get(current, current)
+    lineage = row.get("checkpoint_lineage", "")
+    if lineage:
+        for old_name, fresh in checkpoint_renames.items():
+            lineage = lineage.replace(old_name, fresh)
+        row["checkpoint_lineage"] = lineage
+    for column in (
+        "restart_attempt", "restart_root_input", "restart_of_job_id",
+        "restart_source_output", "restart_source_checkpoint",
+        "restart_seed_checkpoint", "restart_seed_sha256",
+    ):
+        if column in row:
+            row[column] = ""
+
+
+def _refresh_campaign_metadata(
+    campaign: Path, manifest: Path, start: int, end: int | None, actions: list[Any]
+) -> None:
+    """Re-stamp the campaign JSON's manifest hash and append to its history.
+
+    Called immediately after the manifest is committed, not at the very end:
+    these hashes are what `_spin_manifest_audit` checks, so a crash (or a
+    _verify failure, which is exactly when the campaign is most damaged) after
+    the manifest write but before this would leave a hash describing the
+    pre-relaunch manifest forever -- and no re-run repairs it, because a
+    second run finds nothing to relaunch and raises before reaching here.
+    """
+    for name in ("spin_campaign.json", "campaign_manifest.json"):
+        metadata_path = campaign / name
+        if not metadata_path.is_file():
+            continue
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if "manifest_sha256" in metadata:
+            metadata["manifest_sha256"] = _sha256_file(manifest)
+        if "jobs_csv_sha256" in metadata:
+            metadata["jobs_csv_sha256"] = _sha256_file(manifest)
+        history = metadata.setdefault("route_fix_history", [])
+        history.append({
+            "created_utc": datetime.now(timezone.utc).isoformat(),
+            "batch_range": [start, end],
+            "input_count": len(actions),
+            "job_row_count": sum(len(action.new_rows) for action in actions),
+        })
+        metadata_path.write_text(
+            json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+
+
 def _write_csv(path: Path, fields: list[str], rows: list[dict[str, Any]]) -> None:
     temporary = path.with_name(path.name + ".tmp")
     with temporary.open("w", newline="", encoding="utf-8") as handle:
@@ -397,7 +463,10 @@ def prepare_route_relaunch(
     campaign = campaign.resolve()
     seed_orders = seed_saddle_orders(saddle_order_from) if saddle_order_from else {}
     manifest = find_manifest(campaign)
-    audit = audit_campaign_routes(campaign)
+    # A dry run must leave the campaign byte-identical: publishing the audit
+    # reports here would clobber the monitoring/ output an operator may still
+    # be reading, while the CLI prints "nothing was written".
+    audit = audit_campaign_routes(campaign, write_reports=not dry_run)
     candidates = audit["relaunch"]
     assert isinstance(candidates, list)
 
@@ -425,6 +494,9 @@ def prepare_route_relaunch(
     actions: list[RelaunchAction] = []
     skipped: list[dict[str, str]] = []
     overridden: list[dict[str, str]] = []
+    # Inputs whose replacement (or archived log) an interrupted earlier run had
+    # already written, and which this run is completing rather than redoing.
+    resumed: list[str] = []
 
     def skip(row: dict[str, Any], reason: str) -> None:
         skipped.append({"input": row["input"], "batch": row["batch"], "reason": reason})
@@ -586,24 +658,69 @@ def prepare_route_relaunch(
 
         source_output = campaign / row["output"] if row["output"] else None
         archived_output = None
+        already_archived = False
         if source_output is not None and source_output.is_file():
             archived_output = source_output.with_name(
                 f"{source_output.stem}__before-routefix{attempt:02d}{source_output.suffix}"
             )
-        targets = [new_input] + ([archived_output] if archived_output else [])
-        if batch is not None:
-            targets.append(batch / new_input.name)
-        existing = [target for target in targets if target.exists() or target.is_symlink()]
-        if existing:
-            skip(row, f"relaunch target already exists: {existing[0].name}")
+        else:
+            # The audit only reports an output it can find on disk, so a log an
+            # interrupted earlier run already renamed leaves row["output"]
+            # empty. Look for that archive under the name this run would have
+            # given it and adopt it: dropping to archived_output=None instead
+            # leaves the superseded row pointing at a path that no longer
+            # exists, orphaning the poisoned result from the manifest row that
+            # explains why it was discarded.
+            declared = (group[0].get("output") or "").strip()
+            if declared:
+                for folder in ({batch} if batch is not None else set()) | {campaign}:
+                    stem = Path(declared).stem
+                    suffix = Path(declared).suffix or ".log"
+                    candidate = folder / f"{stem}__before-routefix{attempt:02d}{suffix}"
+                    if candidate.is_file():
+                        archived_output = candidate
+                        already_archived = True
+                        break
+
+        # An interrupted run may have written some of these already. A target
+        # whose bytes are exactly what this run would write is this tool's own
+        # half-finished work, not a foreign file in the way: resume it. Skipping
+        # instead abandons the job permanently -- the mislaunched input stays
+        # listed and active in inputs.txt, the corrected input sits unlisted
+        # beside it, and no later relaunch-routes run ever reconsiders it.
+        resumable_input = (
+            new_input.is_file() and _sha256_file(new_input) == _sha256_text(rewritten)
+        )
+        batch_copy = batch / new_input.name if batch is not None else None
+        blocking = []
+        for target in [new_input] + ([archived_output] if archived_output else []) + (
+                [batch_copy] if batch_copy is not None else []):
+            if not (target.exists() or target.is_symlink()):
+                continue
+            if target == new_input and resumable_input:
+                continue
+            if target == batch_copy and resumable_input:
+                continue
+            if target == archived_output and already_archived:
+                continue
+            blocking.append(target)
+        if blocking:
+            skip(row, f"relaunch target already exists: {blocking[0].name}")
             continue
+        if resumable_input or already_archived:
+            resumed.append(reference)
 
         # Built from the *root* ladder's rows, so the rebuilt manifest carries
         # every multiplicity of the pathway again rather than the truncated
         # tail a restart was left with.
+        checkpoint_renames = dict(
+            entry.split("->", 1) for entry in renamed if "->" in entry
+        )
+
         new_rows: list[dict[str, str]] = []
         for old_row in rebuild_rows:
             new_row = {column: old_row.get(column, "") for column in fields}
+            _reseat_rebuilt_row(new_row, checkpoint_renames)
             new_row.update({
                 "input": str(Path(lineage_root).with_name(new_input.name).as_posix()),
                 "output": f"{new_stem}.log",
@@ -678,6 +795,14 @@ def prepare_route_relaunch(
     result["launcher_problems"] = problems
     if dry_run:
         return result
+    # These report on the run, not on the mutation, so they are written even
+    # when there is nothing to do. Writing them after the raise below left the
+    # previous run's file on disk, contradicting what just happened.
+    _write_csv(campaign / "skipped_route_fixes.csv",
+               ["input", "batch", "reason"], skipped)
+    if overridden:
+        _write_csv(campaign / "route_fix_overrides.csv",
+                   ["input", "batch", "detail"], overridden)
     if not actions:
         raise RuntimeError(
             "no jobs need a route relaunch"
@@ -704,7 +829,11 @@ def prepare_route_relaunch(
         written = _sha256_file(action.new_input)
         for row in action.new_rows:
             row["input_sha256"] = written
-        if action.source_output is not None and action.archived_output is not None:
+        # Each step is conditional on its own precondition so that completing an
+        # interrupted run is safe: whatever a previous attempt already did is
+        # left alone instead of raising.
+        if (action.source_output is not None and action.archived_output is not None
+                and action.source_output.is_file()):
             action.source_output.rename(action.archived_output)
             for suffix in _MARKER_SUFFIXES:
                 marker = action.source_output.with_suffix(suffix)
@@ -712,16 +841,13 @@ def prepare_route_relaunch(
                     marker.rename(action.archived_output.with_suffix(suffix))
         if action.batch is not None:
             link = action.batch / action.new_input.name
-            try:
-                link.symlink_to(os.path.relpath(action.new_input, action.batch))
-            except OSError:
-                # Unprivileged symlink creation is disabled by default on
-                # Windows; a copy behaves identically for the batch worker.
-                shutil.copy2(action.new_input, link)
-
-    for batch in touched:
-        names = _planned_listing(batch, actions)
-        write_text_lf(batch / "inputs.txt", "\n".join(names) + "\n")
+            if not (link.exists() or link.is_symlink()):
+                try:
+                    link.symlink_to(os.path.relpath(action.new_input, action.batch))
+                except OSError:
+                    # Unprivileged symlink creation is disabled by default on
+                    # Windows; a copy behaves identically for the batch worker.
+                    shutil.copy2(action.new_input, link)
 
     for action in actions:
         replacement_by_job = {
@@ -743,7 +869,17 @@ def prepare_route_relaunch(
                     old_row.get("input") or "").strip() == active_input:
                 old_row["output"] = action.archived_output.name
         all_rows.extend(action.new_rows)
+    # The manifest is committed BEFORE the batch listings. A manifest that
+    # names a replacement no inputs.txt lists yet is inert -- nothing runs it.
+    # The reverse, a listed replacement with no manifest row, is data loss:
+    # the launcher produces logs that collect cannot attribute and silently
+    # drops. Crash between the two and the recoverable order is this one.
     _write_csv(manifest, fields, all_rows)
+    _refresh_campaign_metadata(campaign, manifest, start, end, actions)
+
+    for batch in touched:
+        names = _planned_listing(batch, actions)
+        write_text_lf(batch / "inputs.txt", "\n".join(names) + "\n")
 
     plan_path = campaign / "route_fix_plan.csv"
     existing_plan: list[dict[str, str]] = []
@@ -751,35 +887,10 @@ def prepare_route_relaunch(
         _, existing_plan = read_manifest(plan_path)
     _write_csv(plan_path, PLAN_COLUMNS,
                existing_plan + [action.plan_row for action in actions])
-    _write_csv(campaign / "skipped_route_fixes.csv",
-               ["input", "batch", "reason"], skipped)
-    if overridden:
-        _write_csv(campaign / "route_fix_overrides.csv",
-                   ["input", "batch", "detail"], overridden)
     # Read back what is now on disk. The preflight checked the plan; this
     # checks the result, so the campaign is never left in a state the
     # launchers would run incorrectly without anyone being told.
     _verify(campaign, actions)
-
-    for name in ("spin_campaign.json", "campaign_manifest.json"):
-        metadata_path = campaign / name
-        if not metadata_path.is_file():
-            continue
-        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-        if "manifest_sha256" in metadata:
-            metadata["manifest_sha256"] = _sha256_file(manifest)
-        if "jobs_csv_sha256" in metadata:
-            metadata["jobs_csv_sha256"] = _sha256_file(manifest)
-        history = metadata.setdefault("route_fix_history", [])
-        history.append({
-            "created_utc": datetime.now(timezone.utc).isoformat(),
-            "batch_range": [start, end],
-            "input_count": len(actions),
-            "job_row_count": sum(len(action.new_rows) for action in actions),
-        })
-        metadata_path.write_text(
-            json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
 
     result["backup"] = str(backups)
     return result

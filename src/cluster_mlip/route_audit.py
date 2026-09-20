@@ -126,8 +126,14 @@ def audit_campaign_routes(
     destination: Path | None = None,
     *,
     include_inactive: bool = False,
+    write_reports: bool = True,
 ) -> dict[str, Any]:
-    """Audit every job's route intent; write CSV/JSON/Markdown reports."""
+    """Audit every job's route intent; write CSV/JSON/Markdown reports.
+
+    `write_reports=False` computes the audit without publishing anything, for
+    callers that must not touch the campaign -- notably
+    `relaunch-routes --dry-run`, which tells the operator nothing was written.
+    """
     campaign = campaign.resolve()
     manifest = find_manifest(campaign)
     _, manifest_rows = read_manifest(manifest)
@@ -215,6 +221,15 @@ def audit_campaign_routes(
         "completed_but_invalid": wasted.get("complete", 0),
         "unreadable": unreadable,
     }
+
+    if not write_reports:
+        return {
+            "summary": summary,
+            "rows": rows,
+            "relaunch": relaunch_rows,
+            "unreadable": unreadable,
+            "destination": None,
+        }
 
     destination = (destination or campaign / "monitoring").resolve()
     destination.mkdir(parents=True, exist_ok=True)
