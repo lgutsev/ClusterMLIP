@@ -76,6 +76,16 @@ class BatchProgressTests(unittest.TestCase):
     def test_cli_and_range(self):
         args = build_parser().parse_args(['campaign-status', 'campaign', '--by-batch', '--audit', '--start', '2', '--end', '4'])
         self.assertTrue(args.audit)
+        self.assertFalse(args.sbatch)
+        submitted = build_parser().parse_args([
+            'campaign-status', 'campaign', '--audit', '--start', '6', '--end', '130',
+            '--sbatch', '--sbatch-time', '12:00:00',
+        ])
+        self.assertTrue(submitted.sbatch)
+        self.assertEqual(submitted.sbatch_time, '12:00:00')
+        with self.assertRaisesRegex(ValueError, '--sbatch requires'):
+            submitted = build_parser().parse_args(['campaign-status', 'campaign', '--sbatch'])
+            submitted.func(submitted)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.campaign(root)

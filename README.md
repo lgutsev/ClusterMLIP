@@ -454,6 +454,17 @@ For a persistent, job-by-job audit table rather than only batch totals, run:
 cluster-mlip campaign-status gaussian_jobs
 ```
 
+Large audits can exceed login-node process limits. Run the identical operation
+as a one-core Slurm job with `--sbatch`:
+
+```bash
+cluster-mlip campaign-status gaussian_jobs --audit --start 1 --end 130 --sbatch
+```
+
+The default audit allocation is four hours on `single` using account
+`loni_perovsk27`; the generated script and scheduler logs are retained in the
+report directory.
+
 This refreshes `gaussian_jobs/progress.csv` and
 `gaussian_jobs/progress_summary.json`. Every row carries the original-source
 crosswalk alongside batch, pending/running/failed/completed state, timestamps,

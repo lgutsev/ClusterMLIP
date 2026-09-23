@@ -10,10 +10,12 @@ import unittest
 
 from cluster_mlip.cli import build_parser
 from cluster_mlip.slurm import (
+    CampaignStatusSlurmConfig,
     ExtractSlurmConfig,
     SlurmConfig,
     prepare_extract_slurm,
     prepare_slurm_batches,
+    submit_campaign_status_slurm,
 )
 
 
@@ -72,6 +74,54 @@ class SlurmPreparationTests(unittest.TestCase):
                     source / "extracted",
                     ExtractSlurmConfig(),
                 )
+
+    def test_submits_campaign_status_on_compute_node(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            campaign = root / "campaign"
+            campaign.mkdir()
+            executable = root / "cluster-mlip"
+            executable.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+            executable.chmod(0o755)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            fake_sbatch = fake_bin / "sbatch"
+            fake_sbatch.write_text(
+                "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" > \"$SBATCH_LOG\"\n"
+                "echo 'Submitted batch job 24680'\n",
+                encoding="utf-8",
+            )
+            fake_sbatch.chmod(0o755)
+            submission_log = root / "submission.txt"
+            environment = os.environ.copy()
+            environment.update({
+                "PATH": f"{fake_bin}:{environment['PATH']}",
+                "SBATCH_LOG": str(submission_log),
+            })
+            old_environment = os.environ.copy()
+            try:
+                os.environ.update(environment)
+                script, response = submit_campaign_status_slurm(
+                    campaign,
+                    executable,
+                    CampaignStatusSlurmConfig(time_limit="12:00:00"),
+                    audit=True,
+                    start=6,
+                    end=130,
+                )
+            finally:
+                os.environ.clear()
+                os.environ.update(old_environment)
+            text = script.read_text(encoding="utf-8")
+            self.assertIn("#SBATCH --account=loni_perovsk27", text)
+            self.assertIn("#SBATCH --partition=single", text)
+            self.assertIn("#SBATCH --time=12:00:00", text)
+            self.assertIn("campaign-status", text)
+            self.assertIn("--audit --start 6 --end 130", text)
+            self.assertNotIn("--sbatch", text)
+            self.assertIn("--chdir=", submission_log.read_text(encoding="utf-8"))
+            self.assertEqual(response, "Submitted batch job 24680")
+            subprocess.run(["bash", "-n", str(script)], check=True)
 
     def _campaign(self, root: Path, count: int = 7) -> Path:
         campaign = root / "campaign"

@@ -63,6 +63,14 @@ class ExtractSlurmPlan(TypedDict):
     submit_script: str
 
 
+@dataclass(frozen=True)
+class CampaignStatusSlurmConfig:
+    time_limit: str = "04:00:00"
+    partition: str = "single"
+    account: str = "loni_perovsk27"
+    job_name: str = "cluster_mlip_audit"
+
+
 def _safe_directive(value: str, name: str) -> str:
     if not value or any(character in value for character in "\r\n"):
         raise ValueError(f"{name} must be a non-empty single line")
@@ -220,6 +228,67 @@ def submit_extract_slurm(output: Path) -> str:
     response = result.stdout.strip()
     (output / "extract_submission.txt").write_text(response + "\n", encoding="utf-8")
     return response
+
+
+def submit_campaign_status_slurm(
+    campaign: Path,
+    executable: Path,
+    config: CampaignStatusSlurmConfig,
+    *,
+    output: Path | None = None,
+    by_batch: bool = False,
+    audit: bool = False,
+    start: int = 1,
+    end: int | None = None,
+) -> tuple[Path, str]:
+    """Write and submit a one-core, compute-node campaign status job."""
+    campaign = campaign.resolve()
+    if not campaign.is_dir():
+        raise NotADirectoryError(campaign)
+    executable = executable.resolve()
+    if not executable.is_file():
+        raise FileNotFoundError(executable)
+    destination = (output or campaign / "monitoring").resolve()
+    destination.mkdir(parents=True, exist_ok=True)
+    range_name = f"{start}-{end if end is not None else 'end'}"
+    script = destination / f"run_campaign_status_{range_name}.sbatch"
+    command = [str(executable), "campaign-status", str(campaign)]
+    if by_batch:
+        command.append("--by-batch")
+    if audit:
+        command.append("--audit")
+    if by_batch or audit:
+        command.extend(["--start", str(start)])
+        if end is not None:
+            command.extend(["--end", str(end)])
+    command.extend(["--output", str(destination)])
+    directives = [
+        "#!/usr/bin/env bash",
+        f"#SBATCH --job-name={_safe_directive(config.job_name, 'job name')}",
+        "#SBATCH --nodes=1",
+        "#SBATCH --ntasks=1",
+        "#SBATCH --cpus-per-task=1",
+        f"#SBATCH --time={_safe_directive(config.time_limit, 'time limit')}",
+        f"#SBATCH --partition={_safe_directive(config.partition, 'partition')}",
+        f"#SBATCH --account={_safe_directive(config.account, 'account')}",
+        f"#SBATCH --output={_safe_directive(str(destination / 'campaign-status-%j.stdout'), 'stdout path')}",
+        f"#SBATCH --error={_safe_directive(str(destination / 'campaign-status-%j.stderr'), 'stderr path')}",
+    ]
+    body = """
+set -euo pipefail
+
+echo "Campaign status audit on $(hostname)"
+date
+""" + " ".join(shlex.quote(part) for part in command) + "\ndate\n"
+    script.write_text("\n".join(directives) + body, encoding="utf-8")
+    script.chmod(0o755)
+    result = subprocess.run(
+        ["sbatch", f"--chdir={campaign}", str(script)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return script, result.stdout.strip()
 
 
 def _manifest_inputs(campaign: Path) -> tuple[Path, list[str]]:

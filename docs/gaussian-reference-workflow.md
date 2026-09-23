@@ -118,6 +118,19 @@ cluster-mlip campaign-status "$W2" --by-batch
 cluster-mlip campaign-status "$W2" --audit --start 1 --end 10
 ```
 
+For a large range, submit the inspection itself to a compute node so the login
+node's process-duration policy cannot kill it:
+
+```bash
+cluster-mlip campaign-status "$W2" --audit --start 1 --end 130 --sbatch
+```
+
+This requests one CPU for four hours on `single` under `loni_perovsk27` and
+writes both the generated sbatch file and `campaign-status-JOBID.stdout` /
+`.stderr` under `monitoring/`. Override those defaults with `--sbatch-time`,
+`--sbatch-partition`, and `--sbatch-account` when needed. The submitted script
+uses the exact `cluster-mlip` executable found in the active environment.
+
 The batch table counts Gaussian input files separately from their spin stages.
 It shows completed inputs, failures, incomplete logs, unconfirmed activity,
 unstarted inputs, and completed/planned stages. Unstarted inputs are mapped

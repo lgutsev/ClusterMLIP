@@ -4,6 +4,7 @@ import argparse
 import collections
 import json
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -48,10 +49,12 @@ from .spin import (
     write_spin_jobs,
 )
 from .slurm import (
+    CampaignStatusSlurmConfig,
     ExtractSlurmConfig,
     SlurmConfig,
     prepare_extract_slurm,
     prepare_slurm_batches,
+    submit_campaign_status_slurm,
     submit_extract_slurm,
 )
 from .stratify import STRATA_FIELDS
@@ -367,6 +370,33 @@ def command_prepare_slurm(args: argparse.Namespace) -> int:
 
 
 def command_campaign_status(args: argparse.Namespace) -> int:
+    if args.sbatch:
+        if not (args.by_batch or args.audit):
+            raise ValueError("--sbatch requires --by-batch or --audit")
+        executable = shutil.which("cluster-mlip")
+        if executable is None:
+            raise FileNotFoundError(
+                "cluster-mlip is not on PATH; activate the environment before using --sbatch"
+            )
+        script, response = submit_campaign_status_slurm(
+            Path(args.campaign),
+            Path(executable),
+            CampaignStatusSlurmConfig(
+                time_limit=args.sbatch_time,
+                partition=args.sbatch_partition,
+                account=args.sbatch_account,
+                job_name=args.sbatch_job_name,
+            ),
+            output=Path(args.output) if args.output else None,
+            by_batch=args.by_batch,
+            audit=args.audit,
+            start=args.start,
+            end=args.end,
+        )
+        print(response)
+        print(f"Script: {script}")
+        print(f"Scheduler logs: {script.parent / 'campaign-status-%j.stdout'}")
+        return 0
     if args.by_batch or args.audit:
         batch_result = write_batch_progress(Path(args.campaign), Path(args.output) if args.output else None,
                                       start=args.start, end=args.end, audit=args.audit)
@@ -1064,6 +1094,14 @@ def build_parser() -> argparse.ArgumentParser:
     campaign_status.add_argument("--audit", action="store_true", help="also check inputs, hashes, CPU settings and final force labels; exit 2 for errors")
     campaign_status.add_argument("--start", type=int, default=1, help="first batch to inspect (inclusive)")
     campaign_status.add_argument("--end", type=int, help="last batch to inspect (inclusive)")
+    campaign_status.add_argument(
+        "--sbatch", action="store_true",
+        help="submit this status/audit operation as a one-core Slurm job instead of running on the login node",
+    )
+    campaign_status.add_argument("--sbatch-time", default="04:00:00", help="wall time for --sbatch")
+    campaign_status.add_argument("--sbatch-partition", default="single", help="partition for --sbatch")
+    campaign_status.add_argument("--sbatch-account", default="loni_perovsk27", help="account for --sbatch")
+    campaign_status.add_argument("--sbatch-job-name", default="cluster_mlip_audit", help="job name for --sbatch")
     campaign_status.set_defaults(func=command_campaign_status)
 
     audit_routes = sub.add_parser(
