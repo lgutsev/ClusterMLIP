@@ -419,6 +419,23 @@ stage checkpoint; it reports that exact choice in the plan. Manifest and
 `inputs.txt` snapshots are kept together under the single `restart_backups/`
 directory.
 
+If neither the unfinished stage nor its completed predecessor has a usable
+checkpoint, the default remains to skip that input. After confirming the old
+allocation is stopped, archive its partial log and reactivate the unchanged
+input from scratch with:
+
+```bash
+cluster-mlip prepare-spin-restarts "$W2" \
+  --start 1 --end 30 --assume-stopped --rerun-missing-checkpoints --dry-run
+cluster-mlip prepare-spin-restarts "$W2" \
+  --start 1 --end 30 --assume-stopped --rerun-missing-checkpoints
+```
+
+The archived log remains represented by inactive rows in `spin_jobs.csv`, so
+its converged stages remain available to `collect --frames converged`. The
+active cloned rows reuse the original input and output names; marker files are
+archived beside the old log before the rerun begins.
+
 Do not run `prepare-slurm` again. The existing batch map and QB3 resource
 directives remain active. Submit the same batch range with the existing head
 launcher:

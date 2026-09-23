@@ -759,6 +759,11 @@ The interrupted log is renamed beside the new run and remains represented in
 the same manifest; `inputs.txt` is updated in place, so the existing Slurm
 launchers remain authoritative.
 
+For interrupted inputs lacking both a current-stage and predecessor
+checkpoint, add `--rerun-missing-checkpoints`. Their partial logs and markers
+are archived with manifest provenance, then the unchanged original inputs are
+reactivated from scratch. Preview this mode with `--dry-run` before submission.
+
 ### Relaunch jobs that searched for the wrong stationary point
 
 When `audit-routes` reports jobs that must be relaunched, rebuild them in place:

@@ -169,6 +169,76 @@ class SpinRestartTests(unittest.TestCase):
             with (campaign / "restart_plan.csv").open(newline="") as handle:
                 self.assertEqual(len(list(csv.DictReader(handle))), 2)
 
+    def test_missing_checkpoint_can_be_archived_and_rerun_from_scratch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign, log, checkpoint = self._campaign(Path(tmp), active=True)
+            checkpoint.unlink()
+            original_log = log.read_bytes()
+            batch = campaign / "slurm_batches/batch_0001"
+            original_listing = (batch / "inputs.txt").read_text()
+
+            preview = prepare_spin_restarts(
+                campaign, assume_stopped=True,
+                rerun_missing_checkpoints=True, dry_run=True,
+            )
+            self.assertEqual(preview["checkpoint_restart_count"], 0)
+            self.assertEqual(preview["from_scratch_rerun_count"], 1)
+            self.assertTrue(log.is_file())
+
+            result = prepare_spin_restarts(
+                campaign, assume_stopped=True, rerun_missing_checkpoints=True,
+            )
+            self.assertEqual(result["input_count"], 1)
+            self.assertEqual(result["stage_count"], 3)
+            self.assertFalse(log.exists())
+            self.assertEqual((batch / "inputs.txt").read_text(), original_listing)
+
+            with (campaign / "spin_jobs.csv").open(newline="") as handle:
+                rows = list(csv.DictReader(handle))
+            active = [row for row in rows if row.get("submission_active") != "false"]
+            inactive = [row for row in rows if row.get("submission_active") == "false"]
+            self.assertEqual(len(active), 3)
+            self.assertEqual(len(inactive), 3)
+            self.assertEqual({row["input"] for row in active}, {"inputs/ladder.gjf"})
+            self.assertEqual(active[0]["restart_attempt"], "1")
+            self.assertEqual(active[0]["restart_source_checkpoint"], "")
+            self.assertEqual(active[0]["restart_seed_checkpoint"], "")
+            self.assertEqual(
+                Path(active[0]["restart_source_output"]).name, inactive[0]["output"]
+            )
+            archived = campaign / active[0]["restart_source_output"]
+            self.assertEqual(archived.read_bytes(), original_log)
+            self.assertTrue((batch / f"{archived.stem}.started").is_file())
+
+            with (campaign / "restart_plan.csv").open(newline="") as handle:
+                plan = list(csv.DictReader(handle))
+            self.assertEqual(plan[0]["mode"], "from_scratch_missing_checkpoint")
+            self.assertEqual(plan[0]["new_input"], "inputs/ladder.gjf")
+
+            _, lineage, errors = _spin_manifest_audit(campaign / "spin_jobs.csv")
+            self.assertEqual(errors, [])
+            self.assertTrue(lineage)
+
+    def test_missing_seed_cannot_rerun_checkpoint_seeded_input_from_scratch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign, _, checkpoint = self._campaign(Path(tmp))
+            checkpoint.unlink()
+            source = campaign / "inputs/ladder.gjf"
+            source.write_text(
+                "%oldchk=missing-seed.chk\n" +
+                source.read_text().replace("#p UBPW91/6-311++G* NoSymm Opt", (
+                    "#p UBPW91/6-311++G* NoSymm Opt Geom=Checkpoint Guess=Read"
+                ), 1)
+            )
+            result = prepare_spin_restarts(
+                campaign, rerun_missing_checkpoints=True, dry_run=True,
+            )
+            self.assertEqual(result["input_count"], 0)
+            self.assertEqual(
+                result["skipped"][0]["reason"],
+                "checkpoint_seeded_input_missing_seed",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

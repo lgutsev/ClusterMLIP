@@ -40,6 +40,18 @@ class RestartAction:
     plan_row: dict[str, str]
 
 
+@dataclass
+class RerunAction:
+    input_path: str
+    input_name: str
+    batch: Path
+    source_output: Path
+    archived_output: Path
+    old_rows: list[dict[str, str]]
+    new_rows: list[dict[str, str]]
+    plan_row: dict[str, str]
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -133,9 +145,17 @@ def prepare_spin_restarts(
     start: int = 1,
     end: int | None = None,
     assume_stopped: bool = False,
+    rerun_missing_checkpoints: bool = False,
     dry_run: bool = False,
 ) -> dict[str, object]:
-    """Archive interrupted attempts and activate shortened inputs in place."""
+    """Archive interrupted attempts and activate safe continuations in place.
+
+    Checkpoint-backed attempts become shortened ``Geom=Checkpoint`` restarts.
+    With ``rerun_missing_checkpoints``, an interrupted attempt for which neither
+    the current nor predecessor checkpoint exists is archived and cloned in the
+    manifest as a from-scratch rerun of the unchanged input. This keeps labels
+    in the partial log collectable instead of letting a worker overwrite them.
+    """
     campaign = campaign.resolve()
     manifest = campaign / "spin_jobs.csv"
     if not manifest.is_file():
@@ -155,6 +175,7 @@ def prepare_spin_restarts(
         raise ValueError(f"batch range must satisfy 1 <= start <= end <= {final_batch}")
 
     actions: list[RestartAction] = []
+    rerun_actions: list[RerunAction] = []
     skipped: list[dict[str, str]] = []
     for input_path, rows in sorted(grouped.items()):
         rows.sort(key=lambda row: int(row["stage_index"]))
@@ -198,10 +219,76 @@ def prepare_spin_restarts(
             if candidate.is_file() and candidate.stat().st_size > 0
         ), None)
         if source_checkpoint is None:
-            skipped.append({
-                "input": input_path, "batch": batch.name,
-                "reason": "unfinished_checkpoint_missing",
-            })
+            if not rerun_missing_checkpoints:
+                skipped.append({
+                    "input": input_path, "batch": batch.name,
+                    "reason": "unfinished_checkpoint_missing",
+                })
+                continue
+            sections = _LINK1_RE.split(
+                source_input.read_text(encoding="utf-8", errors="replace")
+            )
+            if len(sections) != len(rows):
+                raise ValueError(
+                    f"{source_input}: Link1 sections disagree with active manifest rows"
+                )
+            first_route_match = _ROUTE_RE.search(sections[0])
+            first_route = first_route_match.group(1) if first_route_match else ""
+            if _OLDCHK_RE.search(sections[0]) or re.search(
+                r"\bGeom\s*=\s*(?:All)?Checkpoint\b", first_route, re.IGNORECASE
+            ):
+                skipped.append({
+                    "input": input_path, "batch": batch.name,
+                    "reason": "checkpoint_seeded_input_missing_seed",
+                })
+                continue
+            root_input = rows[0].get("restart_root_input") or input_path
+            related = [
+                row for row in all_rows
+                if (row.get("restart_root_input") or row["input"]) == root_input
+            ]
+            attempt = _next_attempt(related)
+            archived_output = batch / f"{stem}__before-rerun{attempt:02d}.log"
+            if archived_output.exists() or archived_output.is_symlink():
+                raise FileExistsError(f"rerun target already exists: {archived_output}")
+            new_rows: list[dict[str, str]] = []
+            previous_job = ""
+            for old_row in rows:
+                row = {column: old_row.get(column, "") for column in fields}
+                job_id = f"{old_row['job_id']}-rerun-r{attempt:02d}"
+                row.update({
+                    "job_id": job_id,
+                    "chain_id": f"{old_row['chain_id']}-rerun-r{attempt:02d}",
+                    "predecessor_job_id": previous_job,
+                    "output": source_output.name,
+                    "submission_active": "true",
+                    "restart_attempt": str(attempt),
+                    "restart_root_input": root_input,
+                    "restart_of_job_id": old_row["job_id"],
+                    "restart_source_output": str(archived_output.relative_to(campaign)),
+                    "restart_source_checkpoint": "",
+                    "restart_seed_checkpoint": "",
+                    "restart_seed_sha256": "",
+                })
+                new_rows.append(row)
+                previous_job = job_id
+            plan_row = {
+                "attempt": str(attempt), "mode": "from_scratch_missing_checkpoint",
+                "batch": batch.name, "original_input": root_input,
+                "archived_input": input_path,
+                "archived_output": str(archived_output.relative_to(campaign)),
+                "restart_charge": rows[0]["intended_charge"],
+                "restart_multiplicity": rows[0]["intended_multiplicity"],
+                "completed_stages_in_attempt": str(unfinished_index),
+                "remaining_stages": str(len(rows)),
+                "source_checkpoint": "", "seed_checkpoint": "",
+                "new_input": input_path,
+                "new_output": str(source_output.relative_to(campaign)),
+            }
+            rerun_actions.append(RerunAction(
+                input_path, input_name, batch, source_output, archived_output,
+                rows, new_rows, plan_row,
+            ))
             continue
         sections = _LINK1_RE.split(source_input.read_text(encoding="utf-8", errors="replace"))
         if len(sections) != len(rows):
@@ -278,7 +365,8 @@ def prepare_spin_restarts(
         for row in new_rows:
             row["input_sha256"] = input_sha
         plan_row = {
-            "attempt": str(attempt), "batch": batch.name, "original_input": root_input,
+            "attempt": str(attempt), "mode": "checkpoint_restart",
+            "batch": batch.name, "original_input": root_input,
             "archived_input": input_path,
             "archived_output": str(archived_output.relative_to(campaign)),
             "restart_charge": remaining[0]["intended_charge"],
@@ -296,16 +384,19 @@ def prepare_spin_restarts(
             rows, new_rows, plan_row,
         ))
 
-    if not actions and not dry_run:
+    all_actions = [*actions, *rerun_actions]
+    if not all_actions and not dry_run:
         reasons = defaultdict(int)
         for row in skipped:
             reasons[row["reason"]] += 1
         detail = ", ".join(f"{key}={value}" for key, value in sorted(reasons.items()))
-        raise RuntimeError(f"no interrupted checkpoint-backed inputs to restart ({detail})")
+        raise RuntimeError(f"no interrupted inputs to recover ({detail})")
     if dry_run:
-        return {"campaign": str(campaign), "input_count": len(actions),
-                "stage_count": sum(len(action.new_rows) for action in actions),
-                "plan": [action.plan_row for action in actions], "skipped": skipped,
+        return {"campaign": str(campaign), "input_count": len(all_actions),
+                "checkpoint_restart_count": len(actions),
+                "from_scratch_rerun_count": len(rerun_actions),
+                "stage_count": sum(len(action.new_rows) for action in all_actions),
+                "plan": [action.plan_row for action in all_actions], "skipped": skipped,
                 "dry_run": True}
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
@@ -315,7 +406,7 @@ def prepare_spin_restarts(
     campaign_metadata = campaign / "spin_campaign.json"
     if campaign_metadata.is_file():
         shutil.copy2(campaign_metadata, backup_dir / f"spin_campaign.{stamp}.json")
-    touched_batches = sorted({action.batch for action in actions})
+    touched_batches = sorted({action.batch for action in all_actions})
     for batch in touched_batches:
         shutil.copy2(batch / "inputs.txt", backup_dir / f"{batch.name}.inputs.{stamp}.txt")
 
@@ -337,6 +428,15 @@ def prepare_spin_restarts(
         except OSError:
             shutil.copy2(action.new_input, link)
 
+    for action in rerun_actions:
+        action.source_output.rename(action.archived_output)
+        old_stem = Path(action.input_name).stem
+        archived_stem = action.archived_output.stem
+        for suffix in _MARKER_SUFFIXES:
+            marker = action.batch / f"{old_stem}{suffix}"
+            if marker.exists():
+                marker.rename(action.batch / f"{archived_stem}{suffix}")
+
     for batch in touched_batches:
         replacements = {
             action.input_name: action.new_input_name for action in actions if action.batch == batch
@@ -347,7 +447,7 @@ def prepare_spin_restarts(
             "\n".join(replacements.get(name, name) for name in names) + "\n",
             encoding="utf-8",
         )
-    for action in actions:
+    for action in all_actions:
         archived_name = action.archived_output.name
         for row in action.old_rows:
             row["submission_active"] = "false"
@@ -359,8 +459,9 @@ def prepare_spin_restarts(
     plan_path = campaign / "restart_plan.csv"
     if plan_path.is_file():
         _, existing_plan = _read_csv(plan_path)
-    plan_rows = existing_plan + [action.plan_row for action in actions]
-    _write_csv(plan_path, list(plan_rows[0]), plan_rows)
+    plan_rows = existing_plan + [action.plan_row for action in all_actions]
+    plan_fields = list(dict.fromkeys(key for row in plan_rows for key in row))
+    _write_csv(plan_path, plan_fields, plan_rows)
     _write_csv(campaign / "skipped_restarts.csv", ["input", "batch", "reason"], skipped)
     if campaign_metadata.is_file():
         metadata = json.loads(campaign_metadata.read_text(encoding="utf-8"))
@@ -368,11 +469,15 @@ def prepare_spin_restarts(
         history = metadata.setdefault("restart_history", [])
         history.append({
             "created_utc": datetime.now(timezone.utc).isoformat(),
-            "batch_range": [start, end], "input_count": len(actions),
-            "stage_count": sum(len(action.new_rows) for action in actions),
+            "batch_range": [start, end], "input_count": len(all_actions),
+            "checkpoint_restart_count": len(actions),
+            "from_scratch_rerun_count": len(rerun_actions),
+            "stage_count": sum(len(action.new_rows) for action in all_actions),
         })
         campaign_metadata.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
-    return {"campaign": str(campaign), "input_count": len(actions),
-            "stage_count": sum(len(action.new_rows) for action in actions),
-            "plan": [action.plan_row for action in actions], "skipped": skipped,
+    return {"campaign": str(campaign), "input_count": len(all_actions),
+            "checkpoint_restart_count": len(actions),
+            "from_scratch_rerun_count": len(rerun_actions),
+            "stage_count": sum(len(action.new_rows) for action in all_actions),
+            "plan": [action.plan_row for action in all_actions], "skipped": skipped,
             "dry_run": False, "backup": str(backup_dir)}

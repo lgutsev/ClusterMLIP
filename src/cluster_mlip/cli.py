@@ -565,13 +565,20 @@ def _multiplicities(value: str) -> list[int]:
 def command_prepare_spin_restarts(args: argparse.Namespace) -> int:
     result = prepare_spin_restarts(
         Path(args.campaign), start=args.start, end=args.end,
-        assume_stopped=args.assume_stopped, dry_run=args.dry_run,
+        assume_stopped=args.assume_stopped,
+        rerun_missing_checkpoints=args.rerun_missing_checkpoints,
+        dry_run=args.dry_run,
     )
     print(
-        f"Prepared {result['input_count']} shortened restart input(s) "
-        f"covering {result['stage_count']} unfinished stage(s)"
+        f"Prepared {result['input_count']} recovery input(s) "
+        f"covering {result['stage_count']} stage(s)"
     )
     print(f"Campaign: {Path(args.campaign).resolve()}")
+    if result.get("from_scratch_rerun_count"):
+        print(
+            f"Included {result['from_scratch_rerun_count']} archived-log "
+            "from-scratch rerun(s) without usable checkpoints"
+        )
     if args.dry_run:
         for row in result.get("plan", []):
             print(
@@ -1207,6 +1214,13 @@ def build_parser() -> argparse.ArgumentParser:
     restart_spins.add_argument(
         "--assume-stopped", action="store_true",
         help="allow copying checkpoints with unmatched .started markers after independently confirming jobs stopped",
+    )
+    restart_spins.add_argument(
+        "--rerun-missing-checkpoints", action="store_true",
+        help=(
+            "archive partial logs and reactivate unchanged inputs from scratch when no usable "
+            "current or predecessor checkpoint exists"
+        ),
     )
     restart_spins.add_argument(
         "--dry-run", action="store_true",
