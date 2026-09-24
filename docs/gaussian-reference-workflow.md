@@ -118,6 +118,19 @@ cluster-mlip campaign-status "$W2" --by-batch
 cluster-mlip campaign-status "$W2" --audit --start 1 --end 10
 ```
 
+For a large range, submit the inspection itself to a compute node so the login
+node's process-duration policy cannot kill it:
+
+```bash
+cluster-mlip campaign-status "$W2" --audit --start 1 --end 130 --sbatch
+```
+
+This requests one CPU for four hours on `single` under `loni_perovsk27` and
+writes both the generated sbatch file and `campaign-status-JOBID.stdout` /
+`.stderr` under `monitoring/`. Override those defaults with `--sbatch-time`,
+`--sbatch-partition`, and `--sbatch-account` when needed. The submitted script
+uses the exact `cluster-mlip` executable found in the active environment.
+
 The batch table counts Gaussian input files separately from their spin stages.
 It shows completed inputs, failures, incomplete logs, unconfirmed activity,
 unstarted inputs, and completed/planned stages. Unstarted inputs are mapped
@@ -418,6 +431,23 @@ checkpoint is absent, the tool can use the immediately preceding completed
 stage checkpoint; it reports that exact choice in the plan. Manifest and
 `inputs.txt` snapshots are kept together under the single `restart_backups/`
 directory.
+
+If neither the unfinished stage nor its completed predecessor has a usable
+checkpoint, the default remains to skip that input. After confirming the old
+allocation is stopped, archive its partial log and reactivate the unchanged
+input from scratch with:
+
+```bash
+cluster-mlip prepare-spin-restarts "$W2" \
+  --start 1 --end 30 --assume-stopped --rerun-missing-checkpoints --dry-run
+cluster-mlip prepare-spin-restarts "$W2" \
+  --start 1 --end 30 --assume-stopped --rerun-missing-checkpoints
+```
+
+The archived log remains represented by inactive rows in `spin_jobs.csv`, so
+its converged stages remain available to `collect --frames converged`. The
+active cloned rows reuse the original input and output names; marker files are
+archived beside the old log before the rerun begins.
 
 Do not run `prepare-slurm` again. The existing batch map and QB3 resource
 directives remain active. Submit the same batch range with the existing head
