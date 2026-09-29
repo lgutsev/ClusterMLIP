@@ -1,0 +1,23 @@
+{
+ "spearman_dft_vs_mace_gas_all": 0.007579763793407368,
+ "n_dft": 62,
+ "n_basins": 7,
+ "spearman_gas_vs_graphene": -0.6071428571428572,
+ "spearman_gas_vs_MgO100": -0.10714285714285716,
+ "gas_isomer_gaps_min_median": [
+  9.564265779715697e-05,
+  0.0009715123178111185
+ ],
+ "E_ads_spread_graphene": 1.0196528714761257,
+ "E_ads_spread_MgO100": 0.7083496172035098,
+ "lowest_supported": {
+  "graphene": "B6",
+  "MgO100": "B0"
+ },
+ "md": {
+  "graphene": {
+   "rmsd_final": 0.4837994799969875,
+   "com_drift_final": 0.626858843569745
+  }
+ }
+}
