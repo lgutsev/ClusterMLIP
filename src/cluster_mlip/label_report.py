@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 import statistics
+from collections import Counter
 from pathlib import Path
 from typing import Callable, TypedDict
 
-from .dataset import split_coverage
+from .dataset import atomic_spin_column, split_coverage
 from .gaussian import rms_force
 from .models import LabeledFrame
+from .spin import classify_spin_pattern
 from .stratify import STRATA_FIELDS, classify_record, strata_value
 
 
@@ -37,6 +39,7 @@ class LabelSummary(TypedDict):
     outliers: list[OutlierFrame]
     by_stratum: dict[str, list[GroupStats]]
     split_coverage: list[dict[str, object]]
+    spin_patterns: dict[str, int]
 
 
 def _group_key(frame: LabeledFrame) -> str:
@@ -118,6 +121,9 @@ def summarize_labels(
         "outliers": outliers,
         "by_stratum": by_stratum,
         "split_coverage": split_coverage(splits, stratify_by) if splits else [],
+        "spin_patterns": dict(sorted(Counter(
+            classify_spin_pattern(atomic_spin_column(frame.record) or []) for frame in frames
+        ).items())),
     }
 
 
@@ -156,6 +162,8 @@ def write_label_report(
         f"- Charge/multiplicity groups: {summary['n_groups']}",
         f"- Force-RMS outlier threshold: {force_outlier_threshold_ev_ang} eV/Angstrom",
         f"- Outlier frames: {len(summary['outliers'])}",
+        "- Mulliken spin patterns: "
+        + ", ".join(f"{name}={count}" for name, count in summary["spin_patterns"].items()),
         "",
         "## Per charge/multiplicity group",
         "",

@@ -7,15 +7,40 @@ from pathlib import Path
 
 from .io import parse_extxyz_info_line, quote_extxyz
 from .models import Atom, LabeledFrame, Record
+from .spin import classify_spin_pattern
 from .stratify import classify_record, stratum_key
 
 
+def atomic_spin_column(rec: Record) -> list[float] | None:
+    """Mulliken spin densities in `rec.atoms` order, or None when the output
+    printed none for this frame or its rows do not line up with the geometry
+    (count, 1-based centre index, element)."""
+    rows = rec.metadata.get("atomic_spins")
+    if not rows or len(rows) != len(rec.atoms):
+        return None
+    spins = []
+    for position, ((index, symbol, spin), atom) in enumerate(zip(rows, rec.atoms), 1):
+        if int(index) != position or symbol != atom.symbol:
+            return None
+        spins.append(float(spin))
+    return spins
+
+
 def write_labeled_extxyz(frames: list[LabeledFrame], path: Path) -> None:
+    """Write MACE-ready extxyz. When the Gaussian output printed Mulliken spin
+    densities for a frame they become a per-atom `REF_atomic_spins` column and
+    a `spin_pattern` label, so frames that share geometry and multiplicity but
+    not the arrangement of local moments (ferro- vs antiferromagnetic
+    solutions) can be told apart; the raw rows stay in `metadata` as before."""
     with path.open("w", encoding="utf-8") as handle:
         for frame in frames:
             rec = frame.record
+            spins = atomic_spin_column(rec)
+            properties = "species:S:1:pos:R:3:REF_forces:R:3"
+            if spins is not None:
+                properties += ":REF_atomic_spins:R:1"
             fields = [
-                "Properties=species:S:1:pos:R:3:REF_forces:R:3",
+                f"Properties={properties}",
                 f"record_id={quote_extxyz(rec.record_id)}",
                 f"source={quote_extxyz(rec.source)}",
                 f"formula={quote_extxyz(rec.formula)}",
@@ -25,6 +50,7 @@ def write_labeled_extxyz(frames: list[LabeledFrame], path: Path) -> None:
                 f"multiplicity={rec.multiplicity}",
                 f"total_spin={rec.total_spin}",
                 f"REF_energy={frame.energy_ev:.14g}",
+                f"spin_pattern={classify_spin_pattern(spins or [])}",
                 'pbc="F F F"',
             ]
             parent = rec.metadata.get("parent_record_id")
@@ -33,11 +59,14 @@ def write_labeled_extxyz(frames: list[LabeledFrame], path: Path) -> None:
             if rec.metadata:
                 fields.append(f"metadata={quote_extxyz(json.dumps(rec.metadata, sort_keys=True))}")
             handle.write(f"{len(rec.atoms)}\n{' '.join(fields)}\n")
-            for atom, force in zip(rec.atoms, frame.forces_ev_ang):
-                handle.write(
+            for i, (atom, force) in enumerate(zip(rec.atoms, frame.forces_ev_ang)):
+                line = (
                     f"{atom.symbol:3s} {atom.x: .12f} {atom.y: .12f} {atom.z: .12f} "
-                    f"{force[0]: .12f} {force[1]: .12f} {force[2]: .12f}\n"
+                    f"{force[0]: .12f} {force[1]: .12f} {force[2]: .12f}"
                 )
+                if spins is not None:
+                    line += f" {spins[i]: .6f}"
+                handle.write(line + "\n")
 
 
 def read_labeled_extxyz(path: Path) -> list[LabeledFrame]:
