@@ -9,7 +9,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 from cluster_mlip.cli import build_parser
-from cluster_mlip.dataset import read_labeled_extxyz
+from cluster_mlip.dataset import read_labeled_extxyz, write_labeled_extxyz
 from cluster_mlip.gaussian import gaussian_job_complete, parse_force_frames, parse_final_force_frame
 from cluster_mlip.slurm import _completion_function, SlurmConfig, prepare_slurm_batches
 
@@ -168,3 +168,11 @@ class GaussianCollectionTests(unittest.TestCase):
         self.assertEqual(frames[0].record.metadata['s2_after'], 2.0)
         self.assertEqual(frames[0].record.metadata['atomic_spins'], [[1, 'H', 0.7], [2, 'H', -0.7]])
         self.assertNotIn('atomic_spins', frames[1].record.metadata)
+        # ...and reach the training file as a per-atom column only on the frame that printed them.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'all.extxyz'
+            write_labeled_extxyz(frames, path)
+            headers = [line for line in path.read_text().splitlines() if line.startswith('Properties=')]
+        self.assertIn(':REF_atomic_spins:R:1 ', headers[0])
+        self.assertIn('spin_pattern=compensated_afm_like', headers[0])
+        self.assertNotIn('REF_atomic_spins', headers[1])

@@ -996,6 +996,15 @@ and every frame whose force RMS exceeds `--force-outlier-threshold` (default
 5 eV/Å, adjust for your route and system). A non-converged SCF root or a
 rattle that blew up a geometry shows up here before it ever reaches training.
 
+When a Gaussian step prints Mulliken spin densities, `collect` writes them as a
+per-atom `REF_atomic_spins` column (ASE reads it as `atoms.arrays["REF_atomic_spins"]`)
+and labels the frame `spin_pattern=ferro_like` / `compensated_afm_like` (both signs
+among moments ≥ 0.10) / `unavailable`. Two frames can share geometry, charge and
+multiplicity yet differ in how the local moments are arranged -- broken-symmetry
+solutions in superexchange-coupled Fe–N/Fe–O clusters -- and a total-multiplicity
+model would otherwise see one input with two energies. The label report counts the
+patterns, so you can see how many such states a dataset holds before training.
+
 ## 5. Train from scratch
 
 ```bash

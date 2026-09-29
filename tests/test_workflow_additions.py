@@ -93,6 +93,42 @@ class LabelReportTests(unittest.TestCase):
         self.assertEqual(loaded[0].record.multiplicity, 1)
         self.assertAlmostEqual(loaded[0].forces_ev_ang[0][0], 0.1, places=6)
 
+    def test_atomic_spins_become_a_per_atom_column_and_pattern(self):
+        frame = _frame("afm", 0, 5, -10.0, 0.1)
+        frame.record.metadata["atomic_spins"] = [[1, "Fe", 3.2], [2, "O", -0.4]]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "all.extxyz"
+            write_labeled_extxyz([frame], path)
+            lines = path.read_text(encoding="utf-8").splitlines()
+            loaded = read_labeled_extxyz(path)
+        self.assertIn("Properties=species:S:1:pos:R:3:REF_forces:R:3:REF_atomic_spins:R:1", lines[1])
+        self.assertIn("spin_pattern=compensated_afm_like", lines[1])
+        self.assertEqual([float(line.split()[7]) for line in lines[2:4]], [3.2, -0.4])
+        # Existing consumers read the same energies/forces and keep the raw rows.
+        self.assertAlmostEqual(loaded[0].forces_ev_ang[1][0], -0.1, places=6)
+        self.assertEqual(loaded[0].record.metadata["atomic_spins"], [[1, "Fe", 3.2], [2, "O", -0.4]])
+
+    def test_misaligned_atomic_spins_are_not_written_as_a_column(self):
+        for rows in ([[1, "Fe", 3.2]], [[1, "Fe", 3.2], [2, "N", 0.1]], [[2, "Fe", 3.2], [1, "O", 0.1]]):
+            with self.subTest(rows=rows):
+                frame = _frame("bad", 0, 5, -10.0, 0.1)
+                frame.record.metadata["atomic_spins"] = rows
+                with tempfile.TemporaryDirectory() as tmp:
+                    path = Path(tmp) / "all.extxyz"
+                    write_labeled_extxyz([frame], path)
+                    lines = path.read_text(encoding="utf-8").splitlines()
+                self.assertNotIn("REF_atomic_spins", lines[1])
+                self.assertIn("spin_pattern=unavailable", lines[1])
+                self.assertEqual(len(lines[2].split()), 7)
+
+    def test_summarize_labels_counts_spin_patterns(self):
+        ferro, afm, none = (_frame(name, 0, 5, -10.0, 0.1) for name in ("f", "a", "n"))
+        ferro.record.metadata["atomic_spins"] = [[1, "Fe", 3.2], [2, "O", 0.4]]
+        afm.record.metadata["atomic_spins"] = [[1, "Fe", 3.2], [2, "O", -0.4]]
+        summary = summarize_labels([ferro, afm, none])
+        self.assertEqual(summary["spin_patterns"],
+                         {"compensated_afm_like": 1, "ferro_like": 1, "unavailable": 1})
+
     def test_summarize_labels_reports_by_stratum_and_split_coverage(self):
         frames = [_frame(f"min{i}", 0, 1, -10.0, 0.1) for i in range(4)]
         frames += [_config_type_frame(f"ts{i}", "transition_state") for i in range(2)]

@@ -67,6 +67,19 @@ SPIN_RESTART_COLUMNS = [
 
 
 
+def classify_spin_pattern(spins: list[float]) -> str:
+    """Coarse arrangement of Mulliken atomic spins: `ferro_like` when every
+    significant (|s| >= 0.10) moment has the same sign, `compensated_afm_like`
+    when both signs occur (broken-symmetry / superexchange states), and
+    `unavailable` / `weak_or_unresolved` when there is nothing to classify."""
+    significant = [spin for spin in spins if abs(spin) >= 0.10]
+    if not significant:
+        return "unavailable" if not spins else "weak_or_unresolved"
+    if any(spin > 0 for spin in significant) and any(spin < 0 for spin in significant):
+        return "compensated_afm_like"
+    return "ferro_like"
+
+
 @dataclass(frozen=True)
 class SpinDiagnostics:
     charge: int | None
@@ -94,12 +107,7 @@ class SpinDiagnostics:
 
     @property
     def spin_pattern(self) -> str:
-        significant = [spin for _, _, spin in self.atomic_spins if abs(spin) >= 0.10]
-        if not significant:
-            return "unavailable" if not self.atomic_spins else "weak_or_unresolved"
-        if any(spin > 0 for spin in significant) and any(spin < 0 for spin in significant):
-            return "compensated_afm_like"
-        return "ferro_like"
+        return classify_spin_pattern([spin for _, _, spin in self.atomic_spins])
 
     @property
     def root_signature(self) -> str:
