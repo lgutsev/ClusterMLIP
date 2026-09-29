@@ -78,7 +78,9 @@ trained to fill (VASP labels).
 ![MD](figures/fig4_md.png)
 
 On graphene at 700 K the cluster stays anchored (centre-of-mass drift ≤ 1.6 Å in
-10 ps) but is fluxional (RMSD up to 0.65 Å from the starting structure).
+10 ps) but is fluxional (RMSD up to 0.65 Å from the starting structure). On MgO(100)
+the unbound cluster hovers ~3 Å up and **slides 13.6 Å in 10 ps** (≈ 1.4 Å/ps)
+while keeping its shape — the dynamical face of the missing Fe–O interaction.
 
 ![TEM profile](figures/fig5_tem_profile.png)
 ![TEM plan](figures/fig5_tem_plan.png)
@@ -86,7 +88,10 @@ On graphene at 700 K the cluster stays anchored (centre-of-mass drift ≤ 1.6 Å
 As in the tutorial, a single-frame image resolves individual Fe columns, the 10 ps
 average smears them, and at a realistic dose the averaged cluster is barely
 distinguishable from the background — the structural dynamics are invisible on
-detector timescales.
+detector timescales. On MgO the sliding cluster disappears from the averaged image
+entirely. That is a cautionary example: a wrong interaction term produces a
+confident-looking but spurious TEM prediction ("the cluster is too mobile to
+image"), so the ΔE_interaction has to be validated before images are interpreted.
 
 ## What this means for ClusterMLIP
 

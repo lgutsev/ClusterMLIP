@@ -18,6 +18,10 @@
   "graphene": {
    "rmsd_final": 0.4837994799969875,
    "com_drift_final": 0.626858843569745
+  },
+  "MgO100": {
+   "rmsd_final": 0.6815653085612242,
+   "com_drift_final": 13.611256435438898
   }
  }
 }
