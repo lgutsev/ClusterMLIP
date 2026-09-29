@@ -11,7 +11,16 @@ from pathlib import Path
 from .basis import render_gen_basis
 from .io import write_text_lf
 from .models import Atom, Record
-from .routes import intended_stationary_point, route_optimizes, route_search_kind
+from .routes import (
+    corrected_minimum_route,
+    corrected_saddle_route,
+    force_only_route,
+    intended_stationary_point,
+    resolve_geometry_role,
+    route_optimizes,
+    route_policy,
+    route_search_kind,
+)
 
 
 _LEGACY_SCF = "SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc)"
@@ -131,21 +140,85 @@ def _file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+HIGHER_ORDER_POLICIES = ("force", "saddle-search")
+
+
+def record_geometry(record: Record) -> dict[str, str]:
+    """The geometry-role provenance columns for one record."""
+    resolution = resolve_geometry_role(
+        record.config_type, record.metadata, source=record.source, route=record.route
+    )
+    policy = route_policy(
+        record.config_type, resolution["geometry_role"],
+        resolution["source_calculation_type"],
+    )
+    meta = record.metadata
+
+    def text(key: str, default: object = "") -> str:
+        value = meta.get(key, default)
+        return "" if value is None else str(value)
+
+    return {
+        "geometry_role": resolution["geometry_role"],
+        "geometry_role_source": resolution["geometry_role_source"],
+        "source_calculation_type": resolution["source_calculation_type"],
+        "route_policy": policy,
+        "requested_saddle_order": "",
+        "irc_direction": text("irc_direction"),
+        "irc_point_index": "" if record.irc_point is None else str(record.irc_point),
+        "irc_path_position": text("irc_path_position"),
+        "irc_parent_record_id": text("irc_parent_record_id"),
+        "original_charge": text("original_charge", record.charge),
+        "original_multiplicity": text("original_multiplicity", record.multiplicity),
+    }
+
+
+def higher_order_saddle_route(record: Record, route: str) -> tuple[str, int]:
+    """``Opt=(Saddle=N,...)`` for a higher-order candidate whose N is known.
+
+    N is the record's own archived imaginary-mode count; a candidate without
+    one cannot be searched for, because Gaussian needs the order up front.
+    """
+    order = record.imaginary_frequencies
+    if order is None or order < 2:
+        raise ValueError(
+            f"{record.record_id}: --higher-order-policy saddle-search needs the record's "
+            f"imaginary-mode count (>= 2); it has {order!r}. Label it with Force instead"
+        )
+    searched = corrected_saddle_route(corrected_minimum_route(route), order)
+    if route_search_kind(searched) != "saddle":
+        raise ValueError(
+            f"{record.record_id}: cannot build an Opt=(Saddle={order}) search from a route "
+            f"that does not optimize: {route!r}"
+        )
+    return searched, order
+
+
 def first_stage_route(
     record: Record,
     route: str,
     rattle_route: str,
     saddle_route: str,
+    higher_order_policy: str = "force",
 ) -> tuple[str, str]:
     """Pick the first-stage route that matches what the record actually is.
 
     Returns the route and the intent it serves, which goes into jobs.csv so an
     audit can tell a deliberate choice from an accident. Rattled variants keep
     the single-point route whatever their parent was: their value is the
-    displaced geometry, so nothing about them may be optimized.
+    displaced geometry, so nothing about them may be optimized. Reaction-path
+    frames, and higher-order candidates unless a saddle search is requested,
+    get the seed route rewritten to a fixed-geometry Force job.
     """
     if "rattle_index" in record.metadata:
         return rattle_route, "displaced_single_point"
+    policy = record_geometry(record)["route_policy"]
+    if policy == "fixed_geometry":
+        return force_only_route(route), "fixed_geometry_force"
+    if policy == "higher_order":
+        if higher_order_policy == "saddle-search":
+            return higher_order_saddle_route(record, saddle_route)[0], "higher_order_saddle"
+        return force_only_route(route), "fixed_geometry_force"
     if intended_stationary_point(record.config_type) == "saddle":
         return saddle_route, "saddle"
     return route, "minimum" if route_optimizes(route) else "single_point"
@@ -160,11 +233,14 @@ def write_gaussian_jobs(
     rattle_route: str = DEFAULT_RATTLE_ROUTE,
     link1_route: str = DEFAULT_LINK1_ROUTE,
     saddle_route: str = DEFAULT_SADDLE_ROUTE,
+    higher_order_policy: str = "force",
 ) -> None:
+    if higher_order_policy not in HIGHER_ORDER_POLICIES:
+        raise ValueError(f"higher-order policy must be one of {HIGHER_ORDER_POLICIES}")
     saddle_records = [
         record for record in records
         if "rattle_index" not in record.metadata
-        and intended_stationary_point(record.config_type) == "saddle"
+        and record_geometry(record)["route_policy"] == "saddle"
     ]
     if saddle_records and route_search_kind(saddle_route) != "saddle":
         raise ValueError(
@@ -173,6 +249,15 @@ def write_gaussian_jobs(
             "relaxes a transition state to the nearest minimum. Supply a route with "
             "Opt=(TS,CalcFC,NoEigenTest), or exclude those types with --types."
         )
+    # Every route is decided before anything is written: a record that cannot
+    # be given its search (a saddle-search request without a known order)
+    # must fail the whole preparation, not leave half a campaign on disk.
+    planned = {
+        record.record_id: first_stage_route(
+            record, route, rattle_route, saddle_route, higher_order_policy
+        )
+        for record in records
+    }
     output.mkdir(parents=True, exist_ok=True)
     protected_suffixes = {".log", ".out", ".chk", ".status", ".rc", ".started", ".finished"}
     protected = [path for path in output.rglob("*") if path.is_file() and path.suffix.lower() in protected_suffixes]
@@ -193,8 +278,16 @@ def write_gaussian_jobs(
         filename = f"{stem}.gjf"
         path = output / filename
         parent = record.metadata.get("parent_record_id", record.record_id)
-        first_route, route_intent = first_stage_route(
-            record, route, rattle_route, saddle_route
+        first_route, route_intent = planned[record.record_id]
+        geometry = record_geometry(record)
+        if route_intent == "higher_order_saddle":
+            geometry["requested_saddle_order"] = str(
+                higher_order_saddle_route(record, saddle_route)[1]
+            )
+        # Every stage of a fixed-geometry job is a Force job at that geometry.
+        stage_link1_route = (
+            force_only_route(link1_route) if route_intent == "fixed_geometry_force"
+            else link1_route
         )
         gen_basis = render_gen_basis({a.symbol for a in record.atoms})
         lines = [
@@ -219,7 +312,7 @@ def write_gaussian_jobs(
                 f"%chk={stem}.chk",
                 f"%mem={memory}",
                 f"%nprocshared={nproc}",
-                link1_route,
+                stage_link1_route,
                 "",
                 f"MLIP diffuse-basis force label human_id={stem}; job_id={record.record_id}",
                 "",
@@ -257,10 +350,11 @@ def write_gaussian_jobs(
                 "legacy_route": record.route,
                 "state_inference": record.metadata.get("state_inference", ""),
                 "intended_stationary_point": intended_stationary_point(record.config_type),
+                **geometry,
                 "route_intent": route_intent,
                 "route_search_kind": route_search_kind(first_route),
                 "first_route": first_route,
-                "link1_route": link1_route,
+                "link1_route": stage_link1_route,
                 "input": filename,
                 "input_sha256": _file_sha256(path),
                 "output": f"{stem}.log",
@@ -282,6 +376,7 @@ def write_gaussian_jobs(
         "nprocshared": nproc,
         "seed_route": route,
         "saddle_route": saddle_route,
+        "higher_order_policy": higher_order_policy,
         "rattle_route": rattle_route,
         "link1_route": link1_route,
         "jobs_csv_sha256": _file_sha256(manifest),

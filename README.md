@@ -324,10 +324,9 @@ unperturbed seed first runs:
 #p UBPW91/Gen SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc) NoSymm Opt Freq IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine
 ```
 
-A seed labeled `transition_state`, `first_order_saddle`, or
-`higher_order_saddle` gets a saddle search instead, because the plain `Opt`
-above walks downhill and converges on the nearest *minimum*, discarding the
-stationary point the record exists for:
+A seed labeled `transition_state` or `first_order_saddle` gets a saddle search
+instead, because the plain `Opt` above walks downhill and converges on the
+nearest *minimum*, discarding the stationary point the record exists for:
 
 ```text
 #p UBPW91/Gen SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc) NoSymm Opt=(TS,CalcFC,NoEigenTest) Freq IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine
@@ -341,6 +340,25 @@ confirms the converged point has one imaginary mode. Override it with
 TS/QST search while any labeled saddle seed is selected. `prepare-spins`
 applies the same rule to `--route`, since a spin ladder inherits its route at
 every stage and would carry a collapsed geometry down the whole chain.
+
+IRC frames get no search at all. An IRC point is a fixed point along a
+reaction path, not a stationary point, so its label is the energy and forces
+at exactly the archived geometry: the seed route with `Opt` replaced by
+`Force` in place and `Freq`/`Stable`/`Guess=Always` removed (every ladder
+stage `Force`, later stages `Geom=Checkpoint Guess=Read`). A
+`higher_order_saddle` seed is a higher-order *candidate* and is labeled the
+same way by default; `--higher-order-policy saddle-search` runs
+`Opt=(Saddle=N)` instead, with N from the record's archived imaginary-mode
+count, and records it as `requested_saddle_order`. Which of these applies is
+the record's `geometry_role` (`stationary_minimum`, `transition_state`,
+`irc_point`, `reaction_path_endpoint`, `higher_order_candidate`,
+`unconstrained_geometry`), which `extract` derives from the IRC route and
+Gaussian's point/path markers before any frequency count, and which
+`jobs.csv`/`spin_jobs.csv` carry with its source and the IRC direction, point,
+path position, parent record and original charge/multiplicity. A record
+recognized as an IRC frame only because its file name says `irc` is flagged
+as `geometry_role_source=filename_fallback` and listed on the console. See
+[docs/gaussian-reference-workflow.md](docs/gaussian-reference-workflow.md#irc-frames-and-higher-order-saddle-candidates).
 
 Rattled structures instead use the same method as a non-optimizing SP so their
 off-equilibrium displacements are not erased — including rattled saddles,
@@ -502,13 +520,20 @@ finished alike — and reports:
 | `saddle_route_missing_hessian` | no `CalcFC`/`CalcAll`/`ReadFC` (warning) |
 | `saddle_order_unverified` | saddle search without `Freq` (warning) |
 | `saddle_order_mismatch` | imaginary-mode count differs from the labeled order (warning) |
+| `path_point_launched_as_optimization` | an IRC point / path endpoint run with any `Opt`; the atoms left the archived geometry |
+| `higher_order_launched_as_minimum_search` | a higher-order saddle candidate run with an ordinary `Opt` |
+| `higher_order_saddle_search_unrequested` | a `Saddle=N`/`TS` search on a higher-order candidate without a recorded `requested_saddle_order` of N |
+| `path_point_route_has_extra_keywords` | a path frame's Force route also carries `Freq`/`Stable`/`Guess=Always` (warning; label usable) |
 
 The structural label comes from the manifest's `config_type`, falling back to
 the label encoded in the generated filename so campaigns prepared before that
-column existed are still audited. Types whose curvature was never established
-(`warehouse_structure`, `optimized_unverified`, `checkpoint_geometry`, IRC
-points) and rattled variants are reported as `unconstrained` and never flagged:
-a plain `Opt` on them is a legitimate choice. `campaign-status --audit` runs the
+column existed are still audited, and the geometry role from the manifest's
+`geometry_role`, the seed record (`--seeds SEEDS.extxyz`), the label, or --
+reported as `filename_fallback` -- the source file name. Types whose curvature
+was never established (`warehouse_structure`, `optimized_unverified`,
+`checkpoint_geometry`) and rattled variants are reported as `unconstrained`
+and never flagged: a plain `Opt` on them is a legitimate choice. IRC frames
+are `fixed_geometry`: only a `Force` label is valid for them. `campaign-status --audit` runs the
 same check per batch, and `collect` refuses labels from a mislaunched job unless
 `--allow-route-mismatch` is passed.
 
@@ -837,10 +862,32 @@ batch listings are snapshotted under `route_fix_backups/` first.
 
 `--assume-stopped` is required for any input left with an unmatched `.started`
 marker; do not pass it until `squeue` confirms those allocations are gone.
-`higher_order_saddle` records are skipped unless their order is supplied. That
-label only says the archived log reported more than one imaginary mode, and
-`Opt=(Saddle=N)` needs the actual N, which no campaign manifest holds. Recover
-it per record from the seeds file `extract` wrote:
+
+IRC frames and higher-order candidates launched with `Opt` are repaired as
+fixed-geometry `Force` labels by default (`--path-point-policy force`,
+`--higher-order-policy force`): the rebuilt input is the original with `Opt`
+replaced by `Force` in every stage, the checkpoint chain intact, and the plain
+`Opt` results archived and marked `route_invalidated`. For Warehouse 2:
+
+```bash
+cluster-mlip relaunch-routes "$W2" --start 6 --end 130 \
+  --path-point-policy force --higher-order-policy force \
+  --seeds extracted/seeds.extxyz --assume-stopped --dry-run --plan-output plan.csv
+cluster-mlip relaunch-routes "$W2" --start 6 --end 130 \
+  --path-point-policy force --higher-order-policy force \
+  --seeds extracted/seeds.extxyz --assume-stopped
+```
+
+`--plan-output` is the only file a dry run writes, and only when given.
+`--seeds` is optional; without it, rows whose IRC origin is known only from a
+file name are relaunched on that evidence and flagged. The full migration,
+including the re-audit and resubmission, is in
+[docs/gaussian-reference-workflow.md](docs/gaussian-reference-workflow.md#repairing-an-existing-campaign-warehouse-2).
+
+An `Opt=(Saddle=N)` search for a higher-order candidate happens only on
+explicit request, since that label only says the archived log reported more
+than one imaginary mode and `Opt=(Saddle=N)` needs the actual N. Recover it per
+record from the seeds file `extract` wrote:
 
 ```bash
 cluster-mlip relaunch-routes CAMPAIGN --saddle-order-from extracted/seeds.extxyz
@@ -857,8 +904,8 @@ Worth checking what those records actually are first: a `higher_order_saddle`
 label is often an artifact rather than a target, since an IRC path point is not
 a stationary point and a fragmenting structure has soft modes that read as
 imaginary. For those an Nth-order saddle search is probably not what you want,
-and keeping the geometry with a single-point gradient makes a better training
-label anyway. Do not re-run `prepare-slurm`:
+which is why the default is the fixed-geometry Force label. Do not re-run
+`prepare-slurm`:
 the existing batch map stays valid, so resubmit the same range with the
 existing head launcher.
 `--assume-stopped` is needed only when a killed allocation left an unmatched
@@ -915,6 +962,15 @@ cluster-mlip collect gaussian_jobs -o dataset
 The collector converts Gaussian energies and forces to eV and eV/Å and writes
 `all.extxyz`, `train.extxyz`, `valid.extxyz`, and `test.extxyz`. All rattles from
 one parent remain in one split, preventing near-duplicate leakage.
+
+With `--frames converged`, an optimization stage contributes only its final
+converged frame, while a fixed-geometry `Force` stage contributes its force
+frame once it terminated normally with an SCF energy and a force table at the
+archived geometry (a Force stage whose atoms moved is rejected). Completed
+stages of archived restart/rerun attempts are recovered, one label per stage
+(active attempt first; dropped duplicates in `superseded_labels.tsv`), and
+outputs archived by `relaunch-routes` as `route_invalidated` are always
+rejected.
 
 The split is geometry-stratified by default (`--stratify-by
 pes_region,charge_spin_class`): every parent-record group is classified (see

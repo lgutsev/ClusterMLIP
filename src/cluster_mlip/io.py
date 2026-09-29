@@ -216,6 +216,11 @@ def write_manifest(records: list[Record], path: Path) -> None:
         "record_id", "source", "formula", "n_atoms", "charge", "multiplicity",
         "total_spin", "config_type", "legacy_energy_hartree",
         "imaginary_frequencies", "irc_path", "irc_point", "route", "state_inference",
+        # What the geometry is, independent of config_type, and on what
+        # evidence -- filename_fallback rows deserve a look before use.
+        "geometry_role", "geometry_role_source", "geometry_role_evidence",
+        "source_calculation_type", "irc_direction", "irc_path_position",
+        "irc_parent_record_id",
     ]
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=columns)
@@ -239,6 +244,14 @@ def write_manifest(records: list[Record], path: Path) -> None:
                 # explicit Gaussian "Charge = x Multiplicity = y" line, not a
                 # filename convention or fallback guess.
                 "state_inference": rec.metadata.get("state_inference", ""),
+                **{
+                    key: rec.metadata.get(key, "")
+                    for key in (
+                        "geometry_role", "geometry_role_source", "geometry_role_evidence",
+                        "source_calculation_type", "irc_direction", "irc_path_position",
+                        "irc_parent_record_id",
+                    )
+                },
             })
 
 

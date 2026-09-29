@@ -23,7 +23,9 @@ from .jobs import (
     DEFAULT_RATTLE_ROUTE,
     DEFAULT_ROUTE,
     DEFAULT_SADDLE_ROUTE,
+    HIGHER_ORDER_POLICIES,
     expanded_records,
+    record_geometry,
     write_gaussian_jobs,
 )
 from .label_report import write_label_report
@@ -31,15 +33,31 @@ from .literature import DEFAULT_KEYWORDS, run_literature_gap
 from .paper_pdfs import load_pdf_compositions, write_pdf_index
 from .mace_glue import MaceUnavailable
 from .manifest import write_experiment_manifest
-from .models import Record, composition_allowed, geometry_signature
+from .models import Atom, LabeledFrame, Record, composition_allowed, geometry_signature
 from .physical_checks import write_physical_checks_report
 from .progress import write_campaign_progress
 from .relaunch import prepare_route_relaunch
 from .restart import prepare_spin_restarts
-from .route_audit import audit_campaign_routes, resolve_config_type
-from .routes import FINDINGS, inspect_job, intended_stationary_point
+from .route_audit import (
+    audit_campaign_routes,
+    resolve_config_type,
+    resolve_row_geometry,
+    row_is_active,
+)
+from .routes import (
+    FINDINGS,
+    force_only_route,
+    input_atom_symbols,
+    input_coordinates,
+    input_stage_routes,
+    inspect_job,
+    recorded_saddle_order,
+    route_is_force_only,
+    running_search_route,
+)
 from .spin import (
     DEFAULT_SPIN_ROUTE,
+    geometry_distance,
     parse_spin_diagnostics,
     route_with_frequency,
     validate_fragment_specification_shape,
@@ -124,6 +142,19 @@ def command_extract(args: argparse.Namespace) -> int:
     print(f"Extracted {len(records)} unique seeds from {source}")
     for name, count in sorted(counts.items()):
         print(f"  {name}: {count}")
+    roles = collections.Counter(str(r.metadata.get("geometry_role", "")) for r in records)
+    print("Geometry roles: " + ", ".join(
+        f"{name or 'unrecorded'}={count}" for name, count in sorted(roles.items())
+    ))
+    fallbacks = [
+        r for r in records if r.metadata.get("geometry_role_source") == "filename_fallback"
+    ]
+    if fallbacks:
+        print(
+            f"WARNING: {len(fallbacks)} record(s) classified as IRC frames from their file "
+            "name alone (geometry_role_source=filename_fallback); see manifest.csv",
+            file=sys.stderr,
+        )
     print(f"Unreadable documents: {len(errors)}")
     return 0
 
@@ -228,6 +259,7 @@ def command_audit_routes(args: argparse.Namespace) -> int:
         Path(args.campaign),
         Path(args.output) if args.output else None,
         include_inactive=args.include_inactive,
+        seeds=Path(args.seeds) if args.seeds else None,
     )
     summary = result["summary"]
     print(f"Inputs audited: {summary['inputs_audited']}")
@@ -243,6 +275,15 @@ def command_audit_routes(args: argparse.Namespace) -> int:
                 print("        -> results unusable; these jobs must be relaunched")
     else:
         print("Every job's route matches its structural label.")
+    print("Geometry roles: " + ", ".join(
+        f"{name}={count}" for name, count in sorted(summary["by_geometry_role"].items())
+    ))
+    if summary["geometry_role_filename_fallbacks"]:
+        print(
+            f"WARNING: {summary['geometry_role_filename_fallbacks']} row(s) are treated as "
+            "reaction-path frames on file-name evidence alone; see the report, or pass --seeds",
+            file=sys.stderr,
+        )
     print(f"Must relaunch: {summary['must_relaunch']} "
           f"({summary['completed_but_invalid']} of them already finished)")
     sources = summary["must_relaunch_by_geometry_source"]
@@ -271,14 +312,25 @@ def command_relaunch_routes(args: argparse.Namespace) -> int:
         dry_run=args.dry_run,
         saddle_order=args.saddle_order,
         saddle_order_from=Path(args.saddle_order_from) if args.saddle_order_from else None,
+        path_point_policy=args.path_point_policy,
+        higher_order_policy=args.higher_order_policy,
+        seeds=Path(args.seeds) if args.seeds else None,
+        plan_output=Path(args.plan_output) if args.plan_output else None,
     )
     verb = "Would relaunch" if args.dry_run else "Relaunched"
     print(f"{verb} {result['input_count']} input(s), {result['job_row_count']} manifest row(s)")
+    policies = result["policies"]
+    print(f"Policies: path points -> {policies['path_point_policy']}, "
+          f"higher-order candidates -> {policies['higher_order_policy']}")
     for row in result["plan"]:
-        print(f"  {row['batch'] or '-'} {row['original_input']} [{row['config_type']}, "
+        print(f"  {row['batch'] or '-'} {row['original_input']} [{row['config_type']} / "
+              f"{row['geometry_role']} via {row['geometry_role_source']}, "
               f"was {row['previous_state']}] -> {row['new_input']}")
+        print(f"      repair: {row['repair']} ({row['input_stages']} stage(s))")
         print(f"      route: {row['route_before']}")
         print(f"          -> {row['route_after']}")
+    if result.get("plan_output"):
+        print(f"Plan CSV: {result['plan_output']}")
     for row in result["skipped"]:
         print(f"SKIPPED {row['input']}: {row['reason']}", file=sys.stderr)
     overridden = result["overridden_active_attempts"]
@@ -324,19 +376,44 @@ def command_prepare(args: argparse.Namespace) -> int:
         args.rattle_route,
         args.link1_route,
         args.saddle_route,
+        higher_order_policy=args.higher_order_policy,
     )
-    saddles = sum(
-        1 for record in jobs
-        if "rattle_index" not in record.metadata
-        and intended_stationary_point(record.config_type) == "saddle"
-    )
+    references = [record for record in jobs if "rattle_index" not in record.metadata]
+    geometries = [record_geometry(record) for record in references]
+    policies = collections.Counter(geometry["route_policy"] for geometry in geometries)
     print(f"Prepared {len(jobs)} Gaussian force jobs from {len(records)} seeds")
     print(f"Seed route: {args.route}")
-    if saddles:
-        print(f"Saddle route ({saddles} labeled saddle seeds): {args.saddle_route}")
+    if policies["saddle"]:
+        print(f"Saddle route ({policies['saddle']} labeled saddle seeds): {args.saddle_route}")
+    fixed = policies["fixed_geometry"] + (
+        policies["higher_order"] if args.higher_order_policy == "force" else 0
+    )
+    if fixed:
+        print(f"Fixed-geometry Force route ({fixed} reaction-path/higher-order seeds): "
+              f"{force_only_route(args.route)}")
+    _report_filename_fallbacks(references, geometries)
     print(f"Rattled route: {args.rattle_route}")
     print(f"Link1 force route: {args.link1_route}")
     return 0
+
+
+def _report_filename_fallbacks(records: list[Record], geometries: list[dict[str, str]]) -> None:
+    """Say out loud which records are treated as IRC frames on name evidence alone."""
+    fallbacks = [
+        record for record, geometry in zip(records, geometries)
+        if geometry["geometry_role_source"].endswith("filename_fallback")
+    ]
+    if not fallbacks:
+        return
+    print(
+        f"WARNING: {len(fallbacks)} seed(s) are treated as reaction-path frames only because "
+        "their source name mentions an IRC (no IRC route or path markers recorded):",
+        file=sys.stderr,
+    )
+    for record in fallbacks[:10]:
+        print(f"  {record.record_id} [{record.config_type}] {record.source}", file=sys.stderr)
+    if len(fallbacks) > 10:
+        print(f"  ... and {len(fallbacks) - 10} more", file=sys.stderr)
 
 
 def command_prepare_slurm(args: argparse.Namespace) -> int:
@@ -425,6 +502,66 @@ def command_campaign_status(args: argparse.Namespace) -> int:
     return 0
 
 
+# A fixed-geometry Force stage must report the geometry it was given. Gaussian
+# prints coordinates to 1e-6 Angstrom, so an RMS pair-distance difference above
+# this is an atom that moved, not rounding.
+_FIXED_GEOMETRY_TOLERANCE_ANG = 1e-3
+
+
+def _archived_geometry(
+    outputs: Path, row: dict[str, str], input_text: str
+) -> tuple[list[Atom] | None, list[str] | None]:
+    """The coordinates a fixed-geometry job was launched with, else its atoms.
+
+    A checkpoint-seeded restart carries none of its own; its lineage root does.
+    When only a Z-matrix is available the element sequence is returned
+    instead, so the label can at least be checked atom for atom.
+    """
+    texts = [input_text]
+    root = (row.get("restart_root_input") or "").strip()
+    if root and (outputs / root).is_file():
+        texts.append((outputs / root).read_text(encoding="utf-8", errors="ignore"))
+    for text in texts:
+        coordinates = input_coordinates(text)
+        if coordinates is not None:
+            return [Atom(symbol, x, y, z) for symbol, x, y, z in coordinates], None
+    for text in texts:
+        symbols = input_atom_symbols(text)
+        if symbols is not None:
+            return None, symbols
+    return None, None
+
+
+def _label_lineage(rows_by_job: dict[str, dict[str, str]], job_id: str) -> str:
+    """The original job a restarted, rerun or relaunched stage descends from.
+
+    Two attempts at the same stage share this root, which is how a label
+    recovered from an archived attempt is recognized as a duplicate of the
+    active attempt's label for that stage.
+    """
+    seen: set[str] = set()
+    current = job_id
+    while current not in seen:
+        seen.add(current)
+        row = rows_by_job.get(current)
+        parent = "" if row is None else (
+            (row.get("restart_of_job_id") or row.get("relaunch_of_job_id") or "").strip()
+        )
+        if not parent:
+            break
+        current = parent
+    return current
+
+
+def _attempt_rank(row: dict[str, str]) -> tuple[int, int]:
+    """Active beats archived; among equals, the later attempt wins."""
+    attempts = [
+        int(value) for key in ("restart_attempt", "relaunch_attempt")
+        if (value := (row.get(key) or "").strip()).isdigit()
+    ]
+    return (1 if row_is_active(row) else 0, max(attempts, default=0))
+
+
 def command_collect(args: argparse.Namespace) -> int:
     output_roots = [Path(item).resolve() for item in args.outputs]
     destination = Path(args.output)
@@ -442,6 +579,7 @@ def command_collect(args: argparse.Namespace) -> int:
         )
     frames = []
     failures: list[tuple[str, str]] = []
+    superseded: list[tuple[str, str, str]] = []
     for outputs in output_roots:
         spin_campaign = (outputs / "spin_jobs.csv").is_file()
         manifest_path = outputs / ("spin_jobs.csv" if spin_campaign else "jobs.csv")
@@ -450,6 +588,7 @@ def command_collect(args: argparse.Namespace) -> int:
         for row in manifest.values():
             key = Path(row.get("output") or row["job_id"]).stem
             manifest_by_output.setdefault(key, []).append(row)
+        campaign_frames = []
         paths = sorted(list(outputs.rglob("*.log")) + list(outputs.rglob("*.out")))
         counts = collections.Counter(path.stem for path in paths if not path.is_symlink())
         for path in paths:
@@ -461,9 +600,30 @@ def command_collect(args: argparse.Namespace) -> int:
             try:
                 if counts[path.stem] > 1:
                     raise ValueError("ambiguous duplicate output name within campaign")
+                # A route relaunch stamps the rows of the attempt it discarded.
+                # That is an operator's verdict on those results, not a
+                # route/label disagreement to be argued with, so
+                # --allow-route-mismatch does not reopen it.
+                invalidated = next(
+                    (row["route_invalidated"] for row in rows if row.get("route_invalidated")), ""
+                )
+                if invalidated:
+                    raise ValueError(
+                        f"archived output invalidated by relaunch-routes ({invalidated}); "
+                        "its replacement is collected instead"
+                    )
+                # An archived attempt (every row inactive, none invalidated) was
+                # superseded by a restart or rerun, not declared wrong. Its
+                # completed stages are real labels -- a checkpoint restart does
+                # not recompute them -- so under --frames converged they are
+                # recovered stage by stage, exactly as --allow-partial would.
+                archived_attempt = bool(rows) and not any(row_is_active(row) for row in rows)
+                partial_ok = args.allow_partial or (
+                    archived_attempt and args.frames == "converged"
+                )
                 rc_path = path.with_suffix(".rc")
                 bad_rc = rc_path.is_file() and rc_path.read_text(encoding="utf-8").strip() != "0"
-                if bad_rc and not args.allow_partial:
+                if bad_rc and not partial_ok:
                     raise ValueError("Gaussian worker recorded a nonzero or invalid exit code")
                 text = path.read_text(encoding="utf-8", errors="ignore")
                 expected = len(rows) if spin_campaign else 1
@@ -480,23 +640,31 @@ def command_collect(args: argparse.Namespace) -> int:
                 # checks cannot catch it: a transition state run with a plain
                 # Opt contributes a minimum labeled as a saddle, which is worse
                 # for training than having no frame at all.
-                invalidated = (rows[0].get("route_invalidated", "") if rows else "")
                 verdict = None
                 if input_text and rows:
-                    config_type, _ = resolve_config_type(rows[0], Path(rows[0]["input"]).name)
+                    input_name = Path(rows[0]["input"]).name
+                    config_type, _ = resolve_config_type(rows[0], input_name)
                     if config_type:
-                        verdict = inspect_job(config_type, input_text, text)
-                if not args.allow_route_mismatch and (
-                        invalidated or (verdict and verdict["must_relaunch"])):
-                    codes = invalidated or (";".join(verdict["findings"]) if verdict else "")
+                        geometry = resolve_row_geometry(
+                            rows[0], input_name, config_type,
+                            running_route=running_search_route(input_text),
+                        )
+                        verdict = inspect_job(
+                            config_type, input_text, text,
+                            geometry_role=geometry["geometry_role"],
+                            source_calculation_type=geometry["source_calculation_type"],
+                            requested_saddle_order=recorded_saddle_order(rows[0]),
+                        )
+                if not args.allow_route_mismatch and verdict and verdict["must_relaunch"]:
                     raise ValueError(
-                        f"route does not search for the labeled stationary point ({codes}); "
-                        "relaunch with cluster-mlip relaunch-routes, or pass "
-                        "--allow-route-mismatch to accept the label anyway"
+                        "route does not match the labeled geometry "
+                        f"({';'.join(verdict['findings'])}); relaunch with cluster-mlip "
+                        "relaunch-routes, or pass --allow-route-mismatch to accept the label anyway"
                     )
                 complete = gaussian_job_complete(text, expected) and not bad_rc
-                if not complete and not args.allow_partial:
+                if not complete and not partial_ok:
                     raise ValueError("incomplete Gaussian job (including Link1 stages)")
+                stage_routes = input_stage_routes(input_text) if input_text else []
                 parsed = parse_force_frames(text, path)
                 if not parsed:
                     raise ValueError("no complete energy/geometry/force frame")
@@ -534,6 +702,48 @@ def command_collect(args: argparse.Namespace) -> int:
                     record.metadata["spin_stage_optimized"] = any(
                         item.optimized for item in stage_diagnostics
                     )
+                    # A spin row labels one Link1 stage; a flat row the whole
+                    # job, which is fixed-geometry only if every stage is.
+                    if spin_campaign:
+                        stage = int(row.get("stage_index") or 0)
+                        own_routes = stage_routes[stage:stage + 1]
+                    else:
+                        own_routes = stage_routes
+                    force_only = bool(own_routes) and all(
+                        route_is_force_only(route) for route in own_routes
+                    )
+                    record.metadata["force_label_kind"] = (
+                        "fixed_geometry_force" if force_only else "optimization"
+                    )
+                    if force_only:
+                        # A fixed-geometry label is only a label *of the
+                        # archived geometry* if that is what Gaussian was
+                        # given; one that cannot be checked is not accepted.
+                        reference, symbols = _archived_geometry(outputs, row, input_text)
+                        if reference is not None:
+                            if geometry_distance(
+                                Record("reference", "", reference, record.charge,
+                                       record.multiplicity, record.config_type),
+                                record,
+                            ) > _FIXED_GEOMETRY_TOLERANCE_ANG:
+                                raise ValueError(
+                                    f"fixed-geometry Force stage {job_id} reports a geometry "
+                                    "that differs from the archived input coordinates"
+                                )
+                            record.metadata["fixed_geometry_check"] = "matched"
+                        elif symbols is not None:
+                            if symbols != [atom.symbol for atom in record.atoms]:
+                                raise ValueError(
+                                    f"fixed-geometry Force stage {job_id} reports atoms that "
+                                    "differ from the archived Z-matrix"
+                                )
+                            record.metadata["fixed_geometry_check"] = "atoms_matched_zmatrix"
+                        else:
+                            raise ValueError(
+                                f"fixed-geometry Force stage {job_id} has no archived "
+                                "coordinates to check against (checkpoint-seeded input "
+                                "whose restart_root_input is missing)"
+                            )
                     grouped.setdefault(job_id, []).append(frame)
                 if spin_campaign and complete and set(grouped) != {row["job_id"] for row in rows}:
                     raise ValueError("one or more planned spin stages have no force label")
@@ -544,15 +754,47 @@ def command_collect(args: argparse.Namespace) -> int:
                             frame.record.record_id = f"{job_id}__frame{frame.record.metadata['force_frame_index']:06d}"
                         selected.extend(members)
                     elif args.frames == "converged":
+                        # An optimization's label is its converged frame. A
+                        # fixed-geometry Force stage never "converges" in that
+                        # sense: a normal termination with its SCF energy, the
+                        # force table and the archived geometry (checked above)
+                        # is the complete label.
                         final = members[-1]
-                        if (final.record.metadata["spin_stage_normal_termination"]
-                                and final.record.metadata["spin_stage_optimized"]):
+                        metadata = final.record.metadata
+                        if metadata["spin_stage_normal_termination"] and (
+                                metadata["force_label_kind"] == "fixed_geometry_force"
+                                or metadata["spin_stage_optimized"]):
                             selected.append(final)
                     else:
                         selected.append(members[-1])
-                frames.extend(selected)
+                campaign_frames.extend(selected)
             except Exception as exc:
                 failures.append((str(path), str(exc)))
+        # One label per stage. An archived attempt and its rerun can both have
+        # finished the same stage (a from-scratch rerun recomputes all of
+        # them); training on both would double-weight that geometry.
+        if args.frames == "all":
+            frames.extend(campaign_frames)
+            continue
+        best: dict[tuple[str, int, int], LabeledFrame] = {}
+        for frame in campaign_frames:
+            label_key = (
+                _label_lineage(manifest, frame.record.record_id),
+                frame.record.charge, frame.record.multiplicity,
+            )
+            current = best.get(label_key)
+            if current is None:
+                best[label_key] = frame
+                continue
+            keep, drop = (
+                (frame, current)
+                if _attempt_rank(manifest.get(frame.record.record_id, {}))
+                > _attempt_rank(manifest.get(current.record.record_id, {}))
+                else (current, frame)
+            )
+            best[label_key] = keep
+            superseded.append((str(drop.output_file), drop.record.record_id, keep.record.record_id))
+        frames.extend(best.values())
     write_labeled_extxyz(frames, destination / "all.extxyz")
     splits = grouped_split(
         frames, args.valid_fraction, args.test_fraction, args.seed, stratify_by=args.stratify_by
@@ -562,7 +804,16 @@ def command_collect(args: argparse.Namespace) -> int:
     with (destination / "failed_outputs.tsv").open("w", encoding="utf-8") as handle:
         for name, message in failures:
             handle.write(f"{name}\t{message}\n")
+    with (destination / "superseded_labels.tsv").open("w", encoding="utf-8") as handle:
+        handle.write("output\tdropped_job_id\tkept_job_id\n")
+        for name, dropped, kept in superseded:
+            handle.write(f"{name}\t{dropped}\t{kept}\n")
     print(f"Collected {len(frames)} labeled frames; rejected {len(failures)} outputs")
+    if superseded:
+        print(
+            f"Dropped {len(superseded)} duplicate stage label(s) from superseded attempts "
+            f"-- see {destination / 'superseded_labels.tsv'}"
+        )
     print("Split: " + ", ".join(f"{name}={len(values)}" for name, values in splits.items()))
     label_summary = write_label_report(
         frames, destination, args.force_outlier_threshold,
@@ -674,6 +925,7 @@ def command_prepare_spins(args: argparse.Namespace) -> int:
             route=route,
             memory=args.memory,
             nproc=args.nproc,
+            higher_order_policy=args.higher_order_policy,
         )
         print(f"Plan: {Path(args.output).resolve() / 'spin_plan.csv'}")
         print(f"Plan summary: {Path(args.output).resolve() / 'spin_plan_summary.json'}")
@@ -690,7 +942,9 @@ def command_prepare_spins(args: argparse.Namespace) -> int:
             nproc=args.nproc,
             fragment_specifications=specifications,
             strategy=args.strategy,
+            higher_order_policy=args.higher_order_policy,
         )
+    _report_filename_fallbacks(records, [record_geometry(record) for record in records])
     print(f"Prepared {stages} traceable spin stages")
     print(f"Manifest: {Path(args.output).resolve() / 'spin_jobs.csv'}")
     return 0
@@ -1036,6 +1290,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     prepare.add_argument("--memory", default="16GB")
     prepare.add_argument("--nproc", type=int, default=16)
+    prepare.add_argument(
+        "--higher-order-policy", choices=HIGHER_ORDER_POLICIES, default="force",
+        help=(
+            "how to label higher_order_saddle candidates: 'force' (default) runs a "
+            "fixed-geometry Force job at the archived geometry; 'saddle-search' runs "
+            "Opt=(Saddle=N) with N taken from the record's imaginary-mode count"
+        ),
+    )
     prepare.set_defaults(func=command_prepare)
 
     prepare_slurm = sub.add_parser(
@@ -1119,6 +1381,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--include-inactive", action="store_true",
         help="also audit superseded manifest rows from earlier restarts/relaunches",
     )
+    audit_routes.add_argument(
+        "--seeds", metavar="SEEDS.EXTXYZ",
+        help="the extxyz the campaign was prepared from; its archived routes identify "
+             "IRC-derived rows that a legacy manifest records only by file name",
+    )
     audit_routes.set_defaults(func=command_audit_routes)
 
     relaunch_routes = sub.add_parser(
@@ -1143,8 +1410,32 @@ def build_parser() -> argparse.ArgumentParser:
         "--saddle-order-from", metavar="SEEDS.EXTXYZ",
         help="take each higher_order_saddle record's imaginary-mode order from the "
              "seeds extxyz the campaign was prepared from, where extract recorded it "
-             "from the archived log. Without this (or --saddle-order) those records are "
-             "skipped rather than retargeted to a first-order TS search",
+             "from the archived log. Giving this (or --saddle-order) requests an "
+             "Opt=(Saddle=N) search; without either, higher-order candidates follow "
+             "--higher-order-policy",
+    )
+    relaunch_routes.add_argument(
+        "--path-point-policy", choices=("force", "skip"), default="force",
+        help="IRC/reaction-path frames launched with Opt: 'force' (default) relaunches "
+             "them as fixed-geometry Force labels at the archived coordinates -- every "
+             "ladder stage Force, later stages Geom=Checkpoint Guess=Read; 'skip' leaves them",
+    )
+    relaunch_routes.add_argument(
+        "--higher-order-policy", choices=("force", "saddle-search"),
+        help="higher-order saddle candidates: 'force' labels them at the archived geometry "
+             "(the default unless --saddle-order/--saddle-order-from is given); "
+             "'saddle-search' runs Opt=(Saddle=N) and needs one of those to supply N",
+    )
+    relaunch_routes.add_argument(
+        "--seeds", metavar="SEEDS.EXTXYZ",
+        help="seed records the campaign was prepared from, used to recognize IRC-derived "
+             "rows by their archived route instead of by file name",
+    )
+    relaunch_routes.add_argument(
+        "--plan-output", metavar="PLAN.CSV",
+        help="also write the relaunch plan (original/replacement input, geometry role, "
+             "old/new route, archived log, stage count, reason) to this CSV; the only "
+             "file a --dry-run writes, and only when given",
     )
     relaunch_routes.add_argument("--dry-run", action="store_true")
     relaunch_routes.set_defaults(func=command_relaunch_routes)
@@ -1195,6 +1486,14 @@ def build_parser() -> argparse.ArgumentParser:
             "recommended for larger systems in the same campaign"
         ),
     )
+    prepare_spins.add_argument(
+        "--higher-order-policy", choices=HIGHER_ORDER_POLICIES, default="force",
+        help=(
+            "how to label higher_order_saddle candidates: 'force' (default) runs a "
+            "fixed-geometry Force job at the archived geometry; 'saddle-search' runs "
+            "Opt=(Saddle=N) with N taken from the record's imaginary-mode count"
+        ),
+    )
     prepare_spins.add_argument("--memory", default="16GB")
     prepare_spins.add_argument("--nproc", type=int, default=16)
     prepare_spins.set_defaults(func=command_prepare_spins)
@@ -1209,7 +1508,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--frames", choices=("final", "all", "converged"), default="final",
         help=(
             "final force frame per completed job/spin stage (default), every force-bearing step, "
-            "or only the final frame of normally terminated optimized stages"
+            "or only the final frame of normally terminated optimized stages -- and of normally "
+            "terminated fixed-geometry Force stages at their archived geometry. 'converged' "
+            "also recovers completed stages from archived (restarted/rerun) attempts, keeping "
+            "one label per stage"
         ),
     )
     collect.add_argument(
@@ -1224,7 +1526,8 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "ingest labels from jobs whose route searched for a different stationary point "
             "than their label claims (for example a transition state run with a plain Opt). "
-            "Off by default: such a frame is a minimum labeled as a saddle"
+            "Off by default: such a frame is a minimum labeled as a saddle. Outputs that "
+            "relaunch-routes archived as route_invalidated are rejected regardless"
         ),
     )
     collect.add_argument(

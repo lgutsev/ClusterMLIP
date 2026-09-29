@@ -104,7 +104,11 @@ def compactness_class(atoms: list[Atom], tolerance: float = DEFAULT_BONDING_TOLE
 
 
 _SADDLE_TYPES = {"transition_state", "first_order_saddle", "higher_order_saddle"}
-_IRC_TYPES = {"irc_forward", "irc_reverse", "irc_checkpoint", "irc_input_seed"}
+_IRC_TYPES = {"irc_forward", "irc_reverse", "irc_point", "irc_checkpoint", "irc_input_seed"}
+# geometry_role (routes.GEOMETRY_ROLES) says what a frame *is* where
+# config_type only says how it was classified; a legacy "higher_order_saddle"
+# that is really an IRC frame must stratify with the path, not the saddles.
+_PATH_ROLES = {"irc_point", "reaction_path_endpoint"}
 
 
 def pes_region(config_type: str) -> str:
@@ -116,6 +120,14 @@ def pes_region(config_type: str) -> str:
     if base in _IRC_TYPES:
         return "irc"
     return "other"
+
+
+def record_pes_region(record: Record) -> str:
+    """``pes_region`` corrected by the record's geometry role, when it has one."""
+    role = str(record.metadata.get("geometry_role", "") or "")
+    if role in _PATH_ROLES:
+        return "irc"
+    return pes_region(record.config_type)
 
 
 def displacement_class(config_type: str) -> str:
@@ -171,7 +183,7 @@ def classify_record(
     models.geometry_signature().
     """
     return {
-        "pes_region": pes_region(record.config_type),
+        "pes_region": record_pes_region(record),
         "displacement_class": displacement_class(record.config_type),
         "coordination_class": coordination_class(record.atoms, bonding_tolerance),
         "compactness_class": compactness_class(record.atoms, bonding_tolerance),
