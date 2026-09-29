@@ -24,8 +24,10 @@ charge/spin MACE is not trained yet; this is a stand-in to exercise the pipeline
 | 3 | `s3_md.py [fs] [supports]` | Langevin NVT, 700 K, 1 fs, 10 ps, frame every 50 fs, from the lowest supported structure |
 | 4 | `s4_tem.py [supports]` | abTEM HRTEM, tutorial settings (200 kV, Cs = −8 µm, Scherzer, Cc = 1 mm, ΔE = 0.3 eV), profile and plan views: 1 frame + 12 frozen-phonon configs, 10 ps average, average + Poisson noise at 2·10⁴ e⁻/Å² |
 | 5, 6 | `s5_figures.py`, `s6_tem_figs.py` | figures below |
+| 7, 8 | `s7_polar_spin.py <seeds> [polar-1-{s,m,l}]`, `s8_polar_figs.py` | MACE-POLAR-1 spin-ladder check (section 4) |
 
 Requirements beyond the base install: `mace-torch>=0.3.16`, `torch-dftd`, `abtem>=1.0`,
+`graph_electrostatics` v0.4.0 (section 4 only),
 `matplotlib`, `scipy`. Outputs go to `out/` (small results are committed; MD
 trajectories and image stacks are regenerated).
 
@@ -93,6 +95,38 @@ entirely. That is a cautionary example: a wrong interaction term produces a
 confident-looking but spurious TEM prediction ("the cluster is too mobile to
 image"), so the ΔE_interaction has to be validated before images are interpreted.
 
+### 4. A spin-aware foundation model does not rescue the gas-phase term
+
+![POLAR-1 spin ladder](figures/fig6_polar_spin_ladder.png)
+
+`s7_polar_spin.py` evaluates MACE-POLAR-1 (`polar-1-m`, total charge and multiplicity
+as inputs, predicted atomic spins as outputs) on every adiabatic UBPW91 Fe16 state
+(76 states in 62 geometry groups), on a full M = 1…65 ladder at the six lowest
+geometries, and on O2/Fe2/Fe4 as sanity checks. All energies are **float64 single
+points**: POLAR energies for Fe16 are ≈ −5.5·10⁵ eV and float32 rounds them to
+0.0625 eV steps, the size of the gaps being tested.
+
+- **Sanity cases behave**: triplet O2, a septet/quintet Fe2 ground state (M = 5 and 7
+  within 1 meV), a smooth Fe4 ladder with its minimum at M = 9, and the predicted
+  atomic spins sum to exactly M − 1 in every case — so charge/spin are passed
+  correctly.
+- **Fe16 at M = 49–53 is broken**: in all 76 warehouse states the largest predicted
+  atomic spin is 29–4200 (an Fe atom carries at most ~4 unpaired electrons), the
+  ladders span 10⁴–10⁶ eV with random spikes, and the adiabatic spin gaps are
+  −4·10⁴ … +10³ eV against 0.06–0.52 eV in UBPW91. The polarisable spin
+  equilibration diverges.
+- **Why**: OMol25 (the training set of POLAR-1, MACE-OMOL and UMA's `omol` task)
+  spans multiplicities 1–11 (≤ 10 unpaired electrons) and its metal complexes are
+  monometallic. Fe16 at M = 53 has 52 unpaired electrons on 16 bonded Fe atoms —
+  far outside the training distribution. The same limit applies to any
+  OMol25-trained model, so none of them is a shortcut for FenOm clusters.
+
+Setup note: mace-torch 0.3.16 calls the `graph_electrostatics` API of **v0.4.0**
+(`precompute_geometry(..., force_pbc_evaluator=...)`); v0.4.3/v0.4.4 changed it, and the
+POLAR-1 checkpoints were pickled against the older internals:
+
+    pip install --no-deps "git+https://github.com/WillBaldwin0/graph_electrostatics@v0.4.0"
+
 ## What this means for ClusterMLIP
 
 1. The protocol works end to end and is cheap (≈ 40 min relaxations + 30 min MD
@@ -100,7 +134,10 @@ image"), so the ΔE_interaction has to be validated before images are interprete
 2. The perturbation shortcut is **support-dependent and has to be checked per
    support with a model that knows the interface**. MACE-MP-0 says graphene is a
    strong perturbation and cannot say anything about MgO.
-3. Next: gas-phase term from a spin-aware model (our charge/spin MACE once trained,
-   or MACE-POLAR-1 checked against the UBPW91 spin ladder), and a small VASP set of
-   supported Fe16 (same geometries, isolated parts at frozen geometry) to fit
-   ΔE_interaction and to verify the graphene/MgO trends at the DFT level.
+3. No available foundation model covers the gas-phase term: MACE-MP-0 is spin-blind
+   (62 minima → 7 basins) and the OMol25 family diverges at Fe16's multiplicities.
+   The gas-phase term has to come from our own charge/spin MACE trained on the
+   warehouse (fine-tuning a foundation model does not help if the base cannot
+   represent the states). Next after that: a small VASP set of supported Fe16 (same
+   geometries, isolated parts at frozen geometry) to fit ΔE_interaction and to verify
+   the graphene/MgO trends at the DFT level.
