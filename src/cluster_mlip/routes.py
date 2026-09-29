@@ -232,6 +232,89 @@ def geometry_role_for_config_type(config_type: str) -> str:
     return "unconstrained_geometry"
 
 
+class FrameLabel(TypedDict):
+    frame_role: str
+    config_type: str
+    geometry_role: str
+
+
+_SADDLE_CONFIG_TYPES = ("transition_state", "first_order_saddle", "higher_order_saddle")
+
+
+def frame_label(
+    *,
+    position: int,
+    count: int,
+    search_kind: str,
+    converged: bool,
+    job_config_type: str,
+    job_geometry_role: str,
+    stage_index: int = 0,
+    initialization: str = "",
+    same_state_as_label: bool = True,
+) -> FrameLabel:
+    """What one force frame of a job *is* -- not always what the job was labeled.
+
+    A job's ``config_type`` describes the geometry it was started from. An
+    optimization then moves the atoms, so only some of its frames are that
+    geometry:
+
+    * ``fixed_geometry`` -- a Force/single-point stage (``search_kind``
+      ``none``): the frame is the labeled geometry.
+    * ``input_geometry`` -- the first step of a stage that started from the
+      job's own coordinates. It keeps the job's label; if the stage runs a
+      different charge/multiplicity than the label was established at, a
+      stationary role is dropped (a verified minimum at M=49 is not stationary
+      at M=53).
+    * ``spin_flip_start`` / ``restart_start`` -- the first step of a stage
+      seeded from a checkpoint: the previous stage's geometry at a new
+      multiplicity, or wherever an interrupted run stopped.
+    * ``optimization_step`` -- every intermediate step, and the last one of a
+      search that did not converge: ``optimization_path``, no stationarity.
+    * ``optimized_endpoint`` -- the last step of a converged search. A
+      converged saddle search is a saddle; a converged minimum search is a
+      ``minimum`` only when it re-found a verified minimum in its own state,
+      otherwise ``optimized_unverified`` (no frequency check was read), the
+      warehouse's own term for that.
+
+    Without this, every step of an IRC point run as ``Opt`` stratifies as an
+    IRC frame, and every step of a minimum search counts as a stationary
+    point in the physical checks.
+    """
+    def path(frame_role: str) -> FrameLabel:
+        return {"frame_role": frame_role, "config_type": "optimization_path",
+                "geometry_role": "unconstrained_geometry"}
+
+    if search_kind == "none":
+        return {"frame_role": "fixed_geometry", "config_type": job_config_type,
+                "geometry_role": job_geometry_role}
+    if position == count - 1 and converged:
+        if search_kind == "saddle":
+            higher = job_config_type == "higher_order_saddle"
+            return {
+                "frame_role": "optimized_endpoint",
+                "config_type": (job_config_type if job_config_type in _SADDLE_CONFIG_TYPES
+                                else "transition_state"),
+                "geometry_role": "higher_order_candidate" if higher else "transition_state",
+            }
+        if job_config_type == "minimum" and same_state_as_label:
+            return {"frame_role": "optimized_endpoint", "config_type": "minimum",
+                    "geometry_role": "stationary_minimum"}
+        return {"frame_role": "optimized_endpoint", "config_type": "optimized_unverified",
+                "geometry_role": "unconstrained_geometry"}
+    if position == 0:
+        if initialization == "interrupted_checkpoint_restart":
+            return path("restart_start")
+        if stage_index > 0 or initialization == "checkpoint_spin_flip":
+            return path("spin_flip_start")
+        role = job_geometry_role
+        if role in STATIONARY_ROLES and not same_state_as_label:
+            role = "unconstrained_geometry"
+        return {"frame_role": "input_geometry", "config_type": job_config_type,
+                "geometry_role": role}
+    return path("optimization_step")
+
+
 def route_policy(
     config_type: str, geometry_role: str = "", source_calculation_type: str = ""
 ) -> str:

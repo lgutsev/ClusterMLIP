@@ -47,12 +47,14 @@ from .route_audit import (
 from .routes import (
     FINDINGS,
     force_only_route,
+    frame_label,
     input_atom_symbols,
     input_coordinates,
     input_stage_routes,
     inspect_job,
     recorded_saddle_order,
     route_is_force_only,
+    route_search_kind,
     running_search_route,
 )
 from .spin import (
@@ -562,6 +564,31 @@ def _attempt_rank(row: dict[str, str]) -> tuple[int, int]:
     return (1 if row_is_active(row) else 0, max(attempts, default=0))
 
 
+def _label_stage_frames(members: list[LabeledFrame]) -> None:
+    """Relabel the force frames of one job/spin stage one by one
+    (routes.frame_label): the first is the stage's starting geometry, the last
+    of a converged search its stationary point, the rest an optimization path.
+    The job-level label stays in ``job_config_type``/``job_geometry_role``."""
+    for position, frame in enumerate(members):
+        metadata = frame.record.metadata
+        target = str(metadata.get("target_record_multiplicity") or "").strip()
+        label = frame_label(
+            position=position,
+            count=len(members),
+            search_kind=str(metadata["stage_search_kind"]),
+            converged=bool(metadata["spin_stage_normal_termination"]
+                           and metadata["spin_stage_optimized"]),
+            job_config_type=str(metadata["job_config_type"]),
+            job_geometry_role=str(metadata["job_geometry_role"]),
+            stage_index=int(metadata.get("stage_index") or 0),
+            initialization=str(metadata.get("initialization") or ""),
+            same_state_as_label=not target.isdigit() or int(target) == frame.record.multiplicity,
+        )
+        frame.record.config_type = label["config_type"]
+        metadata["frame_role"] = label["frame_role"]
+        metadata["geometry_role"] = label["geometry_role"]
+
+
 def command_collect(args: argparse.Namespace) -> int:
     output_roots = [Path(item).resolve() for item in args.outputs]
     destination = Path(args.output)
@@ -684,11 +711,22 @@ def command_collect(args: argparse.Namespace) -> int:
                     record = frame.record
                     record.record_id = job_id
                     record.source = row.get("source", str(path))
-                    record.config_type = row.get("config_type") or "labeled"
+                    # Spin campaigns prepared before the manifest carried
+                    # config_type still encode it in the input filename.
+                    input_name = Path(row.get("input") or "").name
+                    job_config_type, config_type_source = resolve_config_type(row, input_name)
+                    record.config_type = job_config_type or "labeled"
                     record.route = row.get("legacy_route", "")
                     if row.get("legacy_energy_hartree"):
                         record.legacy_energy_hartree = float(row["legacy_energy_hartree"])
                     record.metadata.update({key: value for key, value in row.items() if value})
+                    record.metadata["job_config_type"] = record.config_type
+                    record.metadata["config_type_source"] = config_type_source
+                    record.metadata["job_geometry_role"] = resolve_row_geometry(
+                        row, input_name, record.config_type
+                    )["geometry_role"]
+                    if verdict and verdict["findings"]:
+                        record.metadata["route_findings"] = ";".join(verdict["findings"])
                     record.metadata["parent_record_id"] = row.get("parent_record_id") or job_id
                     record.metadata["gaussian_output"] = str(path.relative_to(outputs))
                     record.metadata["collection_campaign"] = str(outputs)
@@ -714,6 +752,10 @@ def command_collect(args: argparse.Namespace) -> int:
                     )
                     record.metadata["force_label_kind"] = (
                         "fixed_geometry_force" if force_only else "optimization"
+                    )
+                    record.metadata["stage_search_kind"] = (
+                        "none" if force_only
+                        else route_search_kind(own_routes[0]) if own_routes else "unknown"
                     )
                     if force_only:
                         # A fixed-geometry label is only a label *of the
@@ -747,6 +789,8 @@ def command_collect(args: argparse.Namespace) -> int:
                     grouped.setdefault(job_id, []).append(frame)
                 if spin_campaign and complete and set(grouped) != {row["job_id"] for row in rows}:
                     raise ValueError("one or more planned spin stages have no force label")
+                for members in grouped.values():
+                    _label_stage_frames(members)
                 selected = []
                 for job_id, members in grouped.items():
                     if args.frames == "all":
@@ -1525,9 +1569,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--allow-route-mismatch", action="store_true",
         help=(
             "ingest labels from jobs whose route searched for a different stationary point "
-            "than their label claims (for example a transition state run with a plain Opt). "
-            "Off by default: such a frame is a minimum labeled as a saddle. Outputs that "
-            "relaunch-routes archived as route_invalidated are rejected regardless"
+            "than their label claims (for example a transition state or an IRC point run "
+            "with a plain Opt). Their energies and forces are valid for the geometries the "
+            "optimizer visited, and every frame is labeled by what it is (frame_role: the "
+            "input geometry, optimization steps, the converged endpoint) with the finding "
+            "kept in route_findings -- but the job still did not label the geometry it was "
+            "meant to, so it is off by default and the job still needs relaunch-routes. "
+            "Outputs that relaunch-routes archived as route_invalidated are rejected regardless"
         ),
     )
     collect.add_argument(

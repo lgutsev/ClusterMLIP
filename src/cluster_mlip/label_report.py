@@ -40,6 +40,7 @@ class LabelSummary(TypedDict):
     by_stratum: dict[str, list[GroupStats]]
     split_coverage: list[dict[str, object]]
     spin_patterns: dict[str, int]
+    frame_roles: dict[str, int]
 
 
 def _group_key(frame: LabeledFrame) -> str:
@@ -124,6 +125,9 @@ def summarize_labels(
         "spin_patterns": dict(sorted(Counter(
             classify_spin_pattern(atomic_spin_column(frame.record) or []) for frame in frames
         ).items())),
+        "frame_roles": dict(sorted(Counter(
+            str(frame.record.metadata.get("frame_role") or "unlabeled") for frame in frames
+        ).items())),
     }
 
 
@@ -164,6 +168,8 @@ def write_label_report(
         f"- Outlier frames: {len(summary['outliers'])}",
         "- Mulliken spin patterns: "
         + ", ".join(f"{name}={count}" for name, count in summary["spin_patterns"].items()),
+        "- Frame roles: "
+        + ", ".join(f"{name}={count}" for name, count in summary["frame_roles"].items()),
         "",
         "## Per charge/multiplicity group",
         "",
