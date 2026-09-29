@@ -135,6 +135,25 @@ POLAR-1 checkpoints were pickled against the older internals:
 
     pip install --no-deps "git+https://github.com/WillBaldwin0/graph_electrostatics@v0.4.0"
 
+### Reference level of theory
+
+UBPW91 is the intended target, not a legacy compromise: for 3d-metal clusters the
+gradient-corrected BPW91 functional has been the working choice in a long line of
+benchmarked studies — the homonuclear 3d dimers and their ions
+([Gutsev & Bauschlicher, *J. Phys. Chem. A* 2003, 107, 4755](https://pubs.acs.org/doi/10.1021/jp030146v)),
+Fe_n (n = 2–6) electron affinities, ionisation and fragmentation energies
+(Gutsev & Bauschlicher, *J. Phys. Chem. A* 2003, 107, 7013), and Fe_nO_m
+([Gutsev et al., *J. Comput. Chem.* 2016](https://onlinelibrary.wiley.com/doi/10.1002/jcc.24478)) —
+and in the group's own experience it describes these clusters better than any hybrid.
+This is consistent with the broader observation that local functionals often do better
+than hybrids for metal–metal bonding
+([Cramer & Truhlar, *PCCP* 2009](https://comp.chem.umn.edu/Truhlar/docs/869.pdf)).
+Consequences: OMol25-trained models (ωB97M-V, a hybrid meta-GGA) are a change of
+functional, not an upgrade — fine-tune them only with a separate UBPW91 head, and
+treat the from-scratch model as the primary model. For periodic interface labels use
+a GGA (PW91/PBE in VASP) and calibrate the interaction term once against BPW91 on
+finite substrate models.
+
 ## What this means for ClusterMLIP
 
 1. The protocol works end to end and is cheap (≈ 40 min relaxations + 30 min MD
