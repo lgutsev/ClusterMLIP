@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore")
 import abtem  # noqa: E402
 
 abtem.config.set({"device": "cpu", "diagnostics.progress_bar": False})
-OUT = Path(os.environ.get("TEM_OUT", Path(__file__).parent / "out"))
+OUT = Path(os.environ.get("EXAMPLE_OUT") or os.environ.get("TEM_OUT") or Path(__file__).parent / "out")
 ENERGY = 200e3
 DOSE = 2e4  # e-/A^2, as in the tutorial
 

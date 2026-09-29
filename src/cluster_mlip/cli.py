@@ -59,6 +59,7 @@ from .slurm import (
 )
 from .stratify import STRATA_FIELDS
 from .training import DEFAULT_SEED, TrainingConfig, write_training_campaign
+from .vasp import VaspSettings, VaspSlurmConfig, collect_vasp_campaign, prepare_vasp_campaign
 
 
 def _elements(value: str | None) -> set[str] | None:
@@ -915,6 +916,52 @@ def command_literature_gap(args: argparse.Namespace) -> int:
     return 0
 
 
+def _key_values(items: list[str] | None, flag: str) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for item in items or []:
+        key, sep, value = item.partition("=")
+        if not sep or not key.strip():
+            raise SystemExit(f"{flag} expects KEY=VALUE, got {item!r}")
+        out[key.strip()] = value.strip()
+    return out
+
+
+def command_vasp_prepare(args: argparse.Namespace) -> int:
+    kpoints = tuple(int(k) for k in args.kpoints.split(","))
+    if len(kpoints) != 3:
+        raise SystemExit("--kpoints expects three integers, e.g. 1,1,1")
+    nupdown = None if args.support_nupdown == "free" else int(args.support_nupdown)
+    settings = VaspSettings(
+        gga=args.gga, encut=args.encut, ediff=args.ediff, ivdw=args.ivdw, lreal=args.lreal,
+        kpoints=kpoints, dipole=not args.no_dipole, magnetic_mixing=not args.no_magnetic_mixing,
+        support_nupdown=nupdown, potcars=_key_values(args.potcar, "--potcar"),
+        incar_overrides=_key_values(args.incar, "--incar"),
+    )
+    slurm = VaspSlurmConfig(
+        partition=args.partition, account=args.account, nodes=args.nodes,
+        ntasks_per_node=args.ntasks_per_node, time_limit=args.time, modules=args.modules,
+        vasp_command=args.vasp_command, potcar_root=args.potcar_root,
+        concurrent_jobs=args.concurrent,
+    )
+    mults = [int(m) for m in args.multiplicities.split(",")] if args.multiplicities else None
+    plan = prepare_vasp_campaign(
+        Path(args.structures), Path(args.output), settings=settings, slurm=slurm,
+        multiplicities=mults, cluster_elements=_elements(args.cluster_elements),
+    )
+    print(json.dumps({k: plan[k] for k in ("n_structures", "n_jobs", "level")}, indent=2))
+    print(f"submit on the cluster with: bash {Path(args.output) / 'submit.sh'}")
+    return 0
+
+
+def command_vasp_collect(args: argparse.Namespace) -> int:
+    summary = collect_vasp_campaign(
+        Path(args.campaign), Path(args.output), energy=args.energy,
+        magnetization_tolerance=args.magnetization_tolerance,
+    )
+    print(json.dumps(summary, indent=2))
+    return 0 if summary["interaction_frames"] else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="cluster-mlip", description="Legacy Gaussian cluster-to-MACE pipeline")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1448,6 +1495,47 @@ def build_parser() -> argparse.ArgumentParser:
     pdf_index.add_argument("source", help="a ZIP of PDFs, a folder of PDFs, or a single .pdf file")
     pdf_index.add_argument("-o", "--output", default="pdf_index")
     pdf_index.set_defaults(func=command_pdf_index)
+    vasp_prepare = sub.add_parser(
+        "vasp-prepare",
+        help="write VASP AB/A/B single points for supported clusters (interaction-energy labels)",
+    )
+    vasp_prepare.add_argument("structures", help="periodic extxyz with a per-atom 'cluster' column (1 = cluster)")
+    vasp_prepare.add_argument("-o", "--output", default="vasp_interaction")
+    vasp_prepare.add_argument("--multiplicities", help="comma list; default: each structure's multiplicity/spin info")
+    vasp_prepare.add_argument("--cluster-elements", help="fallback split when there is no 'cluster' column, e.g. Fe")
+    vasp_prepare.add_argument("--gga", default="PE", help="VASP GGA tag (PE = PBE, 91 = PW91)")
+    vasp_prepare.add_argument("--encut", type=float, default=450.0)
+    vasp_prepare.add_argument("--ediff", type=float, default=1e-6)
+    vasp_prepare.add_argument("--ivdw", type=int, default=12, help="12 = D3(BJ); 0 = no dispersion")
+    vasp_prepare.add_argument("--lreal", default="Auto")
+    vasp_prepare.add_argument("--kpoints", default="1,1,1", help="Gamma-centred grid, e.g. 2,2,1")
+    vasp_prepare.add_argument("--no-dipole", action="store_true", help="drop the slab dipole correction (IDIPOL=3)")
+    vasp_prepare.add_argument("--no-magnetic-mixing", action="store_true")
+    vasp_prepare.add_argument("--support-nupdown", default="0", help="support-only NUPDOWN, or 'free'")
+    vasp_prepare.add_argument("--potcar", action="append", metavar="EL=NAME", help="PAW dataset override, repeatable")
+    vasp_prepare.add_argument("--incar", action="append", metavar="TAG=VALUE", help="extra/overriding INCAR tag, repeatable")
+    vasp_prepare.add_argument("--partition", default="checkpt")
+    vasp_prepare.add_argument("--account", default="loni_perovsk27")
+    vasp_prepare.add_argument("--nodes", type=int, default=1)
+    vasp_prepare.add_argument("--ntasks-per-node", type=int, default=48)
+    vasp_prepare.add_argument("--time", default="24:00:00")
+    vasp_prepare.add_argument("--modules", default="vasp/6.4.2")
+    vasp_prepare.add_argument("--vasp-command", default="srun vasp_std")
+    vasp_prepare.add_argument("--potcar-root", default="$VASP_PP_PATH/potpaw_PBE")
+    vasp_prepare.add_argument("--concurrent", type=int, default=10)
+    vasp_prepare.set_defaults(func=command_vasp_prepare)
+
+    vasp_collect = sub.add_parser(
+        "vasp-collect",
+        help="turn a finished vasp-prepare campaign into dE_int, total and fragment extxyz",
+    )
+    vasp_collect.add_argument("campaign", help="directory written by vasp-prepare")
+    vasp_collect.add_argument("-o", "--output", default="vasp_labels")
+    vasp_collect.add_argument("--energy", choices=["free", "sigma0"], default="free",
+                              help="free energy (consistent with the forces) or the sigma->0 extrapolation")
+    vasp_collect.add_argument("--magnetization-tolerance", type=float, default=0.1,
+                              help="reject a job whose total moment differs from M-1 by more than this")
+    vasp_collect.set_defaults(func=command_vasp_collect)
     return parser
 
 

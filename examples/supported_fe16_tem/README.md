@@ -20,16 +20,21 @@ charge/spin MACE is not trained yet; this is a stand-in to exercise the pipeline
 | step | script | what it does |
 |---|---|---|
 | 1 | `s1_select.py <seeds.extxyz>` | 668 optimised Fe16 records → 62 distinct UBPW91 minima (lowest energy over M = 49/51/53) |
-| 2 | `s2_relax.py [n_orient]` | relax all 62 in the gas phase → cluster into MACE basins → land ≤ 8 basins on graphene (160 C, freestanding, one C pinned) and MgO(100) (192 atoms, 3 layers, bottom fixed), 6 random orientations each; decompose `E_ads = E_int + strain(cluster) + strain(support)` |
-| 3 | `s3_md.py [fs] [supports]` | Langevin NVT, 700 K, 1 fs, 10 ps, frame every 50 fs, from the lowest supported structure |
+| 2 | `s2_relax.py [n_orient] [model options]` | relax all 62 in the gas phase → cluster into MACE basins → land ≤ 8 basins on graphene (160 C, freestanding, one C pinned) and MgO(100) (192 atoms, 3 layers, bottom fixed), 6 random orientations each; decompose `E_ads = E_int + strain(cluster) + strain(support)` |
+| 3 | `s3_md.py [fs] [supports] [model options]` | Langevin NVT, 700 K, 1 fs, 10 ps, frame every 50 fs, from the lowest supported structure |
 | 4 | `s4_tem.py [supports]` | abTEM HRTEM, tutorial settings (200 kV, Cs = −8 µm, Scherzer, Cc = 1 mm, ΔE = 0.3 eV), profile and plan views: 1 frame + 12 frozen-phonon configs, 10 ps average, average + Poisson noise at 2·10⁴ e⁻/Å² |
 | 5, 6 | `s5_figures.py`, `s6_tem_figs.py` | figures below |
-| 7, 8, 9 | `s7_polar_spin.py <seeds> [polar-1-{s,m,l}]`, `s8_polar_figs.py`, `s9_polar_breakdown.py` | MACE-POLAR-1 spin-ladder check and where it breaks (section 4) |
+| 7, 8, 9 | `s7_polar_spin.py <seeds> [polar-1-{s,m,l} \| model]`, `s8_polar_figs.py`, `s9_polar_breakdown.py` | MACE-POLAR-1 spin-ladder check and where it breaks (section 4); with a model path, the same ladder check for our own model |
+| 10 | `s10_vasp_candidates.py [--out DIR] [--md-every N] [--spin-neighbours]` | best landings + MD snapshots → `vasp_candidates.extxyz` for `cluster-mlip vasp-prepare` (section 5) |
+| 11 | `s11_delta_check.py <labels> [model options]` | compare an interaction term with the VASP ΔE_int labels, per support (section 5) |
 
 Requirements beyond the base install: `mace-torch>=0.3.16`, `torch-dftd`, `abtem>=1.0`,
 `graph_electrostatics` v0.4.0 (section 4 only),
 `matplotlib`, `scipy`. Outputs go to `out/` (small results are committed; MD
-trajectories and image stacks are regenerated).
+trajectories and image stacks are regenerated). Runs with any other model go to
+`out_<model tag>/`, under `$SUPPORTED_FE16_RUNS` when it is set; keep that on the work
+drive (`D:/MLIP_Work_Folder/Cluster_MLIP/supported_fe16_runs`), not in the repo, and
+point s4–s6 at a run with `EXAMPLE_OUT=<dir>`.
 
 ## Results
 
@@ -153,6 +158,66 @@ functional, not an upgrade — fine-tune them only with a separate UBPW91 head, 
 treat the from-scratch model as the primary model. For periodic interface labels use
 a GGA (PW91/PBE in VASP) and calibrate the interaction term once against BPW91 on
 finite substrate models.
+
+### 5. Our own model, the Δ-model and VASP interaction labels (tooling; not run yet)
+
+Everything above is MACE-MP-0. The pieces for the real calculation are in place:
+
+**Model options** (s2, s3, s11; see `common.py`):
+
+| option | term | default |
+|---|---|---|
+| `--model SPEC` | gas-phase cluster E_gas(A; q, M) | `mace-mp:medium+d3` |
+| `--support-model SPEC` | support E_support(B) | `mace-mp:medium+d3` |
+| `--interaction SPEC` | ΔE_int | `subtractive` = E(AB) − E(A) − E(B) from the support model |
+| `--multiplicities` | M scanned when `--model` is spin-aware | `49,51,53` |
+
+`SPEC` is `mace-mp:<size>[+d3]`, `mace-polar:<name>`, or the path of a model trained with
+`cluster-mlip train` (`fe16.model`, `+d3` to add D3(BJ), `:blind` if it has no charge/spin
+input). With the defaults the Δ-model is exactly MACE-MP-0 + D3 on the whole system, and
+the scripts use that single model directly, so the baseline above is reproduced.
+With a spin-aware `--model`, s2 relaxes every isomer at each M and keeps the lowest
+(adiabatic) state, groups basins per M, lands each basin at its M, and
+`--rescan-support-m` re-relaxes the best landing at the other M. The decomposition then
+comes straight from the Δ-model terms (`E_int` = the interaction term,
+`strain_cluster` = gas model on the frozen supported cluster minus its gas minimum).
+Spin-blind models carry the DFT multiplicity of each basin, so VASP always gets a real M.
+
+    # the gas-phase term from our own UBPW91 Fe16 model, support + interaction still MACE-MP-0
+    export SUPPORTED_FE16_RUNS=D:/MLIP_Work_Folder/Cluster_MLIP/supported_fe16_runs
+    python s2_relax.py --model models/fe16_v1/fe16.model --rescan-support-m
+    python s3_md.py --model models/fe16_v1/fe16.model
+
+**VASP labels for ΔE_int** (`cluster-mlip vasp-prepare` / `vasp-collect`, `src/cluster_mlip/vasp.py`).
+For each supported structure: three single points in the same cell at identical settings
+— AB (whole system, NUPDOWN = M − 1), A (cluster frozen at its supported geometry, same
+NUPDOWN) and B (support frozen, NUPDOWN = 0, once per structure). Collect gives
+
+    ΔE_int = E_AB − E_A − E_B,    ΔF_i = F_AB,i − F_A,i (cluster) or F_AB,i − F_B,i (support)
+
+as `interaction.extxyz` (`config_type=support_interaction`, `REF_energy`/`REF_forces`,
+charge/spin, the VASP level string), plus `supported_total`, `cluster_frozen` and
+`support_frozen` frames and a per-structure CSV. Plane waves have no BSSE, so no ghost
+atoms. Defaults: PBE (`--gga 91` for PW91), D3(BJ), 450 eV, ISPIN = 2 with the starting
+moments spread as M − 1 over the Fe atoms (or taken from an `initial_magmoms` column),
+LASPH, dipole correction along *c*, magnetic mixing, Γ point. Jobs that hit NELM, are
+truncated, or end with a total moment ≠ M − 1 are rejected and listed in `failed_jobs.tsv`.
+POTCARs are never written: each job has `POTCAR.spec` and the Slurm array script builds
+the POTCAR from `$VASP_PP_PATH` on the cluster. Charged cells are refused.
+
+    python s10_vasp_candidates.py --out $SUPPORTED_FE16_RUNS/out_fe16 --md-every 20 --spin-neighbours
+    cluster-mlip vasp-prepare $SUPPORTED_FE16_RUNS/out_fe16/vasp_candidates.extxyz -o vasp_fe16_supported         --account <alloc> --partition <queue> --modules "vasp/6.4.2"
+    bash vasp_fe16_supported/submit.sh                    # on the cluster
+    cluster-mlip vasp-collect vasp_fe16_supported -o vasp_fe16_labels
+    python s11_delta_check.py vasp_fe16_labels             # how wrong is MACE-MP-0's interaction?
+
+Train the interaction model on `interaction.extxyz` with **zero E0s** (ΔE_int has no atomic
+reference energy, e.g. `--E0s="{6:0.0,8:0.0,12:0.0,26:0.0}"`) and the charge/spin
+embedding, then pass it as `--interaction path/to/dEint.model`. `s11` on held-out frames
+is its validation, and `s11` with the default subtractive term measures MACE-MP-0's
+interaction error on the same frames. Still to do before interpreting results: the
+BPW91-vs-GGA calibration of ΔE_int on finite support models, and the DFT check of the
+graphene/MgO claims in section 2.
 
 ## What this means for ClusterMLIP
 

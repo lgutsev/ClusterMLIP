@@ -1045,6 +1045,27 @@ dataset constrains the least, and so are the best next candidates for the
 next (expensive) DFT labeling round rather than labeling the warehouse in
 arbitrary order. Needs the training extra.
 
+## 8. Supported clusters: VASP interaction labels
+
+For a cluster on a periodic support, the Δ-model `E = E_gas(cluster; q, M) +
+E_support + ΔE_int` keeps the UBPW91 gas-phase model and fits only the interaction
+to periodic DFT. `vasp-prepare` writes, for every structure of a periodic extxyz with a
+per-atom `cluster` column (1 = cluster), the three single points AB, A (frozen
+cluster) and B (frozen support) at identical settings in the same cell, with the total
+spin fixed at NUPDOWN = M − 1, plus a Slurm array (`submit.sh`); POTCARs are built on
+the cluster from `POTCAR.spec`. `vasp-collect` checks SCF convergence and the total
+moment and writes `interaction.extxyz` (ΔE_int, ΔF), the total and fragment frames and
+`interaction_summary.csv`.
+
+```bash
+cluster-mlip vasp-prepare supported.extxyz -o vasp_campaign --multiplicities 51,53
+cluster-mlip vasp-collect vasp_campaign -o vasp_labels
+```
+
+`cluster_mlip.delta` (needs ASE) has the matching `DeltaCalculator`,
+`SubtractiveInteraction` and a per-multiplicity relaxation helper. The worked example is
+`examples/supported_fe16_tem` (section 5 of its README).
+
 ## Model and data storage
 
 Keep code, small configs, manifests, and reports in Git. Keep raw warehouses,

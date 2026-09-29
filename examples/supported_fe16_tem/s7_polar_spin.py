@@ -12,11 +12,16 @@ float32 rounds them to 0.0625 eV steps, the size of the gaps being tested.
 The predicted atomic spins are kept as a validity check: an Fe atom carries at most
 ~4 unpaired electrons, so |s_i| far above that means the spin equilibration diverged.
 
-usage: s7_polar_spin.py <seeds.extxyz> [polar-1-s|m|l] [--relax]
+usage: s7_polar_spin.py <seeds.extxyz> [polar-1-s|m|l | MODEL_SPEC] [--relax]
+
+MODEL_SPEC is any `cluster_mlip.delta.load_model` spec, e.g. the path of a trained
+charge/spin Fe16 ``.model``; results then go to out/spin_ladder_<tag>.json and the
+atomic-spin checks are skipped (only POLAR-1 predicts atomic spins).
 Needs graph_electrostatics v0.4.0 (the API mace-torch 0.3.16 calls):
   pip install --no-deps "git+https://github.com/WillBaldwin0/graph_electrostatics@v0.4.0"
 """
 import json
+import os
 import sys
 import time
 import warnings
@@ -29,21 +34,27 @@ from ase.optimize import LBFGS
 
 warnings.filterwarnings("ignore")
 import torch  # noqa: E402
-from mace.calculators import mace_mp, mace_polar  # noqa: E402
+from mace.calculators import mace_mp  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).parents[2] / "src"))
+from cluster_mlip.delta import load_model, reset_calculator  # noqa: E402
 
 args = [a for a in sys.argv[1:] if not a.startswith("--")]
 SEEDS = args[0] if args else "seeds.extxyz"
 MODEL = args[1] if len(args) > 1 else "polar-1-m"
 RELAX = "--relax" in sys.argv
-OUT = Path(__file__).parent / "out"
+OUT = Path(os.environ.get("EXAMPLE_OUT") or Path(__file__).parent / "out")
 OUT.mkdir(exist_ok=True)
-RES = OUT / "polar_spin.json"
+IS_POLAR = MODEL.startswith("polar-")
+SPEC = f"mace-polar:{MODEL}" if IS_POLAR else MODEL
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 HARTREE = 27.211386245988
 LADDER = list(range(1, 67, 2))
 FE_SPIN_BOUND = 4.0
 
-polar64 = mace_polar(MODEL, device=DEVICE, default_dtype="float64")
+_model64 = load_model(SPEC, device=DEVICE, dtype="float64")
+polar64 = _model64.calculator
+RES = OUT / ("polar_spin.json" if IS_POLAR else f"spin_ladder_{_model64.tag}.json")
 mp64 = mace_mp(model="medium", device=DEVICE, default_dtype="float64")
 res: dict = {"model": MODEL}
 t0 = time.time()
@@ -53,10 +64,19 @@ def save():
     RES.write_text(json.dumps(res, indent=1, default=float))
 
 
+def ssum(s):
+    return None if s is None else float(s.sum())
+
+
+def smax(s):
+    return None if s is None else float(np.abs(s).max())
+
+
 def sp(calc, atoms, mult):
     a = atoms.copy()
     a.info = {"charge": 0, "spin": int(mult)}
     a.pbc = False
+    reset_calculator(calc)  # same geometry, other multiplicity: never reuse the cached result
     a.calc = calc
     e = float(a.get_potential_energy())
     s = calc.results.get("spins")
@@ -73,7 +93,7 @@ for name, atoms, mults in (("O2", Atoms("O2", positions=[[0, 0, 0], [0, 0, 1.21]
     rows = []
     for m in mults:
         e, s = sp(polar64, atoms, m)
-        rows.append(dict(mult=m, E=e, spin_sum=float(s.sum()), spin_max=float(np.abs(s).max())))
+        rows.append(dict(mult=m, E=e, spin_sum=ssum(s), spin_max=smax(s)))
     e0 = min(r["E"] for r in rows)
     for r in rows:
         r["E_rel"] = r["E"] - e0
@@ -124,34 +144,38 @@ for gi, g in enumerate(groups):
         e_pol, s = sp(polar64, a, m)
         e_mp, _ = sp(mp64, a, m)
         states.append(dict(group=gi, mult=m, e_dft=e_dft - e_ref, e_polar=e_pol, e_mp=e_mp,
-                           spin_sum=float(s.sum()), spin_max=float(np.abs(s).max())))
+                           spin_sum=ssum(s), spin_max=smax(s)))
 res["states"] = states
 save()
-bad = np.mean([s["spin_max"] > FE_SPIN_BOUND for s in states])
-print(f"{len(states)} adiabatic states; {100 * bad:.0f}% have max|s_i| > {FE_SPIN_BOUND} "
-      f"[{time.time() - t0:.0f}s]", flush=True)
+checked = [s["spin_max"] for s in states if s["spin_max"] is not None]
+if checked:
+    bad = np.mean([v > FE_SPIN_BOUND for v in checked])
+    print(f"{len(states)} adiabatic states; {100 * bad:.0f}% have max|s_i| > {FE_SPIN_BOUND} "
+          f"[{time.time() - t0:.0f}s]", flush=True)
+else:
+    print(f"{len(states)} adiabatic states [{time.time() - t0:.0f}s]", flush=True)
 
 # ------------------------------------------------------------------ ladder
 curves = []
 for gi, g in enumerate(groups[:6]):
     geom = g["by_mult"][g["m0"]][1]
-    e, smax = [], []
+    e, smaxes = [], []
     for m in LADDER:
         x, s = sp(polar64, geom, m)
         e.append(x)
-        smax.append(float(np.abs(s).max()))
+        smaxes.append(smax(s))
     e = np.array(e) - e[LADDER.index(g["m0"])]
     curves.append(dict(group=gi, dft_ground_mult=g["m0"],
                        dft={int(m): v[0] - g["by_mult"][g["m0"]][0] for m, v in g["by_mult"].items()},
-                       polar=e.tolist(), spin_max=smax))
-    print(f"ladder group {gi}: DFT M={g['m0']}, POLAR argmin M={LADDER[int(np.argmin(e))]}, "
+                       polar=e.tolist(), spin_max=smaxes))
+    print(f"ladder group {gi}: DFT M={g['m0']}, model argmin M={LADDER[int(np.argmin(e))]}, "
           f"E range {e.min():.0f}..{e.max():.0f} eV", flush=True)
 res["ladder"] = dict(mults=LADDER, curves=curves)
 save()
 
 # ------------------------------------------------------------------ relax (opt-in)
 if RELAX:
-    polar32 = mace_polar(MODEL, device=DEVICE, default_dtype="float32")
+    polar32 = load_model(SPEC, device=DEVICE, dtype="float32").calculator
     relaxed = []
     for gi, g in enumerate(groups):
         a = g["by_mult"][g["m0"]][1].copy()
@@ -162,8 +186,9 @@ if RELAX:
         e64, s = sp(polar64, a, g["m0"])
         a.calc = None  # shared calculator: its cached energy belongs to another structure
         relaxed.append(dict(group=gi, mult=g["m0"], E=e64, steps=opt.nsteps, ok=bool(ok),
-                            dft_rel=g["e_min"] - e_ref, spin_max=float(np.abs(s).max()), atoms=a))
-    write(OUT / "polar_relaxed.extxyz", [r.pop("atoms") for r in relaxed])
+                            dft_rel=g["e_min"] - e_ref, spin_max=smax(s), atoms=a))
+    write(OUT / ("polar_relaxed.extxyz" if IS_POLAR else f"relaxed_{_model64.tag}.extxyz"),
+          [r.pop("atoms") for r in relaxed])
     res["relaxed"] = relaxed
     save()
 print(f"done in {time.time() - t0:.0f}s")

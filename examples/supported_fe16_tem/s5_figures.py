@@ -1,5 +1,6 @@
 """Step 5: figures."""
 import json
+import os
 from pathlib import Path
 
 import matplotlib
@@ -9,9 +10,10 @@ import numpy as np  # noqa: E402
 from ase.io import read  # noqa: E402
 from ase.visualize.plot import plot_atoms  # noqa: E402
 
-OUT = Path(__file__).parent / "out"
-FIG = Path(__file__).parent / "figures"
-FIG.mkdir(exist_ok=True)
+# $EXAMPLE_OUT selects a non-baseline run (e.g. out_<model>/); its figures go next to it
+OUT = Path(os.environ.get("EXAMPLE_OUT") or Path(__file__).parent / "out")
+FIG = Path(__file__).parent / "figures" if "EXAMPLE_OUT" not in os.environ else OUT / "figures"
+FIG.mkdir(parents=True, exist_ok=True)
 
 C = {"graphene": "#2a78d6", "MgO100": "#eb6834", "gas": "#1baf7a"}
 LABEL = {"graphene": "on graphene", "MgO100": "on MgO(100)"}
