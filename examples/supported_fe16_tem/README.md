@@ -24,7 +24,7 @@ charge/spin MACE is not trained yet; this is a stand-in to exercise the pipeline
 | 3 | `s3_md.py [fs] [supports]` | Langevin NVT, 700 K, 1 fs, 10 ps, frame every 50 fs, from the lowest supported structure |
 | 4 | `s4_tem.py [supports]` | abTEM HRTEM, tutorial settings (200 kV, Cs = −8 µm, Scherzer, Cc = 1 mm, ΔE = 0.3 eV), profile and plan views: 1 frame + 12 frozen-phonon configs, 10 ps average, average + Poisson noise at 2·10⁴ e⁻/Å² |
 | 5, 6 | `s5_figures.py`, `s6_tem_figs.py` | figures below |
-| 7, 8 | `s7_polar_spin.py <seeds> [polar-1-{s,m,l}]`, `s8_polar_figs.py` | MACE-POLAR-1 spin-ladder check (section 4) |
+| 7, 8, 9 | `s7_polar_spin.py <seeds> [polar-1-{s,m,l}]`, `s8_polar_figs.py`, `s9_polar_breakdown.py` | MACE-POLAR-1 spin-ladder check and where it breaks (section 4) |
 
 Requirements beyond the base install: `mace-torch>=0.3.16`, `torch-dftd`, `abtem>=1.0`,
 `graph_electrostatics` v0.4.0 (section 4 only),
@@ -120,6 +120,14 @@ points**: POLAR energies for Fe16 are ≈ −5.5·10⁵ eV and float32 rounds th
   monometallic. Fe16 at M = 53 has 52 unpaired electrons on 16 bonded Fe atoms —
   far outside the training distribution. The same limit applies to any
   OMol25-trained model, so none of them is a shortcut for FenOm clusters.
+
+- **What actually breaks it** (`s9_polar_breakdown.py`): compact Fe_n sub-clusters of the
+  Fe16 minimum stay valid up to n = 11 even at M = 31 (30 unpaired electrons, well beyond
+  OMol25), then fail at *every* M from n = 12 on. The trigger is coordination, not size
+  or spin: 12 Fe atoms as two separated Fe6 halves or as a hollow Fe12 cage (max 5 Fe
+  neighbours) are fine up to M = 37, while a compact Fe12 whose centre atom has 11 Fe
+  neighbours diverges. A bulk-like, fully metal-coordinated Fe site never occurs in
+  OMol25's monometallic complexes, so any compact Fe_n with n >= 12 is out of reach.
 
 Setup note: mace-torch 0.3.16 calls the `graph_electrostatics` API of **v0.4.0**
 (`precompute_geometry(..., force_pbc_evaluator=...)`); v0.4.3/v0.4.4 changed it, and the
