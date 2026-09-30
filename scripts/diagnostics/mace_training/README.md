@@ -68,6 +68,16 @@ Energy-only memorization succeeds at both learning rates (60 frames: 3.2 / 4.8 m
   looked stuck was stopped after 15 epochs (≈1,575 steps), still on the plateau.
   After 500 epochs at 0.001 the 60 training frames are fit to 7.5 meV/Å (16 % relative) but
   only 31 meV/atom in energy — forces are learnable; energy is the next problem.
+- **Energy: the loss weighting.** Same run (lr 0.001, 500 epochs), one change each, errors
+  on the 60 training frames:
+
+  | change | E (meV/atom) | F (meV/Å) |
+  |---|---:|---:|
+  | none (`forces_weight` 100, embedding readout on) | 31.2 | 7.5 |
+  | `--forces_weight=10` | **6.6** | 9.2 |
+  | `--use_embedding_readout=False` | 24.2 | 8.8 |
+
+  `cluster-mlip train` now defaults to lr 0.001 and `forces_weight` 10 from scratch.
 - **Not the labels:** 8,869 cross-stage same-M near-identical training pairs follow the same
   |ΔF|/|Δx| distribution as consecutive steps (median 3.4 vs 4.6 eV/Å²); the only outliers
   are exact duplicate frames under two record IDs.
