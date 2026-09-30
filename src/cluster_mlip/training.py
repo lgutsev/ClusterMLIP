@@ -132,8 +132,12 @@ class TrainingConfig:
     hidden_irreps: str = "128x0e + 128x1o + 128x2e"
     mlp_irreps: str = "16x0e"
     energy_weight: float = 1.0
-    forces_weight: float = 100.0
-    lr: float | None = None  # None -> 0.005 scratch / 0.0001 finetune
+    # Scratch defaults from the Fe16 v1 diagnosis (scripts/diagnostics/mace_training):
+    # at lr 0.005 the model sat on a zero-force plateau for thousands of steps,
+    # and forces_weight 100 left the energy term ~1% of the loss (energies of the
+    # training frames were not fit). Finetune defaults are unchanged (untested).
+    forces_weight: float | None = None  # None -> 10 scratch / 100 finetune
+    lr: float | None = None  # None -> 0.001 scratch / 0.0001 finetune
     batch_size: int = 8
     valid_batch_size: int = 8
     max_num_epochs: int | None = None  # None -> 500 scratch / 100 finetune
@@ -302,7 +306,12 @@ def _validate_embedding_coverage(config: TrainingConfig, facts: DatasetFacts) ->
 
 
 def _build_argv(config: TrainingConfig, facts: DatasetFacts, seed: int) -> list[str]:
-    lr = config.lr if config.lr is not None else (0.0001 if config.mode == "finetune" else 0.005)
+    lr = config.lr if config.lr is not None else (0.0001 if config.mode == "finetune" else 0.001)
+    forces_weight = (
+        config.forces_weight
+        if config.forces_weight is not None
+        else (100.0 if config.mode == "finetune" else 10.0)
+    )
     max_epochs = (
         config.max_num_epochs
         if config.max_num_epochs is not None
@@ -357,7 +366,7 @@ def _build_argv(config: TrainingConfig, facts: DatasetFacts, seed: int) -> list[
     argv += [
         "--loss=weighted",
         f"--energy_weight={config.energy_weight}",
-        f"--forces_weight={config.forces_weight}",
+        f"--forces_weight={forces_weight}",
         f"--stress_weight={LOCKED_ARGS['stress_weight']}",
         f"--lr={lr}",
         f"--batch_size={config.batch_size}",

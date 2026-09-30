@@ -31,10 +31,10 @@ mace_run_train \
   --MLP_irreps="16x0e" \
   --loss="weighted" \
   --energy_weight=1 \
-  --forces_weight=100 \
+  --forces_weight=10 \
   --stress_weight=0 \
   --scaling="rms_forces_scaling" \
-  --lr=0.005 \
+  --lr=0.001 \
   --batch_size=8 \
   --valid_batch_size=8 \
   --max_num_epochs=500 \

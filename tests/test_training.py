@@ -133,6 +133,37 @@ class ScratchCampaignTests(unittest.TestCase):
                 )
 
 
+class OptimizerDefaultsTests(unittest.TestCase):
+    """Scratch defaults come from the Fe16 v1 diagnosis (lr 0.005 plateaued, and
+    forces_weight 100 left energy ~1% of the loss); finetune keeps its defaults."""
+
+    def _argv(self, **overrides):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            dataset = _dataset(tmp, [_frame("a", 0, 1), _frame("b", 0, 5)])
+            plan = write_training_campaign(
+                TrainingConfig(dataset_dir=dataset, output_dir=tmp / "run", **overrides)
+            )
+            return plan["seed_runs"][0]["argv"]
+
+    def test_scratch_defaults(self):
+        argv = self._argv()
+        self.assertIn("--lr=0.001", argv)
+        self.assertIn("--forces_weight=10.0", argv)
+        self.assertIn("--energy_weight=1.0", argv)
+
+    def test_finetune_defaults_unchanged(self):
+        argv = self._argv(mode="finetune", foundation_model="medium")
+        self.assertIn("--lr=0.0001", argv)
+        self.assertIn("--forces_weight=100.0", argv)
+
+    def test_explicit_values_win(self):
+        argv = self._argv(lr=0.002, forces_weight=50.0)
+        self.assertIn("--lr=0.002", argv)
+        self.assertIn("--forces_weight=50.0", argv)
+        self.assertNotIn("--forces_weight=10.0", argv)
+
+
 class FinetuneCampaignTests(unittest.TestCase):
     def test_polar_foundation_uses_polarmace_and_no_custom_embedding(self):
         with tempfile.TemporaryDirectory() as raw:

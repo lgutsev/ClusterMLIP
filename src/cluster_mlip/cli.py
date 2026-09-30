@@ -1397,7 +1397,10 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--e0s", default="average", help="MACE --E0s (default: average)")
     train.add_argument("--device", default="cuda")
     train.add_argument("--energy-weight", type=float, default=1.0, dest="energy_weight")
-    train.add_argument("--forces-weight", type=float, default=100.0, dest="forces_weight")
+    train.add_argument(
+        "--forces-weight", type=float, default=None, dest="forces_weight",
+        help="default: 10 from scratch, 100 when fine-tuning",
+    )
     train.add_argument("--max-num-epochs", type=int, default=None, dest="max_num_epochs")
     train.add_argument("--spin-num-classes", type=int, default=101, dest="spin_num_classes")
     train.add_argument("--spin-offset", type=int, default=0, dest="spin_offset")
