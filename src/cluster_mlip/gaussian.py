@@ -462,6 +462,7 @@ def parse_force_frames(text: str, source: Path, seed: Record | None = None) -> l
     energies = list(_SCF_RE.finditer(text))
     cms = list(_CM_RE.finditer(text))
     frames = []
+    routes = _routes(text)
     for index, header in enumerate(_FORCE_HEADER_RE.finditer(text)):
         preceding_energy = [match for match in energies if match.end() < header.start()]
         if not preceding_energy:
@@ -513,7 +514,21 @@ def parse_force_frames(text: str, source: Path, seed: Record | None = None) -> l
         record.atoms = atoms
         record.charge = charge
         record.multiplicity = multiplicity
+        # Seed diagnostics describe a different SCF/geometry. Never retain them
+        # when this force-bearing SCF did not print its own populations/S^2.
+        for key in ("atomic_spins", "s2_before", "s2_after"):
+            record.metadata.pop(key, None)
+        section_index = next((j for j, item in enumerate(cms) if item is cm), -1)
+        section_end = cms[section_index+1].start() if section_index+1 < len(cms) else len(text)
+        section = text[cm.start() if cm else 0:section_end].lower()
+        route_item = _last_before(routes, energy.start())
         record.metadata.update({
+            "force_route": route_item[1] if route_item else "",
+            "explicit_charge_multiplicity": cm is not None,
+            "gaussian_section_index": section_index,
+            "section_normal_termination": "normal termination of gaussian" in section,
+            "section_error_termination": "error termination" in section,
+            "section_optimized": "optimization completed" in section or "stationary point found" in section,
             "force_frame_index": index, "orientation": orientation,
             "scf_convergence_warning": "convergence failure" in
                 text[geometry_end:header.start()].lower(),

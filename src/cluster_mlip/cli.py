@@ -426,6 +426,14 @@ def command_campaign_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_audit_spin_labels(args: argparse.Namespace) -> int:
+    try:
+        from .spin_audit import run_audit
+    except ImportError as exc:
+        raise RuntimeError("audit-spin-labels needs numpy; install '.[audit]' in the audit environment") from exc
+    return run_audit(args)
+
+
 def command_collect(args: argparse.Namespace) -> int:
     output_roots = [Path(item).resolve() for item in args.outputs]
     destination = Path(args.output)
@@ -1536,6 +1544,23 @@ def build_parser() -> argparse.ArgumentParser:
     vasp_collect.add_argument("--magnetization-tolerance", type=float, default=0.1,
                               help="reject a job whose total moment differs from M-1 by more than this")
     vasp_collect.set_defaults(func=command_vasp_collect)
+    p = sub.add_parser("audit-spin-labels", help="audit same-input E/F ambiguity and local-spin provenance (needs numpy)")
+    p.add_argument("datasets", nargs="+", help="collected extxyz files; with --gaussian: log files or recursive directories")
+    p.add_argument("-o", "--output", required=True)
+    p.add_argument("--formula", help="optional exact formula filter, e.g. Fe16")
+    p.add_argument("--gaussian", action="store_true", help="read Gaussian .log/.out directly; no collected dataset needed")
+    p.add_argument("--file-glob", action="append", help="raw directory filename glob, repeatable; default *.log and *.out")
+    p.add_argument("--gaussian-frames", choices=["all", "last-per-section"], default="all",
+                   help="all force frames (default) or final force frame per Gaussian state section")
+    p.add_argument("--verify-raw", action="store_true", help="reparse original Gaussian logs using campaign metadata")
+    p.add_argument("--raw-root", help="replacement campaign root for gaussian_output paths; requires --verify-raw")
+    for name, default in [("exact-tolerance", 1e-5), ("near-tolerance", 0.03),
+                          ("energy-threshold", 0.01), ("force-threshold", 0.05),
+                          ("spin-threshold", 0.3), ("spin-sum-tolerance", 0.1)]:
+        p.add_argument("--"+name, type=float, default=default)
+    p.add_argument("--mapping-budget", type=int, default=100000, help="backtracking nodes per alignment search")
+    p.add_argument("--max-pairs", type=int, default=5000000, help="candidate-pair work limit; exit 2 and report if exceeded")
+    p.set_defaults(func=command_audit_spin_labels)
     return parser
 
 

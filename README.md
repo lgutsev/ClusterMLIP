@@ -1143,3 +1143,14 @@ paths. CI (`.github/workflows/tests.yml`) runs the unit tests on Python
 of this needs `mace-torch` installed -- the stratification, reporting, and
 physical-check logic is plain Python over data already in hand; only the
 CLI's actual model inference calls need the training extra, same as before.
+
+## Diagnose missing local-spin information before expanding the campaign
+
+`cluster-mlip audit-spin-labels` reads Gaussian `.log`/`.out` files directly
+(`--gaussian`) or compares collected E/F labels at matched
+geometry, charge and multiplicity, including explicit atom mapping, rotated
+forces, site-resolved spins, trajectory flags and optional verification against
+the original Gaussian force frames. It does not modify labels or launch jobs.
+See [the Fe16/LONI audit instructions](docs/spin_label_audit.md) and
+`scripts/run_spin_audit_slurm.sh` (one CPU on `single`; no MACE/GPU needed).
+The audit needs the optional `audit` extra (numpy).
