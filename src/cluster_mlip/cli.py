@@ -804,6 +804,7 @@ def command_train(args: argparse.Namespace) -> int:
         allow_mixed_method=args.allow_mixed_method,
         force=args.force,
         extra_args=tuple(args.extra_arg or ()),
+        local_moment_key=args.local_moment_key,
     )
     try:
         plan = write_training_campaign(config)
@@ -1411,6 +1412,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="proceed even if the dataset mixes force-label routes (unsound unless equivalent)",
     )
     train.add_argument("--force", action="store_true", help="overwrite a non-empty output directory")
+    train.add_argument(
+        "--local-moment-key", default=None, dest="local_moment_key",
+        help="per-atom array (e.g. signed Mulliken spins) fed as a continuous embedding; "
+             "every frame must carry it, and inference needs it too",
+    )
     train.add_argument(
         "--extra-arg", action="append", dest="extra_arg",
         help="append a raw flag to every mace_run_train command (repeatable)",
