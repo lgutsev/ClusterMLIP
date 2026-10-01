@@ -46,8 +46,8 @@ mace_run_train \
   --forces_key="REF_forces" \
   --total_charge_key="charge" \
   --total_spin_key="spin" \
-  --embedding_specs='{"total_spin":{"type":"categorical","per":"graph","in_dim":1,"emb_dim":128,"num_classes":101,"offset":0},"total_charge":{"type":"categorical","per":"graph","in_dim":1,"emb_dim":128,"num_classes":201,"offset":100}}' \
-  --use_embedding_readout \
+  --embedding_specs='{"total_spin":{"type":"categorical","per":"graph","key":"spin","in_dim":1,"emb_dim":128,"num_classes":101,"offset":0},"total_charge":{"type":"categorical","per":"graph","key":"charge","in_dim":1,"emb_dim":128,"num_classes":201,"offset":100}}' \
+  --use_embedding_readout=True \
   --E0s="average" \
   --loss="weighted" \
   --energy_weight=1 \

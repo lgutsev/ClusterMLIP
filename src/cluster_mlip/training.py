@@ -79,6 +79,17 @@ DEFAULT_SPIN_OFFSET = 0
 DEFAULT_CHARGE_NUM_CLASSES = 201
 DEFAULT_CHARGE_OFFSET = 100
 
+# The ``atoms.info`` keys `collect` / `mace_glue.record_to_atoms` write the
+# total charge and the Gaussian multiplicity to. Every graph-level entry of
+# ``--embedding_specs`` is read from ``atoms.info[spec.get("key", name)]`` --
+# and in mace-torch 0.3.16 that mapping *overrides* --total_charge_key /
+# --total_spin_key. A spec without an explicit "key" therefore reads the absent
+# ``info["total_spin"]`` / ``info["total_charge"]`` and the model trains spin-
+# and charge-blind with no error; the only trace is ``total_spin: 0`` in the
+# log's dataset counts. So the specs always carry the key explicitly.
+TOTAL_CHARGE_INFO_KEY = "charge"
+TOTAL_SPIN_INFO_KEY = "spin"
+
 
 class SeedRun(TypedDict):
     seed: int
@@ -263,6 +274,7 @@ def _embedding_specs(config: TrainingConfig) -> str:
             "total_spin": {
                 "type": "categorical",
                 "per": "graph",
+                "key": TOTAL_SPIN_INFO_KEY,
                 "in_dim": 1,
                 "emb_dim": config.emb_dim,
                 "num_classes": config.spin_num_classes,
@@ -271,6 +283,7 @@ def _embedding_specs(config: TrainingConfig) -> str:
             "total_charge": {
                 "type": "categorical",
                 "per": "graph",
+                "key": TOTAL_CHARGE_INFO_KEY,
                 "in_dim": 1,
                 "emb_dim": config.emb_dim,
                 "num_classes": config.charge_num_classes,
@@ -334,8 +347,8 @@ def _build_argv(config: TrainingConfig, facts: DatasetFacts, seed: int) -> list[
         f"--test_file={dataset / 'test.extxyz'}",
         f"--energy_key={LOCKED_ARGS['energy_key']}",
         f"--forces_key={LOCKED_ARGS['forces_key']}",
-        "--total_charge_key=charge",
-        "--total_spin_key=spin",
+        f"--total_charge_key={TOTAL_CHARGE_INFO_KEY}",
+        f"--total_spin_key={TOTAL_SPIN_INFO_KEY}",
     ]
 
     if config.mode == "finetune":
@@ -345,7 +358,9 @@ def _build_argv(config: TrainingConfig, facts: DatasetFacts, seed: int) -> list[
     if not native_charge_spin:
         _validate_embedding_coverage(config, facts)
         argv.append(f"--embedding_specs={_embedding_specs(config)}")
-        argv.append("--use_embedding_readout")
+        # mace-torch 0.3.16 parses this with type=str2bool: the bare flag is an
+        # argparse error ("expected one argument").
+        argv.append("--use_embedding_readout=True")
 
     argv.append(f"--E0s={config.e0s}")
 
@@ -402,15 +417,94 @@ def _quote_arg(part: str) -> str:
     return part if _SHELL_SAFE.fullmatch(part) else shlex.quote(part)
 
 
+def _last_flag_value(argv: list[str], flag: str) -> str | None:
+    value = None
+    for part in argv:
+        if part.startswith(f"--{flag}="):
+            value = part.partition("=")[2]
+    return value
+
+
+def _mace_log_path(argv: list[str]) -> str:
+    """Where ``mace_run_train`` writes its main log for this argv.
+
+    mace-torch: ``{log_dir or work_dir/logs}/{name}_run-{seed}.log``
+    (``tools.get_tag``). The last occurrence wins, as with argparse, so an
+    ``--extra-args`` override is honored.
+    """
+    name = _last_flag_value(argv, "name")
+    seed = _last_flag_value(argv, "seed") or "123"
+    log_dir = _last_flag_value(argv, "log_dir")
+    if log_dir is None:
+        log_dir = f"{_last_flag_value(argv, 'work_dir') or '.'}/logs"
+    return f"{log_dir}/{name}_run-{seed}.log"
+
+
+# Post-start guard around mace_run_train. MACE logs per-property label counts
+# as it loads the data ("Total Training set [energy: N, ..., total_spin: N]").
+# A zero total_spin/total_charge count means the charge/spin conditioning reads
+# an absent atoms.info key and the run would train blind with no error -- so
+# the guard kills it and exits 3. Only the first Training and Validation lines
+# are checked: those are this run's head (a multihead fine-tune's replay data
+# is loaded afterwards and legitimately has no spin). MACE appends to the log
+# across reruns, so only bytes written by this run are read. Guarding stops
+# once MACE reports "Started training".
+BLIND_LABELS_EXIT_CODE = 3
+_GUARD_TEMPLATE = r"""mace_log={log}
+mace_log_start=$(wc -c < "$mace_log" 2>/dev/null || echo 0)
+mace_blind_re='(total_spin|total_charge): 0[],]'
+
+blind_label_counts() {{
+  [[ -f "$mace_log" ]] || return 1
+  local set_name line found=1
+  for set_name in Training Validation; do
+    line=$(tail -c "+$((mace_log_start + 1))" "$mace_log" | grep -m1 "Total $set_name set \[" || true)
+    if [[ "$line" =~ $mace_blind_re ]]; then
+      echo "FATAL: MACE loaded zero total_charge/total_spin labels; the model would" >&2
+      echo "  train charge/spin-blind. Check the atoms.info keys in --embedding_specs:" >&2
+      echo "  $line" >&2
+      found=0
+    fi
+  done
+  return $found
+}}
+
+{body} &
+mace_pid=$!
+trap 'kill "$mace_pid" 2>/dev/null || true' INT TERM
+
+while kill -0 "$mace_pid" 2>/dev/null; do
+  if blind_label_counts; then
+    kill "$mace_pid" 2>/dev/null || true
+    wait "$mace_pid" 2>/dev/null || true
+    exit {code}
+  fi
+  started=$(tail -c "+$((mace_log_start + 1))" "$mace_log" 2>/dev/null | grep -m1 "Started training" || true)
+  if [[ -n "$started" ]]; then
+    break
+  fi
+  sleep 5
+done
+if blind_label_counts; then
+  wait "$mace_pid" 2>/dev/null || true
+  exit {code}
+fi
+wait "$mace_pid"
+"""
+
+
 def _render_script(argv: list[str]) -> str:
     body = " \\\n  ".join(_quote_arg(part) for part in argv)
+    guarded = _GUARD_TEMPLATE.format(
+        log=shlex.quote(_mace_log_path(argv)), body=body, code=BLIND_LABELS_EXIT_CODE
+    )
     return (
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n\n"
         "# Generated by `cluster-mlip train`. Edit train_manifest.json's inputs\n"
         "# and regenerate rather than hand-editing this file.\n\n"
         f'cd "$(dirname -- "${{BASH_SOURCE[0]}}")"\n\n'
-        f"{body}\n"
+        f"{guarded}"
     )
 
 
