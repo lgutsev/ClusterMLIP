@@ -252,13 +252,14 @@ def scan_dataset(dataset_dir: Path, required_arrays: tuple[str, ...] = ()) -> Da
                 # mixing pre- and post-relaunch routes looks uniform.
                 route = str(meta.get("first_route") or meta.get("link1_route") or "").strip()
                 level = str(meta.get("label_level") or "").strip()
-                if route:
-                    label_routes.add(route)
-                elif level:
-                    # No route in the manifest, but collect read the level of
-                    # theory from the output itself (SCF Done / Standard basis
-                    # / archive entry) -- direct evidence of the method.
+                if level:
+                    # collect's normalized level of theory, read from the output
+                    # itself (SCF Done / Standard basis / archive entry). It is
+                    # compared in preference to the raw route, whose wording
+                    # differs between campaigns that ran the same method.
                     label_routes.add(f"label_level:{level}")
+                elif route:
+                    label_routes.add(route)
                 else:
                     unlabeled += 1
             else:

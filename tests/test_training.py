@@ -336,6 +336,13 @@ class LabelLevelFallbackTests(unittest.TestCase):
             facts = scan_dataset(dataset)
             self.assertEqual(facts.label_routes, {"label_level:BPW91/6-311++g(d)"})
 
+    def test_same_level_with_different_route_wording_is_one_method(self):
+        with tempfile.TemporaryDirectory() as raw:
+            a = _level_frame("a"); b = _level_frame("b", 5)
+            b.record.metadata["first_route"] = "# UBPW91/6-311++G* OPT=(RFO) INT=UltraFine"
+            facts = scan_dataset(_dataset(Path(raw), [a, b]))
+            self.assertEqual(facts.label_routes, {"label_level:BPW91/6-311++g(d)"})
+
     def test_mixed_label_levels_are_still_refused(self):
         with tempfile.TemporaryDirectory() as raw:
             tmp = Path(raw)
