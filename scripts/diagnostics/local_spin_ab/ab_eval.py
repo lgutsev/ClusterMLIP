@@ -28,7 +28,13 @@ def meta(a):
 
 
 def pattern(a):
+    if "local_moment" not in a.arrays:
+        return "n/a"
     return f"{int((a.arrays['local_moment'] < -1).sum())} antiparallel"
+
+
+def origin(a):
+    return "campaign" if "collection_campaign" in meta(a) else "legacy"
 
 
 def summarize(rows):
@@ -55,7 +61,7 @@ for spec in specs:
             e, f = b.get_potential_energy(), b.get_forces()
             energies[i] = e
             n, M, ref_f = len(a), int(a.info["spin"]), a.arrays["REF_forces"]
-            rows.append({"group": meta(a).get("split_group"), "M": M, "pattern": pattern(a),
+            rows.append({"group": meta(a).get("split_group"), "M": M, "pattern": pattern(a), "origin": origin(a),
                          "de": (e - a.info["REF_energy"]) / n,
                          "de0": mean_e.get(M, np.mean(list(mean_e.values()))) - a.info["REF_energy"] / n,
                          "df2": float(((f - ref_f) ** 2).mean()), "f2": float((ref_f ** 2).mean())})
@@ -78,7 +84,7 @@ for spec in specs:
                                  "dft_gap_eV": ref, "model_gap_eV": energies[i] - energies[j]})
         gap_err = [g["model_gap_eV"] - g["dft_gap_eV"] for g in gaps]
         res["splits"][split] = {"all": summarize(rows), "by_group": by("group"), "by_M": by("M"),
-                                "by_pattern": by("pattern"),
+                                "by_pattern": by("pattern"), "by_origin": by("origin"),
                                 "vertical_gaps": {"pairs": len(gaps),
                                                   "mae_meV": round(1000 * float(np.mean(np.abs(gap_err))), 1) if gaps else None,
                                                   "max_abs_meV": round(1000 * float(np.max(np.abs(gap_err))), 1) if gaps else None,
