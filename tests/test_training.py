@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
 from cluster_mlip.dataset import write_labeled_extxyz
 from cluster_mlip.models import Atom, LabeledFrame, Record
-from cluster_mlip.training import TrainingConfig, scan_dataset, write_training_campaign
+from cluster_mlip.io import parse_extxyz_info_line
+from cluster_mlip.training import (
+    BLIND_LABELS_EXIT_CODE,
+    TrainingConfig,
+    scan_dataset,
+    write_training_campaign,
+)
 
 
 def _frame(
@@ -77,7 +86,8 @@ class ScratchCampaignTests(unittest.TestCase):
             self.assertIn("--default_dtype=float64", argv)
             self.assertIn("--stress_weight=0", argv)
             self.assertIn("--energy_key=REF_energy", argv)
-            self.assertIn("--use_embedding_readout", argv)
+            self.assertIn("--use_embedding_readout=True", argv)
+            self.assertNotIn("--use_embedding_readout", argv)
             self.assertTrue(any(a.startswith("--embedding_specs=") for a in argv))
             self.assertTrue(any(a.startswith("--seed=11") for a in argv))
             self.assertTrue((output / "seed_11" / "run.sh").is_file())
@@ -89,6 +99,30 @@ class ScratchCampaignTests(unittest.TestCase):
             script_text = (output / "seed_11" / "run.sh").read_text()
             self.assertIn("--embedding_specs='{", script_text)
             self.assertIn("--hidden_irreps='128x0e + 128x1o + 128x2e'", script_text)
+
+    def test_embedding_specs_read_the_info_keys_collect_writes(self):
+        # mace-torch reads each graph-level embedding from
+        # atoms.info[spec.get("key", name)], overriding --total_spin_key. Without
+        # an explicit key it reads the absent info["total_spin"] and trains
+        # spin-blind silently -- so the key must name what the dataset carries.
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            dataset = _dataset(tmp, [_frame("a", -1, 1), _frame("b", 0, 5)])
+            plan = write_training_campaign(
+                TrainingConfig(dataset_dir=dataset, output_dir=tmp / "run")
+            )
+            argv = plan["seed_runs"][0]["argv"]
+            (spec_arg,) = [a for a in argv if a.startswith("--embedding_specs=")]
+            specs = json.loads(spec_arg.partition("=")[2])
+            self.assertEqual(specs["total_spin"]["key"], "spin")
+            self.assertEqual(specs["total_charge"]["key"], "charge")
+            self.assertIn("--total_spin_key=spin", argv)
+            self.assertIn("--total_charge_key=charge", argv)
+
+            header = (dataset / "train.extxyz").read_text().splitlines()[1]
+            info = parse_extxyz_info_line(header)
+            for spec in specs.values():
+                self.assertIn(spec["key"], info)
 
     def test_multiplicity_outside_embedding_is_rejected(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -171,6 +205,74 @@ class FinetuneCampaignTests(unittest.TestCase):
             self.assertIn("--foundation_model=medium", argv)
             self.assertTrue(any(a.startswith("--embedding_specs=") for a in argv))
             self.assertIn("--amsgrad", argv)
+
+
+def _git_bash() -> str | None:
+    bash = shutil.which("bash")
+    # On Windows, System32\bash.exe is WSL, which cannot see these temp paths.
+    if bash is None or "system32" in bash.lower():
+        return None
+    return bash
+
+
+_FAKE_MACE = """#!/usr/bin/env bash
+for a in "$@"; do
+  case "$a" in --name=*) n="${a#*=}" ;; --seed=*) s="${a#*=}" ;; esac
+done
+mkdir -p logs
+log="logs/${n}_run-${s}.log"
+c="$FAKE_COUNT"
+echo "INFO: Total Training set [energy: 2, forces: 2, total_charge: $c, total_spin: $c]" >> "$log"
+echo "INFO: Total Validation set [energy: 1, forces: 1, total_charge: $c, total_spin: $c]" >> "$log"
+echo "INFO: Started training, reporting errors on validation set" >> "$log"
+exec sleep "${FAKE_SLEEP:-0}"
+"""
+
+
+@unittest.skipIf(_git_bash() is None, "needs a POSIX bash")
+class BlindLabelGuardTests(unittest.TestCase):
+    """run.sh kills a MACE run whose log shows zero charge/spin labels."""
+
+    def _run(self, tmp: Path, count: int, sleep: int = 0) -> subprocess.CompletedProcess:
+        bindir = tmp / "bin"
+        bindir.mkdir(exist_ok=True)
+        fake = bindir / "mace_run_train"
+        fake.write_bytes(_FAKE_MACE.encode())
+        fake.chmod(0o755)
+        output = tmp / "run"
+        if not output.exists():
+            dataset = _dataset(tmp, [_frame("a", 0, 1), _frame("b", 0, 5)])
+            write_training_campaign(
+                TrainingConfig(dataset_dir=dataset, output_dir=output, seeds=(7,))
+            )
+        env = dict(os.environ, FAKE_COUNT=str(count), FAKE_SLEEP=str(sleep))
+        env["PATH"] = f"{bindir}{os.pathsep}{env['PATH']}"
+        return subprocess.run(
+            [_git_bash(), str(output / "seed_7" / "run.sh")],
+            env=env, capture_output=True, text=True, timeout=60,
+        )
+
+    def test_zero_counts_fail_loudly(self):
+        with tempfile.TemporaryDirectory() as raw:
+            result = self._run(Path(raw), count=0)
+            self.assertEqual(result.returncode, BLIND_LABELS_EXIT_CODE, result.stderr)
+            self.assertIn("FATAL", result.stderr)
+            self.assertIn("total_spin: 0", result.stderr)
+
+    def test_zero_counts_kill_a_running_job(self):
+        with tempfile.TemporaryDirectory() as raw:
+            result = self._run(Path(raw), count=0, sleep=45)
+            self.assertEqual(result.returncode, BLIND_LABELS_EXIT_CODE, result.stderr)
+
+    def test_nonzero_counts_pass_and_stale_log_is_ignored(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            self.assertEqual(self._run(tmp, count=0).returncode, BLIND_LABELS_EXIT_CODE)
+            # Rerun in the same directory: MACE appends to the old log, whose
+            # zero counts must not fail the corrected run.
+            result = self._run(tmp, count=14452)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("FATAL", result.stderr)
 
 
 if __name__ == "__main__":
