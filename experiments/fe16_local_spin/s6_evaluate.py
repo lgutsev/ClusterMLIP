@@ -28,7 +28,7 @@ def main() -> None:
     preds = {}
     for run in sorted((OUT / "runs").iterdir()):
         model = run / f"{run.name}.model"
-        if not model.is_file():
+        if not model.is_file() or run.name.startswith("aborted"):
             continue
         regime, letter, seed = run.name.split("_")
         local = letter == "C"

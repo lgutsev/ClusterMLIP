@@ -41,3 +41,8 @@ If killed: rerun `bash D:/.../12_local_spin_mp/runs/run_all.sh` (delete the part
 - Interim (train set, EMA): fixed_A_s1 final ep395: E MAE 19.5 meV/atom, F MAE 55.4 meV/Å (no force learning in
   400 epochs: A cannot separate same-geometry frames at different M, whose forces differ by 200-370 meV/Å).
   aborted fixed_B_s1 at ep120: E 18.3, F 33.3 and still falling. Global M clearly matters; B vs C still open.
+
+## DONE 2026-10-06 ~11:15
+All 9 runs finished (fixed s2 logs are named run-2; s7/s6 fixed). Evaluation, report and README written.
+Verdict NOT SUPPORTED: fixed-regime train F MAE B 5.0 vs C 4.9 meV/Å (overlapping curves), held-out B 21.5 vs C 24.3;
+A stuck at 55; wrong-site control raises C to 31.2 (input is used). See README.md.

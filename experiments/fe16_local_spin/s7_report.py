@@ -22,9 +22,10 @@ LABEL = {"A": "A  R+Z", "B": "B  +q, M", "C": "C  +q, M, local s_i"}
 def curves() -> pd.DataFrame:
     rows = []
     for run in sorted((OUT / "runs").iterdir()):
-        f = run / "results" / f"{run.name}_run-1_train.txt"
-        if not f.is_file():
+        found = sorted((run / "results").glob(f"{run.name}_run-*_train.txt"))
+        if not found or run.name.startswith("aborted"):
             continue
+        f = found[0]
         regime, letter, seed = run.name.split("_")
         for line in f.read_text().splitlines():
             d = json.loads(line)
@@ -52,7 +53,7 @@ def main() -> None:
                 ax.plot(g.epoch.clip(lower=0), g[key], color=COLORS[m],
                         ls="-" if g.seed.iloc[0] == "s1" else "--", label=f"{LABEL[m]} ({g.seed.iloc[0]})")
             ax.set_yscale("log"); ax.set_xlabel("epoch"); ax.set_ylabel(lab)
-            ax.set_title(f"{regime}: {lab} on the 60 training frames")
+            ax.set_title(f"{regime} regime: {lab.split(' (')[0]}, 60 train frames", fontsize=10)
             if col == 0:
                 ax.legend(fontsize=8)
     fig.tight_layout(); fig.savefig(RESULTS / "training_curves.png", dpi=130)
