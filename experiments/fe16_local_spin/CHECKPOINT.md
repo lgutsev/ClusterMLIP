@@ -46,3 +46,9 @@ If killed: rerun `bash D:/.../12_local_spin_mp/runs/run_all.sh` (delete the part
 All 9 runs finished (fixed s2 logs are named run-2; s7/s6 fixed). Evaluation, report and README written.
 Verdict NOT SUPPORTED: fixed-regime train F MAE B 5.0 vs C 4.9 meV/Å (overlapping curves), held-out B 21.5 vs C 24.3;
 A stuck at 55; wrong-site control raises C to 31.2 (input is used). See README.md.
+
+## REVISED 2026-10-06 ~14:00 (after independent review)
+Long runs (800 ep, B/C x 2 seeds) done: train F MAE B 2.0 vs C 2.1 meV/Å (seed spread 1.9-2.2). Unseen held-out (21
+frames, s9_unseen.py): B 51.2 vs C 58.8. Verdict relabelled: NOT SUPPORTED as cause of the failure; INCONCLUSIVE
+(untestable) for the general hypothesis; the central-atom "antiparallel" Mulliken moment is a diffuse-basis artifact
+(Mulliken charge ~+12 on that atom, <S^2> excess 0.39-0.72). README rewritten accordingly.
