@@ -51,6 +51,34 @@ _MULLIKEN_ROW_RE = re.compile(
     re.M,
 )
 
+# Pop=Hirshfeld prints, per atom: Q-H, S-H, Dx, Dy, Dz, Q-CM5. Partition-robust
+# alternative to Mulliken, which breaks down for interior atoms with diffuse
+# basis functions.
+_HIRSHFELD_RE = re.compile(
+    r"Hirshfeld\s+charges,\s+spin\s+densities,\s+dipoles,\s+and\s+CM5\s+charges[^\n]*\n[^\n]*\n(.*?)^\s*Tot\b",
+    re.I | re.S | re.M,
+)
+_NUM = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[EeDd][+-]?\d+)?"
+_HIRSHFELD_ROW_RE = re.compile(
+    rf"^\s*(\d+)\s+([A-Z][a-z]?)\s+({_NUM})\s+({_NUM})\s+{_NUM}\s+{_NUM}\s+{_NUM}\s+({_NUM})\s*$",
+    re.M,
+)
+
+
+def parse_hirshfeld_table(text: str) -> dict[str, list] | None:
+    """Last Hirshfeld/CM5 table in ``text``: per-atom [index, symbol, value] lists."""
+    blocks = list(_HIRSHFELD_RE.finditer(text))
+    if not blocks:
+        return None
+    rows = list(_HIRSHFELD_ROW_RE.finditer(blocks[-1].group(1)))
+    if not rows:
+        return None
+    return {
+        "atomic_charges_hirshfeld": [[int(m.group(1)), m.group(2), _float(m.group(3))] for m in rows],
+        "atomic_spins_hirshfeld": [[int(m.group(1)), m.group(2), _float(m.group(4))] for m in rows],
+        "atomic_charges_cm5": [[int(m.group(1)), m.group(2), _float(m.group(5))] for m in rows],
+    }
+
 
 def _float(value: str) -> float:
     return float(value.replace("D", "E").replace("d", "e"))
@@ -516,7 +544,8 @@ def parse_force_frames(text: str, source: Path, seed: Record | None = None) -> l
         record.multiplicity = multiplicity
         # Seed diagnostics describe a different SCF/geometry. Never retain them
         # when this force-bearing SCF did not print its own populations/S^2.
-        for key in ("atomic_spins", "s2_before", "s2_after"):
+        for key in ("atomic_spins", "s2_before", "s2_after", "atomic_charges_hirshfeld",
+                    "atomic_spins_hirshfeld", "atomic_charges_cm5"):
             record.metadata.pop(key, None)
         section_index = next((j for j, item in enumerate(cms) if item is cm), -1)
         section_end = cms[section_index+1].start() if section_index+1 < len(cms) else len(text)
@@ -544,6 +573,9 @@ def parse_force_frames(text: str, source: Path, seed: Record | None = None) -> l
                 [int(match.group(1)), match.group(2), _float(match.group(3))]
                 for match in _MULLIKEN_ROW_RE.finditer(spin_blocks[-1].group(1))
             ]
+        hirshfeld = parse_hirshfeld_table(electronic)
+        if hirshfeld:
+            record.metadata.update(hirshfeld)
         frames.append(LabeledFrame(record, energy_h * HARTREE_TO_EV, forces, source))
     return frames
 

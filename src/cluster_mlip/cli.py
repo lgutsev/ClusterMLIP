@@ -13,6 +13,7 @@ from .analysis import write_analysis
 from .audit import run_private_audit
 from .batch_inventory import build_inventory
 from .batch_progress import write_batch_progress
+from .broken_symmetry import PATTERNS, write_bs_jobs
 from .dataset import grouped_split, read_jobs_manifest, read_labeled_extxyz, write_labeled_extxyz
 from .doctor import MISSING_REQUIRED, format_report, run_checks
 from .evaluate import predict_with_mace, write_evaluation_report
@@ -642,6 +643,25 @@ def command_spin_extract(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_prepare_broken_symmetry(args: argparse.Namespace) -> int:
+    print(
+        "WARNING: prepare-broken-symmetry is an experimental pilot generator; inspect the inputs and "
+        "submit one smoke job before any batch.",
+        file=sys.stderr,
+    )
+    records = read_extxyz(Path(args.seeds))
+    by_id = {record.record_id: record for record in records}
+    missing = [rid for rid in args.record_ids if rid not in by_id]
+    if missing:
+        raise ValueError(f"record ids not found in {args.seeds}: {missing}")
+    selected = [by_id[rid] for rid in args.record_ids]
+    patterns = tuple(p.strip().upper() for p in args.patterns.split(",") if p.strip())
+    count = write_bs_jobs(selected, Path(args.output), args.multiplicity, patterns, args.memory, args.nproc)
+    print(f"wrote {count} broken-symmetry inputs ({len(selected)} geometries x {len(patterns)} patterns) "
+          f"to {args.output}")
+    return 0
+
+
 def command_prepare_spins(args: argparse.Namespace) -> int:
     print(
         "WARNING: prepare-spins is experimental and has not been human-tested on a production "
@@ -1254,6 +1274,19 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_spins.add_argument("--memory", default="16GB")
     prepare_spins.add_argument("--nproc", type=int, default=16)
     prepare_spins.set_defaults(func=command_prepare_spins)
+    prepare_bs = sub.add_parser(
+        "prepare-broken-symmetry",
+        help="fixed-geometry broken-symmetry pilot: Stable=Opt SP from per-Fe fragment guesses, then Force",
+    )
+    prepare_bs.add_argument("seeds", help="extxyz holding the source geometries")
+    prepare_bs.add_argument("--record-id", dest="record_ids", action="append", required=True)
+    prepare_bs.add_argument("--multiplicity", type=int, required=True, help="fixed total multiplicity M")
+    prepare_bs.add_argument("--patterns", default=",".join(PATTERNS),
+                            help="P0 default guess; P1 central Fe flipped; P2/P3 two surface Fe flipped")
+    prepare_bs.add_argument("-o", "--output", required=True)
+    prepare_bs.add_argument("--memory", default="24GB")
+    prepare_bs.add_argument("--nproc", type=int, default=12)
+    prepare_bs.set_defaults(func=command_prepare_broken_symmetry)
 
     collect = sub.add_parser("collect", help="collect completed Gaussian force outputs into MACE extxyz")
     collect.add_argument("outputs", nargs="+", help="one or more campaign directories containing Gaussian outputs and manifests")
