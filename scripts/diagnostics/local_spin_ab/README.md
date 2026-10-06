@@ -16,6 +16,11 @@ with matching elements, writes the values as supplied, and appends the column la
 
 ## Using model B from ASE
 
+Use `cluster_mlip.local_moments.set_local_moments(atoms, moments)`: it sign-canonicalizes the
+moments (sum >= 0, so global spin reversal is exact; a zero sum is refused) and mirrors them into
+`initial_magmoms` so ASE's result cache notices a changed input. Verified: negating every moment
+through it changes E by exactly 0 (raw input: -13.98 eV).
+
     MACECalculator(model_paths=..., arrays_keys={"local_moment": "local_moment"})
 
 - A missing input raises `KeyError` (verified both without `arrays_keys` and with the array

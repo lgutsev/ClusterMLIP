@@ -113,6 +113,13 @@ res["cache_without_reset_dE_eV"] = float(e_b - e_a)
 res["cache_true_dE_eV"] = float(e_true - e_a)
 res["cache_with_magmom_guard_dE_eV"] = float(g_b - g_a)
 
+# 8. reversal through cluster_mlip.local_moments.set_local_moments (sign-canonicalized input)
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[3] / "src"))
+from cluster_mlip.local_moments import set_local_moments
+fwd, rev = base.copy(), base.copy()
+set_local_moments(fwd, lm); set_local_moments(rev, -lm)
+res["canonical_reversal_dE_eV"] = float(ef(rev, c)[0] - ef(fwd, c)[0])
+
 print(json.dumps(res, indent=2))
 if out_path:
     json.dump(res, open(out_path, "w"), indent=2)
