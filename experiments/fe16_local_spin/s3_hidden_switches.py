@@ -38,16 +38,30 @@ def main() -> None:
             dx = b.positions - a.positions
             work = 0.5 * ((a.arrays["REF_forces"] + b.arrays["REF_forces"]) * dx).sum()
             dE = b.info["REF_energy"] - a.info["REF_energy"]
+            # Scale of the second-order work term: trapezoid is exact on a quadratic
+            # surface, so on one smooth surface |resid| should be a small fraction of it.
+            curv = abs(((b.arrays["REF_forces"] - a.arrays["REF_forces"]) * dx).sum())
             steps.append({
                 "job": key[0], "stage": key[1], "frame": ib, "M": int(a.info["multiplicity"]),
-                "dE_eV": dE, "resid_eV": dE + work, "step_A": float(np.sqrt((dx ** 2).sum(1).max())),
-                "ds2": float(mb["s2_after_excess"]) - float(ma["s2_after_excess"]),
-                "s2a": float(ma["s2_after_excess"]), "s2b": float(mb["s2_after_excess"]),
+                "dE_eV": dE, "work_eV": -work, "resid_eV": dE + work, "curv_term_eV": curv,
+                "step_A": float(np.sqrt((dx ** 2).sum(1).max())),
+                # before annihilation: contamination is not projected out
+                "ds2_before": float(mb["s2_before_excess"]) - float(ma["s2_before_excess"]),
+                "ds2_after": float(mb["s2_after_excess"]) - float(ma["s2_after_excess"]),
+                "s2_before_a": float(ma["s2_before_excess"]), "s2_before_b": float(mb["s2_before_excess"]),
             })
     res = np.array([s["resid_eV"] for s in steps])
-    ds2 = np.array([s["ds2"] for s in steps])
-    big = [s for s in steps if abs(s["resid_eV"]) > 0.05 or abs(s["ds2"]) > 1.0]
-    big.sort(key=lambda s: -abs(s["resid_eV"]))
+    curv = np.array([s["curv_term_eV"] for s in steps])
+    step = np.array([s["step_A"] for s in steps])
+    ds2 = np.array([s["ds2_before"] for s in steps])
+    ds2_after = np.array([s["ds2_after"] for s in steps])
+    big = sorted(steps, key=lambda s: -abs(s["resid_eV"]))[:10]
+    from scipy.stats import spearmanr
+    ratio = np.abs(res) / np.maximum(curv, 1e-12)
+    # the stage that holds the largest residuals, in full
+    worst = big[0]
+    worst_stage = [s for s in steps if (s["job"], s["stage"]) == (worst["job"], worst["stage"])
+                   and abs(s["frame"] - worst["frame"]) <= 6]
 
     # Mulliken stability within a stage (first vs final) and across hand-offs.
     sp = read(SPIN_ALL, ":")
@@ -73,7 +87,6 @@ def main() -> None:
             rmsd, perm, R, *_ = aligned_match(a.positions, b.positions)
             if rmsd > 0.01:
                 continue
-            hi, lo = (a, b.arrays["local_moment"][perm]) if Ma > Mb else (b, None)
             sa = a.arrays["local_moment"]
             sb = b.arrays["local_moment"][perm]
             s_hi, s_lo = (sa, sb) if Ma > Mb else (sb, sa)
@@ -89,10 +102,23 @@ def main() -> None:
                                      "p99_abs": float(np.percentile(np.abs(res), 99)),
                                      "max_abs": float(np.abs(res).max()),
                                      "n_gt_0.05": int((np.abs(res) > 0.05).sum())},
-        "s2_excess_jump": {"median_abs": float(np.median(np.abs(ds2))),
-                           "max_abs": float(np.abs(ds2).max()),
-                           "n_gt_1": int((np.abs(ds2) > 1).sum())},
-        "flagged_steps": big[:15],
+        "residual_vs_step": {
+            "spearman_abs_resid_vs_step": round(float(spearmanr(np.abs(res), step)[0]), 3),
+            "spearman_abs_resid_vs_curv_term": round(float(spearmanr(np.abs(res), curv)[0]), 3),
+            "resid_over_curv_term_median": float(np.median(ratio)),
+            "resid_over_curv_term_p99": float(np.percentile(ratio, 99)),
+            "resid_over_curv_term_max": float(ratio.max()),
+            "top10_steps_mean_step_A": float(np.mean([s["step_A"] for s in big])),
+            "all_steps_median_step_A": float(np.median(step)),
+        },
+        "s2_excess_jump_before_annihilation": {"median_abs": float(np.median(np.abs(ds2))),
+                                               "max_abs": float(np.abs(ds2).max()),
+                                               "n_gt_0.5": int((np.abs(ds2) > 0.5).sum())},
+        "s2_excess_jump_after_annihilation": {"max_abs": float(np.abs(ds2_after).max())},
+        "s2_before_excess_range_all_frames": [float(min(float(meta(a)["s2_before_excess"]) for a in fr)),
+                                              float(max(float(meta(a)["s2_before_excess"]) for a in fr))],
+        "largest_residual_steps": big,
+        "largest_residual_stage_window": worst_stage,
         "first_vs_final_same_stage": {
             "n": len(within),
             "sign_changes": dict(collections.Counter(w["sign_changes"] for w in within)),

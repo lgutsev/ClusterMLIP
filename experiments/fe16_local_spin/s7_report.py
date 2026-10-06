@@ -42,7 +42,7 @@ def curves() -> pd.DataFrame:
 def main() -> None:
     c = curves()
     c.to_csv(RESULTS / "curves.csv", index=False)
-    regimes = [r for r in ("fixed", "ref") if r in set(c.regime)]
+    regimes = [r for r in ("fixed", "long", "ref") if r in set(c.regime)]
     fig, axes = plt.subplots(len(regimes), 3, figsize=(14, 4 * len(regimes)), squeeze=False)
     for row, regime in enumerate(regimes):
         for col, (key, lab) in enumerate([("F_rmse", "force RMSE (meV/Å)"),
@@ -97,14 +97,17 @@ def main() -> None:
     q = RESULTS / "pair_predictions.csv"
     if q.is_file():
         pp = pd.read_csv(q)
-        pp = pp[pp.run.str.startswith("fixed")]
+        pp = pp[~pp.run.str.startswith("ref")]
+        pp["regime"] = pp.run.str.split("_").str[0]
         pp["model"] = pp.run.str.split("_").str[1]
-        out += ["", "## Closest different-local-spin pairs at the same (q, M), both frames in training (fixed regime)", "",
-                "Force *difference* between the two frames: DFT vs model; error = RMS of (model diff - DFT diff).", "",
-                "| model | pairs | median RMSD (Å) | median D_s | median DFT D_F | median model D_F | median diff error |",
-                "|---|---:|---:|---:|---:|---:|---:|"]
-        for model, g in pp.groupby("model"):
-            out.append(f"| {LABEL[model]} | {len(g)} | {g.rmsd_A.median():.3f} | {g.D_s.median():.2f} | "
+        pp["seed"] = pp.run.str.split("_").str[2]
+        out += ["", "## Closest different-local-spin pairs at the same (q, M), both frames in training", "",
+                "Force *difference* between the two frames: DFT vs model; error = RMS of (model diff - DFT diff). "
+                "Pairs are unique frame pairs per seed (duplicate frames make several pairs share one geometry).", "",
+                "| regime | model | seed | unique pairs | median RMSD (Å) | median D_s | median DFT D_F | median model D_F | median diff error |",
+                "|---|---|---|---:|---:|---:|---:|---:|---:|"]
+        for (regime, model, seed), g in pp.groupby(["regime", "model", "seed"]):
+            out.append(f"| {regime} | {LABEL[model]} | {seed} | {len(g)} | {g.rmsd_A.median():.3f} | {g.D_s.median():.2f} | "
                        f"{g.D_F_dft_meV_A.median():.1f} | {g.D_F_model_meV_A.median():.1f} | {g.diff_error_meV_A.median():.1f} |")
     (RESULTS / "comparison.md").write_text("\n".join(out) + "\n", encoding="utf-8")
     print("\n".join(out))

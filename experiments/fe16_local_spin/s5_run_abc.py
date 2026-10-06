@@ -17,6 +17,7 @@ Regimes: `fixed` = the repaired from-scratch defaults (lr 1e-3, forces_weight 10
 
     python s5_run_abc.py write     # write run scripts
     bash $OUT/runs/run_all.sh       # run sequentially
+    bash $OUT/runs/run_long_{0,1}.sh  # 800-epoch B/C follow-up, two queues
 """
 from __future__ import annotations
 
@@ -39,6 +40,8 @@ MODELS = {"A": None, "B": GRAPH, "C": {**GRAPH, **LOCAL}}
 REGIMES = {
     "fixed": {"lr": 0.001, "forces_weight": 10.0, "epochs": 400, "seeds": (1, 2)},
     "ref": {"lr": 0.005, "forces_weight": 100.0, "epochs": 60, "seeds": (1,)},
+    # review follow-up: B and C were still improving at epoch 400
+    "long": {"lr": 0.001, "forces_weight": 10.0, "epochs": 800, "seeds": (1, 2), "models": ("B", "C")},
 }
 
 
@@ -74,7 +77,7 @@ def write() -> None:
     lines = ["#!/usr/bin/env bash", "set -u", f'cd "{runs.as_posix()}"']
     for regime, r in REGIMES.items():
         for seed in r["seeds"]:
-            for model in MODELS:
+            for model in r.get("models", MODELS):
                 name = f"{regime}_{model}_s{seed}"
                 d = runs / name
                 d.mkdir(parents=True, exist_ok=True)
@@ -88,8 +91,12 @@ def write() -> None:
     # cheap reference-failure runs first, then the long ones
     head, body = lines[:3], lines[3:]
     body.sort(key=lambda s: 0 if "ref_" in s else 1)
-    (runs / "run_all.sh").write_text("\n".join(head + body) + "\n")
-    print((runs / "run_all.sh").read_text())
+    (runs / "run_all.sh").write_text("\n".join(head + [b for b in body if "long_" not in b]) + "\n")
+    # 800-epoch follow-up: two parallel queues (GPU otherwise idle)
+    longs = [b for b in body if "long_" in b]
+    for q in (0, 1):
+        (runs / f"run_long_{q}.sh").write_text("\n".join(head + longs[q::2]) + "\n")
+    print((runs / "run_long_0.sh").read_text(), (runs / "run_long_1.sh").read_text())
 
 
 if __name__ == "__main__":
