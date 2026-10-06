@@ -452,6 +452,33 @@ def gaussian_job_complete(text: str, expected_stages: int = 1) -> bool:
     return normal >= expected_stages and finished
 
 
+def _post_final_spin_blocks(text, header, energies, cms, tables, atoms):
+    """Population analysis printed AFTER this force table that still belongs to it.
+
+    G09 prints the final population analysis of a converged optimization after the last
+    force table ("Stationary point found", then the final geometry). It is accepted only
+    when no new SCF, force table or Link1 section starts first, and every geometry printed
+    in between equals the geometry this SCF was computed at (<= 1e-6 A), so it is the same
+    density at the same geometry. Nothing is ever attached backwards along a trajectory.
+    """
+    stops = [m.start() for m in energies if m.start() > header.end()]
+    stops += [m.start() for m in _FORCE_HEADER_RE.finditer(text, header.end())]
+    stops += [m.start() for m in cms if m.start() > header.end()]
+    region_end = min(stops) if stops else len(text)
+    blocks = [m for m in _MULLIKEN_SPIN_RE.finditer(text, header.end(), region_end)]
+    if not blocks:
+        return []
+    first = blocks[0].start()
+    reference = [(a.x, a.y, a.z) for a in atoms]
+    for start, _end, other, _orientation in tables:
+        if header.end() < start < first:
+            coords = [(a.x, a.y, a.z) for a in other]
+            if len(coords) != len(reference) or max(
+                    abs(u - v) for p, q in zip(coords, reference) for u, v in zip(p, q)) > 1e-6:
+                return []
+    return blocks[:1]
+
+
 def parse_force_frames(text: str, source: Path, seed: Record | None = None) -> list[LabeledFrame]:
     """Read force-bearing steps, pairing each table with its preceding SCF/geometry.
 
@@ -539,11 +566,16 @@ def parse_force_frames(text: str, source: Path, seed: Record | None = None) -> l
             record.metadata["s2_before"] = _float(s2[-1].group(1))
             record.metadata["s2_after"] = _float(s2[-1].group(2))
         spin_blocks = list(_MULLIKEN_SPIN_RE.finditer(electronic))
+        spin_source = "in_step" if spin_blocks else ""
+        if not spin_blocks:
+            spin_blocks = _post_final_spin_blocks(text, header, energies, cms, tables, atoms)
+            spin_source = "post_final" if spin_blocks else ""
         if spin_blocks:
             record.metadata["atomic_spins"] = [
                 [int(match.group(1)), match.group(2), _float(match.group(3))]
                 for match in _MULLIKEN_ROW_RE.finditer(spin_blocks[-1].group(1))
             ]
+            record.metadata["atomic_spin_source"] = spin_source
         frames.append(LabeledFrame(record, energy_h * HARTREE_TO_EV, forces, source))
     return frames
 

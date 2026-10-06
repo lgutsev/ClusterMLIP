@@ -77,6 +77,24 @@ class SpinAuditTests(unittest.TestCase):
         self.assertIsNotNone(spins(parsed[0]))
         self.assertIsNone(spins(parsed[1]))
 
+    def test_post_final_population_is_attached_only_when_unambiguous(self):
+        text = (Path(__file__).parent / 'fixtures/force.log').read_text()
+        geometry = text[text.index(' Input orientation:'):text.index(' SCF Done:')]
+        block = '\n Mulliken charges and spin densities:\n              1             2\n     1 H  0.0  0.5\n     2 H  0.0 -0.5\n Sum of Mulliken charges = 0.0\n'
+        final = text + '\n -- Stationary point found.\n' + geometry + block
+        frame = parse_force_frames(final, Path('x.log'))[-1]
+        self.assertEqual(frame.record.metadata.get('atomic_spin_source'), 'post_final')
+        self.assertEqual([r[2] for r in frame.record.metadata['atomic_spins']], [0.5, -0.5])
+        # a different geometry printed in between: refused
+        moved = text + '\n -- Stationary point found.\n' + geometry.replace('0.750000', '0.760000') + block
+        self.assertNotIn('atomic_spins', parse_force_frames(moved, Path('x.log'))[-1].record.metadata)
+        # a new SCF before the table: it belongs to that SCF, never copied back
+        later = text + '\n SCF Done:  E(RWB97M-V) =  -1.2000000000     A.U.\n' + block
+        self.assertNotIn('atomic_spins', parse_force_frames(later, Path('x.log'))[0].record.metadata)
+        # an in-step table is still preferred and labelled as such
+        first = text.replace(' Forces (Hartrees/Bohr)', block + ' Forces (Hartrees/Bohr)', 1)
+        self.assertEqual(parse_force_frames(first, Path('x.log'))[0].record.metadata['atomic_spin_source'], 'in_step')
+
     def test_raw_frame_provenance(self):
         text = (Path(__file__).parent / 'fixtures/force.log').read_text()
         with tempfile.TemporaryDirectory() as tmp:
