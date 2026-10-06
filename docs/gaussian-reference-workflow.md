@@ -37,6 +37,91 @@ and input links while preserving Gaussian logs and checkpoints. Do not regenerat
 scripts while those batch jobs are running. Use a fresh campaign to change the
 batch map after outputs exist.
 
+## Fe16 targeted-rattle campaign: standard-training main line
+
+The Fe16 rattle campaign is part of the **standard-training baseline**, not the
+experimental local-spin architecture branch. Its purpose is to add
+off-equilibrium force information around already validated Fe16 electronic
+states, then rerun the same held-out/LOFO tests.
+
+Keep the existing campaign read-only and create the new work beside it on the
+shared DDN filesystem, not underneath it:
+
+```bash
+BASE=/ddnB/work/lgutsev/ClusterMLIP/campaigns/FenOm_Warehouse2
+SRC=$BASE/gaussian_spin_qb3_g09_v3
+INV=$BASE/fe16_rattle_chk_inventory_v1
+RATTLE=$BASE/gaussian_spin_qb3_g09_v3_rattles_v1
+```
+
+`SRC`, `INV`, and `RATTLE` are sister directories. Do not write rattle
+inputs, copied checkpoints, logs, or generated batch files into `SRC`. A
+usable source checkpoint may be **read** from `SRC`, but any checkpoint used by
+a rattle job is first copied into `RATTLE` under a new name so the original
+campaign cannot be modified by a later Gaussian run.
+
+The machine split is deliberate:
+
+- **QB4 prepares and updates the shared directory:** pull ClusterMLIP changes,
+  run the checkpoint inventory/formchk check, generate or update the new rattle
+  campaign, collect/audit labels, and prepare training inputs.
+- **QB3 runs Gaussian:** submit the generated G09 batches there, inspect
+  `squeue` there, and treat QB3 as authoritative for whether a Gaussian
+  allocation is still live. QB4 must not infer QB3 scheduler state from stale
+  marker files.
+
+The checkpoint inventory is therefore a QB4 metadata job. It does not run a
+reference calculation:
+
+```bash
+# QB4, from the updated diag/fe16-baseline-training checkout.
+# Load the Gaussian module available on QB4 that puts formchk on PATH first.
+FORMCHK=formchk sbatch scripts/run_chk_inventory_slurm.sh \
+  /ddnB/work/lgutsev/ClusterMLIP/fe16_v1/02_fe16_dataset/ \
+  "$SRC" \
+  "$INV"
+```
+
+The inventory accepts a stage endpoint only when charge and multiplicity match
+exactly, the checkpoint SCF energy matches the collected frame within
+`1e-6 Ha`, and the geometry matches within `1e-4 Å`. Ambiguous checkpoint
+names, missing checkpoints, failed `formchk` conversions, and mismatches are
+not guessed through.
+
+When the rattle generator is implemented, it must obey these constraints:
+
+1. **Keep the Fe16 label method exactly consistent with the source campaign.**
+   The current generic `prepare` workflow uses a different mixed-Gen basis;
+   these Fe16 rattles must instead inherit the actual UBPW91/6-311++G* G09
+   route/provenance used by `gaussian_spin_qb3_g09_v3`. Never mix the two
+   label levels in one training head.
+2. **Use the checkpoint for the same electronic state.** An `M` rattle reads
+   a validated checkpoint for that same `M`. For a neighbouring `M±2`
+   surface, use that state's own usable checkpoint; do not take the ground-state
+   checkpoint and merely change the multiplicity. If that state has no usable
+   checkpoint, mark it unavailable.
+3. **Preserve the displaced geometry.** Copy the parent checkpoint privately,
+   read its wavefunction with `Guess=Read`, write a fresh `%chk`, and put the
+   rattled Cartesian coordinates explicitly in the input. The rattle
+   single-point force calculation must **not** use `Geom=Checkpoint`, because
+   that would silently restore the parent minimum and erase the displacement.
+4. **Label forces without relaxing the rattle.** The rattle job is a
+   single-point `Force` calculation, not an optimization. Afterward, audit
+   S²/local-spin behaviour and quarantine unexpected state changes rather than
+   silently mixing them into the intended surface.
+5. **Report the real candidate count after inventory filtering.** The nominal
+   upper bound for 10 structure families, up to three states
+   (ground `M`, `M-2`, `M+2`), three amplitudes
+   (`0.05/0.10/0.15 Å`), and eight rattles per amplitude is
+   `10 × 3 × 3 × 8 = 720` candidates. Missing neighbouring-spin checkpoints
+   and near-duplicate removal reduce that number; do not describe the unfiltered
+   design as "~600".
+
+Do not generate or submit the rattle campaign until the checkpoint inventory
+has established the usable parent states. Once generated on QB4, submit the
+new sister campaign from QB3 using its own generated launcher; the source
+`gaussian_spin_qb3_g09_v3` campaign remains untouched.
+
 For a new QB3 campaign, an example allocation is four Gaussian jobs per node,
 12 CPUs per job, 48 CPUs total:
 
