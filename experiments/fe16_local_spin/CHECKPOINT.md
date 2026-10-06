@@ -33,3 +33,11 @@ If killed: rerun `bash D:/.../12_local_spin_mp/runs/run_all.sh` (delete the part
    State whether first-class local spin is justified (likely: not on current data; would need same-geometry,
    same-M alternative broken-symmetry SCF labels).
 4. Commit; do not push or merge without asking.
+
+## Update 2026-10-06
+- The session-bound runner was killed by the 2 h background limit. fixed_A_s1 finished; fixed_B_s1 was cut at epoch 120
+  (kept as runs/aborted_fixed_B_s1_ep120). Runner relaunched DETACHED (PowerShell Start-Process of Git bash running
+  run_all.sh, appending to run_all.log); it resumes from fixed_B_s1. Check: `ls runs/*/exit_code`.
+- Interim (train set, EMA): fixed_A_s1 final ep395: E MAE 19.5 meV/atom, F MAE 55.4 meV/Å (no force learning in
+  400 epochs: A cannot separate same-geometry frames at different M, whose forces differ by 200-370 meV/Å).
+  aborted fixed_B_s1 at ep120: E 18.3, F 33.3 and still falling. Global M clearly matters; B vs C still open.
