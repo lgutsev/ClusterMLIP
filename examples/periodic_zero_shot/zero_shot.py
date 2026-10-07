@@ -117,7 +117,7 @@ def command_report(args: argparse.Namespace) -> int:
         for el in elements:
             sel = np.concatenate([d[m & (s == el)] for d, m, s in zip(diff, mobile, symbols)])
             ref = np.concatenate([r[m & (s == el)] for r, m, s in zip(f_ref, mobile, symbols)])
-            per_element[el] = {"rmse": _rmse(sel), "zero_baseline_rmse": _rmse(ref), "n_atoms": int(len(sel))}
+            per_element[el] = {"rmse": _rmse(sel), "zero_baseline_rmse": _rmse(ref), "n_atoms": len(sel)}
         d_min = np.concatenate([d[m] for d, m, k in zip(diff, mobile, minimum) if k])
         cosines = []
         for p, r, m in zip(f_pred, f_ref, mobile):
