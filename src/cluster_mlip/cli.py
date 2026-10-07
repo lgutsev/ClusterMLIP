@@ -60,6 +60,7 @@ from .slurm import (
 from .stratify import STRATA_FIELDS
 from .training import DEFAULT_SEED, TrainingConfig, write_training_campaign
 from .vasp import VaspSettings, VaspSlurmConfig, collect_vasp_campaign, prepare_vasp_campaign
+from .vasp_ingest import ingest_vasp_runs
 
 
 def _elements(value: str | None) -> set[str] | None:
@@ -970,6 +971,16 @@ def command_vasp_collect(args: argparse.Namespace) -> int:
     return 0 if summary["interaction_frames"] else 1
 
 
+def command_vasp_ingest(args: argparse.Namespace) -> int:
+    elements = {e.strip() for e in args.cluster_elements.split(",") if e.strip()} if args.cluster_elements else None
+    summary = ingest_vasp_runs(
+        [Path(p) for p in args.paths], Path(args.output), every=args.every, final_only=args.final_only,
+        cluster_elements=elements, integer_tolerance=args.integer_tolerance,
+    )
+    print(json.dumps(summary, indent=2))
+    return 0 if summary["frames"] and not summary["jobs_flagged"] else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="cluster-mlip", description="Legacy Gaussian cluster-to-MACE pipeline")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1544,6 +1555,19 @@ def build_parser() -> argparse.ArgumentParser:
     vasp_collect.add_argument("--magnetization-tolerance", type=float, default=0.1,
                               help="reject a job whose total moment differs from M-1 by more than this")
     vasp_collect.set_defaults(func=command_vasp_collect)
+
+    vasp_ingest = sub.add_parser(
+        "vasp-ingest",
+        help="read finished VASP runs (any job directories) into periodic extxyz frames, one per ionic step",
+    )
+    vasp_ingest.add_argument("paths", nargs="+", help="job directories with vasprun.xml, or roots searched recursively")
+    vasp_ingest.add_argument("-o", "--output", default="vasp_frames")
+    vasp_ingest.add_argument("--every", type=int, default=1, help="keep every Nth ionic step (the last is always kept)")
+    vasp_ingest.add_argument("--final-only", action="store_true", help="keep only the last ionic step of each job")
+    vasp_ingest.add_argument("--cluster-elements", help="comma list, e.g. Fe: adds a 'cluster' column and moment_pattern")
+    vasp_ingest.add_argument("--integer-tolerance", type=float, default=0.05,
+                             help="a released-spin moment this close to an integer gets that multiplicity")
+    vasp_ingest.set_defaults(func=command_vasp_ingest)
     p = sub.add_parser("audit-spin-labels", help="audit same-input E/F ambiguity and local-spin provenance (needs numpy)")
     p.add_argument("datasets", nargs="+", help="collected extxyz files; with --gaussian: log files or recursive directories")
     p.add_argument("-o", "--output", required=True)
