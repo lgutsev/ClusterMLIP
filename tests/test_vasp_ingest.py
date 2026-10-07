@@ -7,6 +7,7 @@ from pathlib import Path
 from cluster_mlip.cli import main
 from cluster_mlip.periodic import read_structures
 from cluster_mlip.vasp_ingest import (
+    JobSplit,
     find_job_dirs,
     ingest_vasp_runs,
     moment_pattern,
@@ -149,6 +150,8 @@ class VaspIngestTests(unittest.TestCase):
         self.assertIn("ENCUT=400", last.info["label_level"])
         self.assertIn("PREC=accurate", last.info["label_level"])
         self.assertNotIn("POTCAR", last.info["label_level"])
+        self.assertIn("dipole=none", last.info["label_level"])
+        self.assertIn("LREAL=F", last.info["label_level"])
 
     def test_released_spin_gets_multiplicity_only_near_an_integer(self) -> None:
         _write_job(self.root / "a", steps=1, moments=[[0, 0, 4.0, 4.0]], total=[8.0004])
@@ -160,6 +163,10 @@ class VaspIngestTests(unittest.TestCase):
         self.assertEqual(b.info["spin_constraint"], "free_fractional")
         self.assertNotIn("multiplicity", b.info)
         self.assertAlmostEqual(b.info["total_magnetization"], 7.31)
+        s = ingest_vasp_runs([self.root / "a", self.root / "b"], self.root / "out2", drop_fractional_spin=True)
+        self.assertEqual(s["frames"], 1)
+        rows = {r["job"]: r for r in csv.DictReader((self.root / "out2" / "jobs.csv").open())}
+        self.assertEqual((rows["b"]["fractional_spin_frames"], rows["b"]["fractional_spin_dropped"]), ("1", "1"))
 
     def test_scf_failures_dropped_and_final_failure_flagged(self) -> None:
         _write_job(self.root / "job", steps=3, moments=None, total=None, ispin=1, nelm=40, sc=[40, 5, 40])
@@ -205,9 +212,13 @@ class VaspIngestTests(unittest.TestCase):
         _write_job(self.root / "r" / "b", steps=1, moments=None, total=None, ispin=1, fe_potcar="PAW_PBE Fe_pv 02Aug2007")
         _write_job(self.root / "r" / "c", steps=1, moments=None, total=None, ispin=1,
                    incar_extra='<i type="int" name="IVDW">12</i>')
+        _write_job(self.root / "r" / "d", steps=1, moments=None, total=None, ispin=1,
+                   incar_extra='<i type="int" name="IDIPOL">3</i><i type="logical" name="LDIPOL"> T </i>')
         summary = ingest_vasp_runs([self.root / "r"], self.root / "out")
         self.assertTrue(summary["mixed_levels"])
-        self.assertEqual(len(summary["levels_of_theory"]), 2)
+        self.assertEqual(len(summary["levels_of_theory"]), 3)
+        dipole_level = next(level for level, jobs in summary["levels_of_theory"].items() if jobs == ["d"])
+        self.assertIn("dipole=IDIPOL=3/LDIPOL=T", dipole_level)
         self.assertEqual(set(summary["potcar_conflicts"]), {"Fe"})
 
     def test_frame_selection_and_job_discovery(self) -> None:
@@ -223,6 +234,41 @@ class VaspIngestTests(unittest.TestCase):
         path.write_text(_moment_table([1.0, -1.0]) + _moment_table([0.5]))
         self.assertEqual(parse_outcar_moment_tables(path, 2), [[1.0, -1.0]])
         self.assertEqual(moment_pattern(["Fe", "Co", "Fe"], [2.0, -1.0, 0.1], [True, True, True]), "Fe:+0 Co:-")
+
+    def _four_jobs(self) -> Path:
+        for name, steps in (("a", 3), ("b", 2), ("c", 2), ("d", 1)):
+            _write_job(self.root / "r" / name, steps=steps, moments=None, total=None, ispin=1)
+        return self.root / "r"
+
+    def test_split_keeps_whole_jobs_together(self) -> None:
+        out = self.root / "out"
+        s = ingest_vasp_runs([self._four_jobs()], out, split=JobSplit(valid_jobs=("b",), test_jobs=("c",)))
+        self.assertEqual(s["splits"], {"train": ["a", "d"], "valid": ["b"], "test": ["c"]})
+        jobs = {name: {f.info["job"] for f in read_structures(out / f"{name}.extxyz")}
+                for name in ("train", "valid", "test")}
+        self.assertEqual(jobs, {"train": {"a", "d"}, "valid": {"b"}, "test": {"c"}})
+        self.assertEqual(len(read_structures(out / "all.extxyz")), 8)
+
+    def test_fraction_split_is_seeded_and_disjoint(self) -> None:
+        root = self._four_jobs()
+        split = JobSplit(valid_fraction=0.25, test_fraction=0.25, seed=7)
+        one = ingest_vasp_runs([root], self.root / "o1", split=split)["splits"]
+        two = ingest_vasp_runs([root], self.root / "o2", split=split)["splits"]
+        self.assertEqual(one, two)
+        self.assertEqual(sorted(j for members in one.values() for j in members), ["a", "b", "c", "d"])
+        self.assertEqual((len(one["valid"]), len(one["test"])), (1, 1))
+
+    def test_split_and_exclude_errors(self) -> None:
+        root = self._four_jobs()
+        with self.assertRaisesRegex(ValueError, "not ingested"):
+            ingest_vasp_runs([root], self.root / "o", split=JobSplit(test_jobs=("zz",)))
+        with self.assertRaisesRegex(ValueError, "without any job"):
+            ingest_vasp_runs([root], self.root / "o", split=JobSplit(test_jobs=("a", "b", "c", "d")))
+        with self.assertRaisesRegex(ValueError, "not found"):
+            ingest_vasp_runs([root], self.root / "o", exclude_jobs=("zz",))
+        s = ingest_vasp_runs([root], self.root / "o3", exclude_jobs=("a",))
+        self.assertEqual(s["jobs"], 3)
+        self.assertFalse((self.root / "o3" / "train.extxyz").exists())
 
     def test_cli(self) -> None:
         _write_job(self.root / "job", steps=2, moments=[[0, 0, 3, 3], [0, 0, 3, 3]], total=[6.0, 6.0])

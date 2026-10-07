@@ -969,6 +969,34 @@ one head on a dataset that mixes force-label routes unless
 embedding's class range is a hard error, not a silent mis-bin; widen it with
 `--charge-num-classes` / `--spin-num-classes` / `--charge-offset`.
 
+### Periodic datasets (VASP)
+
+`train` also accepts a dataset written by `vasp-ingest` with a job-level split:
+
+```bash
+cluster-mlip vasp-ingest outputs/ -o dataset --cluster-elements Fe \
+    --exclude-jobs A0_bulk_prod --valid-jobs fe3_site2 --test-jobs fe3n2_end
+cluster-mlip train dataset -o models/periodic_v1
+```
+
+The split always keeps whole jobs together. Consecutive relaxation steps are near-copies,
+so a frame-level split would leak test frames into training. Name the valid and test jobs
+with `--valid-jobs` / `--test-jobs`, or draw them with `--valid-fraction` /
+`--test-fraction` (seeded). `--exclude-jobs` drops jobs such as a reference run at another
+level of theory.
+
+`train` applies these rules to a periodic dataset:
+
+- A dataset must be all isolated clusters or all periodic frames.
+- A periodic frame's `label_level` is its method route, so mixed settings are refused, as
+  mixed Gaussian routes are.
+- Every periodic frame must declare its multiplicity. NUPDOWN runs and released-spin runs
+  near an integer moment have one; a fractional released-spin frame is refused rather than
+  defaulted to M = 1.
+- Stress stays out of the loss.
+
+MACE handles the cell from the extxyz `Lattice`.
+
 ### Fine-tuning a foundation model (deferred, unverified)
 
 ```bash
@@ -1094,8 +1122,9 @@ Frames whose SCF reached NELM are dropped. The output also includes:
 - `ingest_summary.json`, which lists every distinct `label_level` and any element run
   with more than one POTCAR.
 
-Relaxation steps are strongly correlated, so split by `job`. Training still rejects
-periodic frames.
+Relaxation steps are strongly correlated, so split by `job`: `--valid-jobs` / `--test-jobs`
+(or the fraction options) write `train`/`valid`/`test.extxyz` for `cluster-mlip train`
+(section 5, "Periodic datasets").
 
 ```bash
 cluster-mlip vasp-ingest path/to/outputs -o vasp_frames --cluster-elements Fe

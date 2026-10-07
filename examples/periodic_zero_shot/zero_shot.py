@@ -50,6 +50,12 @@ def command_predict(args: argparse.Namespace) -> int:
         settings = InferenceSettings(execution_mode=args.uma_execution_mode)
         unit = load_predict_unit(args.model, inference_settings=settings, device=args.device)
         calc = FAIRChemCalculator(unit, task_name=args.task)
+    no_spin = sum(1 for a in frames if "spin" not in a.info)
+    if args.backend == "mace" and no_spin:
+        # A MACE trained with spin/charge embeddings evaluates a frame without
+        # info["spin"] as if it were M = 1, silently. Foundation models ignore it.
+        print(f"WARNING: {no_spin} of {len(frames)} frames have no info['spin']; a spin-conditioned "
+              "model evaluates them at its default spin", flush=True)
     energies, forces, ids = [], [], []
     start = time.time()
     for k, atoms in enumerate(frames):
@@ -71,7 +77,7 @@ def command_predict(args: argparse.Namespace) -> int:
         out / f"{args.name}.npz",
         energy=np.array(energies), forces=np.concatenate(forces), n_atoms=np.array([len(f) for f in forces]),
         structure_id=np.array(ids), model=args.model, backend=args.backend, task=args.task or "",
-        seconds=time.time() - start,
+        seconds=time.time() - start, frames_without_spin=no_spin,
     )
     print(f"{args.name}: {len(frames)} frames in {time.time() - start:.0f} s")
     return 0

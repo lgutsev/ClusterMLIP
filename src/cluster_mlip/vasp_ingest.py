@@ -310,9 +310,29 @@ def level_of_theory(run: VaspRun) -> str:
         f"ENCUT={float(i.get('ENCUT', p.get('ENMAX', 0))):g}",
         f"PREC={str(i.get('PREC', p.get('PREC', ''))).strip().lower()}",
         f"ISMEAR={p.get('ISMEAR')}/SIGMA={p.get('SIGMA')}",
+        f"LREAL={_flag(i.get('LREAL', p.get('LREAL', 'F')))}",
+        f"LASPH={_flag(i.get('LASPH', p.get('LASPH', False)))}",
+        # A dipole correction changes slab energies and forces; corrected and
+        # uncorrected frames are different labels.
+        f"dipole={_dipole(i, p)}",
         f"k={run.kpoints}",
     ]
     return " | ".join(parts)
+
+
+def _flag(value: Any) -> str:
+    if isinstance(value, bool):
+        return "T" if value else "F"
+    text = str(value).strip().strip(".").upper()
+    return {"TRUE": "T", "FALSE": "F", ".TRUE": "T", ".FALSE": "F"}.get(text, text or "F")
+
+
+def _dipole(incar: dict[str, Any], params: dict[str, Any]) -> str:
+    idipol = int(incar.get("IDIPOL", params.get("IDIPOL", 0)) or 0)
+    if idipol == 0:
+        return "none"
+    ldipol = _flag(incar.get("LDIPOL", params.get("LDIPOL", False)))
+    return f"IDIPOL={idipol}/LDIPOL={ldipol}"
 
 
 def _potcar_by_element(run: VaspRun) -> dict[str, str]:
@@ -444,6 +464,7 @@ def find_job_dirs(paths: list[Path]) -> list[tuple[str, Path]]:
 
 JOB_COLUMNS = [
     "job", "status", "complete", "ionic_converged", "ionic_steps", "frames_written", "scf_failed_steps",
+    "fractional_spin_frames", "fractional_spin_dropped",
     "config_type_final", "E_free_final", "spin_constraint", "multiplicity", "total_magnetization_final",
     "cluster_moment_final", "moment_pattern_final", "charge", "n_atoms", "formula", "fixed_atoms",
     "partially_fixed_atoms", "label_level", "potcars", "vasprun_sha256", "path",
@@ -457,6 +478,49 @@ def _formula(symbols: list[str]) -> str:
     return "".join(f"{el}{n}" for el, n in counts.items())
 
 
+@dataclass
+class JobSplit:
+    """Train/valid/test by whole job. Consecutive ionic steps of one relaxation
+    are nearly identical, so a frame-level split would put copies of the test
+    frames in the training set."""
+
+    valid_jobs: tuple[str, ...] = ()
+    test_jobs: tuple[str, ...] = ()
+    valid_fraction: float = 0.0
+    test_fraction: float = 0.0
+    seed: int = 20260811
+
+    @property
+    def requested(self) -> bool:
+        return bool(self.valid_jobs or self.test_jobs or self.valid_fraction or self.test_fraction)
+
+
+def _job_rank(job: str, seed: int) -> str:
+    return hashlib.sha256(f"{seed}:{job}".encode()).hexdigest()
+
+
+def split_jobs(jobs: list[str], split: JobSplit) -> dict[str, list[str]]:
+    """Assign each job to train/valid/test: named jobs first, then a seeded draw."""
+    unknown = sorted(j for j in {*split.valid_jobs, *split.test_jobs} if j not in jobs)
+    if unknown:
+        raise ValueError(f"split names jobs that were not ingested: {unknown}")
+    both = sorted(set(split.valid_jobs) & set(split.test_jobs))
+    if both:
+        raise ValueError(f"jobs named for both valid and test: {both}")
+    out = {"train": [], "valid": list(split.valid_jobs), "test": list(split.test_jobs)}
+    rest = sorted((j for j in jobs if j not in out["valid"] and j not in out["test"]),
+                  key=lambda j: _job_rank(j, split.seed))
+    for name, fraction in (("test", split.test_fraction), ("valid", split.valid_fraction)):
+        if fraction and not out[name]:
+            take = max(1, round(len(jobs) * fraction))
+            out[name], rest = rest[:take], rest[take:]
+    out["train"] = sorted(rest)
+    empty = [name for name, members in out.items() if not members]
+    if empty:
+        raise ValueError(f"split leaves {', '.join(empty)} without any job ({len(jobs)} jobs ingested)")
+    return out
+
+
 def ingest_vasp_runs(
     paths: list[Path],
     output: Path,
@@ -465,9 +529,22 @@ def ingest_vasp_runs(
     final_only: bool = False,
     cluster_elements: set[str] | None = None,
     integer_tolerance: float = 0.05,
+    exclude_jobs: tuple[str, ...] = (),
+    split: JobSplit | None = None,
+    drop_fractional_spin: bool = False,
 ) -> dict[str, Any]:
-    """Write frames.extxyz, jobs.csv and ingest_summary.json for every job found under `paths`."""
+    """Write frames.extxyz, jobs.csv and ingest_summary.json for every job found under `paths`.
+
+    With `split`, also write all/train/valid/test.extxyz split by job, the
+    layout `cluster-mlip train` reads. `drop_fractional_spin` leaves out
+    released-spin frames whose moment is not near an integer (`train` refuses
+    them); jobs.csv counts them per job.
+    """
     jobs = find_job_dirs(paths)
+    missing = sorted(set(exclude_jobs) - {name for name, _ in jobs})
+    if missing:
+        raise ValueError(f"--exclude-jobs names jobs that were not found: {missing}")
+    jobs = [(name, d) for name, d in jobs if name not in exclude_jobs]
     if not jobs:
         raise ValueError(f"no vasprun.xml under {', '.join(str(p) for p in paths)}")
     output.mkdir(parents=True, exist_ok=True)
@@ -487,6 +564,9 @@ def ingest_vasp_runs(
             run, every=every, final_only=final_only,
             cluster_elements=cluster_elements, integer_tolerance=integer_tolerance,
         )
+        fractional = sum(1 for f in job_frames if f.info["spin_constraint"] == "free_fractional")
+        if drop_fractional_spin:
+            job_frames = [f for f in job_frames if f.info["spin_constraint"] != "free_fractional"]
         frames.extend(job_frames)
         level = level_of_theory(run)
         levels.setdefault(level, []).append(name)
@@ -511,6 +591,8 @@ def ingest_vasp_runs(
             ionic_steps=len(run.steps),
             frames_written=len(job_frames),
             scf_failed_steps=scf_failed,
+            fractional_spin_frames=fractional,
+            fractional_spin_dropped=fractional if drop_fractional_spin else 0,
             config_type_final=final.get("config_type", ""),
             E_free_final=run.steps[-1].energy_free,
             spin_constraint=final.get("spin_constraint", ""),
@@ -530,6 +612,14 @@ def ingest_vasp_runs(
         rows.append(row)
 
     write_structures(frames, output / "frames.extxyz")
+    splits: dict[str, list[str]] | None = None
+    if split is not None and split.requested:
+        usable = sorted({f.info["job"] for f in frames})
+        splits = split_jobs(usable, split)
+        write_structures(frames, output / "all.extxyz")
+        for name, members in splits.items():
+            chosen = set(members)
+            write_structures([f for f in frames if f.info["job"] in chosen], output / f"{name}.extxyz")
     with (output / "jobs.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=JOB_COLUMNS, extrasaction="ignore")
         writer.writeheader()
@@ -548,6 +638,9 @@ def ingest_vasp_runs(
         "mixed_levels": len(levels) > 1,
         "potcar_conflicts": {el: titles for el, titles in potcars.items() if len(titles) > 1},
         "selection": {"every": every, "final_only": final_only},
+        "excluded_jobs": sorted(exclude_jobs),
+        "drop_fractional_spin": drop_fractional_spin,
+        "splits": splits,
         "cluster_elements": sorted(cluster_elements) if cluster_elements else None,
         "energy": "free (e_fr_energy); energy_sigma0 kept in info",
     }
