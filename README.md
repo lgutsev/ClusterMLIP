@@ -940,6 +940,23 @@ and every frame whose force RMS exceeds `--force-outlier-threshold` (default
 5 eV/Å, adjust for your route and system). A non-converged SCF root or a
 rattle that blew up a geometry shows up here before it ever reaches training.
 
+Every collected frame is labeled by what it is, not by the job it came from
+(`frame_role`): a job's `config_type` describes the geometry it *started* from,
+and an optimization moves away from it. The first step of a stage keeps the
+job's label (`input_geometry`, unless the label is a stationary point
+established at another multiplicity); checkpoint-seeded first steps are
+`spin_flip_start`/`restart_start`; intermediate steps are `optimization_step`
+with `config_type=optimization_path`; the last step of a converged search is
+`optimized_endpoint` -- a saddle for a saddle search, `minimum` only when a
+minimum search re-found a verified minimum in its own state, otherwise
+`optimized_unverified`. Single-point stages are `fixed_geometry`. The job-level
+label is kept in `job_config_type`; spin campaigns prepared before the manifest
+had a `config_type` column recover it from the input filename
+(`config_type_source=filename`) instead of falling back to `labeled`. Without
+this, every step of a minimum search counted as a stationary point in
+`physical_checks`, and the steps of an IRC point run as `Opt` stratified as IRC
+frames.
+
 ## 5. Train from scratch
 
 ```bash

@@ -31,13 +31,20 @@ from .literature import DEFAULT_KEYWORDS, run_literature_gap
 from .paper_pdfs import load_pdf_compositions, write_pdf_index
 from .mace_glue import MaceUnavailable
 from .manifest import write_experiment_manifest
-from .models import Record, composition_allowed, geometry_signature
+from .models import LabeledFrame, Record, composition_allowed, geometry_signature
 from .physical_checks import write_physical_checks_report
 from .progress import write_campaign_progress
 from .relaunch import prepare_route_relaunch
 from .restart import prepare_spin_restarts
 from .route_audit import audit_campaign_routes, resolve_config_type
-from .routes import FINDINGS, inspect_job, intended_stationary_point
+from .routes import (
+    FINDINGS,
+    frame_label,
+    input_stage_routes,
+    inspect_job,
+    intended_stationary_point,
+    route_search_kind,
+)
 from .spin import (
     DEFAULT_SPIN_ROUTE,
     parse_spin_diagnostics,
@@ -435,6 +442,29 @@ def command_audit_spin_labels(args: argparse.Namespace) -> int:
     return run_audit(args)
 
 
+def _label_stage_frames(members: list[LabeledFrame]) -> None:
+    """Relabel the force frames of one job/spin stage one by one
+    (routes.frame_label): the first is the stage's starting geometry, the last
+    of a converged search its stationary point, the rest an optimization path.
+    The job-level label stays in ``job_config_type``."""
+    for position, frame in enumerate(members):
+        metadata = frame.record.metadata
+        target = str(metadata.get("target_record_multiplicity") or "").strip()
+        label = frame_label(
+            position=position,
+            count=len(members),
+            search_kind=str(metadata["stage_search_kind"]),
+            converged=bool(metadata["spin_stage_normal_termination"]
+                           and metadata["spin_stage_optimized"]),
+            job_config_type=str(metadata["job_config_type"]),
+            stage_index=int(metadata.get("stage_index") or 0),
+            initialization=str(metadata.get("initialization") or ""),
+            same_state_as_label=not target.isdigit() or int(target) == frame.record.multiplicity,
+        )
+        frame.record.config_type = label["config_type"]
+        metadata["frame_role"] = label["frame_role"]
+
+
 def command_collect(args: argparse.Namespace) -> int:
     output_roots = [Path(item).resolve() for item in args.outputs]
     destination = Path(args.output)
@@ -511,6 +541,7 @@ def command_collect(args: argparse.Namespace) -> int:
                 if not parsed:
                     raise ValueError("no complete energy/geometry/force frame")
                 diagnostics = parse_spin_diagnostics(text)
+                stage_routes = input_stage_routes(input_text) if input_text else []
                 grouped: dict[str, list] = {}
                 for frame in parsed:
                     if spin_campaign:
@@ -526,11 +557,23 @@ def command_collect(args: argparse.Namespace) -> int:
                     record = frame.record
                     record.record_id = job_id
                     record.source = row.get("source", str(path))
-                    record.config_type = row.get("config_type") or "labeled"
+                    # Spin campaigns prepared before the manifest carried
+                    # config_type still encode it in the input filename.
+                    job_config_type, config_type_source = resolve_config_type(
+                        row, Path(row.get("input") or "").name
+                    )
+                    record.config_type = job_config_type or "labeled"
                     record.route = row.get("legacy_route", "")
                     if row.get("legacy_energy_hartree"):
                         record.legacy_energy_hartree = float(row["legacy_energy_hartree"])
                     record.metadata.update({key: value for key, value in row.items() if value})
+                    record.metadata["job_config_type"] = record.config_type
+                    record.metadata["config_type_source"] = config_type_source
+                    stage = int(row.get("stage_index") or 0) if spin_campaign else 0
+                    own_route = stage_routes[stage] if stage < len(stage_routes) else ""
+                    record.metadata["stage_search_kind"] = (
+                        route_search_kind(own_route) if own_route else "unknown"
+                    )
                     record.metadata["parent_record_id"] = row.get("parent_record_id") or job_id
                     record.metadata["gaussian_output"] = str(path.relative_to(outputs))
                     record.metadata["collection_campaign"] = str(outputs)
@@ -547,6 +590,8 @@ def command_collect(args: argparse.Namespace) -> int:
                     grouped.setdefault(job_id, []).append(frame)
                 if spin_campaign and complete and set(grouped) != {row["job_id"] for row in rows}:
                     raise ValueError("one or more planned spin stages have no force label")
+                for members in grouped.values():
+                    _label_stage_frames(members)
                 selected = []
                 for job_id, members in grouped.items():
                     if args.frames == "all":
