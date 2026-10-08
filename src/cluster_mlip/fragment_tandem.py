@@ -593,7 +593,8 @@ def _compare_geometry(p: list[str], tag: str, parsed, job: TandemJob, tol: float
 # ------------------------------------------------------------------------- logs
 
 _TERMINATION_RE = re.compile(r"^ (?:Normal termination of Gaussian|Error termination)[^\n]*\n", re.M)
-_SCF_RE = re.compile(r"SCF Done:\s+E\((\S+)\)\s+=\s+(-?\d+\.\d+)\s+A\.U\. after\s+(\d+) cycles")
+# G16 prints "a.u." for the SCF that Stable=Opt re-optimises, "A.U." elsewhere
+_SCF_RE = re.compile(r"SCF Done:\s+E\((\S+)\)\s+=\s+(-?\d+\.\d+)\s+[Aa]\.[Uu]\. after\s+(\d+) cycles")
 _S2_RE = re.compile(r"S\*\*2 before annihilation\s+(-?\d+\.\d+)")
 _GUESS_S2_RE = re.compile(r"Initial guess <Sx>=.*?<S\*\*2>=\s*(-?\d+\.\d+)")
 _CM_RE = re.compile(r"Charge =\s*(-?\d+) Multiplicity =\s*(-?\d+)\b(?! in fragment)")
@@ -642,6 +643,9 @@ def _mulliken_spins(stage: str) -> list[float]:
     return [float(line.split()[3]) for line in blocks[-1].splitlines() if len(line.split()) == 4]
 
 
+_FRAG_SCF_RE = re.compile(r"Fragment guess: doing (?:MCBS )?calculation for fragment")
+
+
 def parse_tandem_log(text: str, plan: FragmentPlan | None, force_stage: bool = True,
                      energy_tol_hartree: float = 1e-5, coord_tol: float = 1e-5) -> dict:
     """Electronic-state evidence from a tandem log, stage by stage.
@@ -663,7 +667,9 @@ def parse_tandem_log(text: str, plan: FragmentPlan | None, force_stage: bool = T
         s1 = stages[0][0]
         idx = 1
         scf = _SCF_RE.findall(s1)
-        n_mcbs = s1.count("doing MCBS calculation for fragment")
+        # G09 D.01 prints "doing MCBS calculation for fragment"; G16 C.01 prints "doing calculation for
+        # fragment" after a "doing full-system calculation" preamble that runs no SCF.
+        n_mcbs = len(_FRAG_SCF_RE.findall(s1))
         frag_cm = _FRAG_CM_RE.findall(s1)
         total = _CM_RE.search(s1.replace(" in supermolecule", ""))
         r.update({
