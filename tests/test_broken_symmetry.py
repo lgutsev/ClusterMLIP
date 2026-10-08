@@ -90,7 +90,7 @@ def test_three_link_tandem_routes():
     assert "Guess=(Fragment=16)" in stages[0] and " SP " in stages[0] and "Stable" not in stages[0]
     assert re.search(r"Stable=Opt Pop=Hirshfeld .*Geom=Checkpoint Guess=Read", stages[1])
     assert re.search(r"Force Pop=Hirshfeld .*Geom=Checkpoint Guess=Read", stages[2])
-    assert "5/13" not in stages[1] + stages[2]
+    assert all("IOP(5/13=1," in s for s in stages)
 
 
 def test_sites_are_distinct():

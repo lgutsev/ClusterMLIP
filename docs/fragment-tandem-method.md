@@ -101,7 +101,7 @@ Ideal guess ⟨S²⟩ = Sz(Sz+1) + n_β,unpaired. Fe spins are the last Mulliken
 geometry changed). A job is a **verified working pattern** only if it completed with every SCF
 converged.
 
-| Archived job | Fragments: composition(q m) | Link 1 job | Unconverged fragment SCFs | Link-1 guess <S�> / ideal | Link-1 first SCF: E (Ha), cycles | Link-1 last E (Ha) | Last Fe Mulliken spins | Outcome |
+| Archived job | Fragments: composition(q m) | Link 1 job | Unconverged fragment SCFs | Link-1 guess ⟨S²⟩ / ideal | Link-1 first SCF: E (Ha), cycles | Link-1 last E (Ha) | Last Fe Mulliken spins | Outcome |
 |---|---|---|---|---|---|---|---|---|
 | `AFM_Cr/Fe2O2H2_Dim_TS_AFM_1` | FeO(0 5), FeO(0 -5), H2(0 1) | Opt(TS)+Freq | 0/3 | 3.9726 / 4.00 | -2679.349038, 32 | -2679.342313 | 2.95 / -2.89 | complete, NImag=1 |
 | `AFM_Cr/Fe2O4_Fish_AFM_1` | FeO(1 6), FeO(1 -6), O2(-2 1) | Opt(TS)+Freq | 0/3 | 5.0052 / 5.00 | -2828.658786, 29 | -2828.663652 | 2.52 / -2.52 | complete, NImag=1 |
@@ -163,7 +163,7 @@ without `Only`; it never did on G09 D.01. The parser flags it if it happens (`s1
 | `main`: `spin.render_fragment_input` (`prepare-spins --strategy fragment`) | one link with `Guess=(Fragment=N,Always)` added to the campaign route (e.g. `Opt`) | not a tandem; `Always` rebuilds the fragment guess at **every optimization step** and discards the previous step's SCF; stability is never tested | not changed here (affects `prepare-spins` campaigns); follow-up below |
 | `main`: `spin._validated_fragments` | `int()` coercion: charge 1.7 → 1, multiplicity 6.9 → 6, `True` → 1 | silent change of the guess's electron count | **fixed** (rejects non-integers; test added) |
 | pilot (`feat/fe16-broken-symmetry-pilot`) stage 0 | `SP Stable=Opt Pop=Hirshfeld Guess=(Fragment=16,Always)` | `Stable=Opt` in the fragment link; a supermolecule SCF in link 0; `Always` not archived | **replaced** by the tandem below |
-| pilot `IOP(5/13=1)` | dropped from every link | link 0 would abort whenever one of 16 atomic fragment SCFs hits the cycle cap (10/27 archived jobs had one) | kept in link 0 only (D3) |
+| pilot `IOP(5/13=1)` | dropped from every link | these Fe SCFs very likely abort without it (group experience; 10/27 archived jobs had an unconverged fragment SCF) | kept in every link, as archived (D3) |
 | pilot P0 | default (Harris) guess | not a "high-spin-aligned" initialization | P0 is now every Fe α; the default guess is the control C0 |
 | pilot P1 vs the Fe16 reference | central Fe started β | in all three reference geometries the central Fe already has Mulliken spin −5.0 to −5.9 (charge ≈ +12): P1 probably reproduces the reference state | P0 (aligned) is the decisive comparison; Hirshfeld settles whether the central moment really is reversed |
 | pilot `analyze.py` | split logs on `--Link1--` | Gaussian logs never contain that string, so every check ran on the whole log | rewritten on `parse_tandem_log` |
@@ -178,9 +178,9 @@ without `Only`; it never did on G09 D.01. The parser flags it if it happens (`s1
 link 0  #p UBPW91/6-311++G* SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc) NoSymm SP
            IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine Guess=(Fragment=N)
         Q M q1 m1 ... qN mN  /  El(Fragment=k) x y z
-link 1  #p ... NoSymm Stable=Opt Pop=Hirshfeld IOP(5/36=1,8/11=1) Int=UltraFine Geom=Checkpoint Guess=Read
+link 1  #p ... NoSymm Stable=Opt Pop=Hirshfeld IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine Geom=Checkpoint Guess=Read
         Q M
-link 2  #p ... NoSymm Force Pop=Hirshfeld IOP(5/36=1,8/11=1) Int=UltraFine Geom=Checkpoint Guess=Read
+link 2  #p ... NoSymm Force Pop=Hirshfeld IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine Geom=Checkpoint Guess=Read
         Q M                                                     (optional; force_stage=False omits it)
 ```
 
@@ -204,7 +204,7 @@ is an independent parser, not the renderer. It checks:
 - `Stable` only in link 1;
 - no `Opt`/`Freq`/`IRC`;
 - `Guess=Read` and `Geom=Checkpoint` in links 1–2, with no coordinates and the same `Q M`;
-- `IOP(5/13=1)` absent from links 1–2;
+- `IOP(5/13=1)` present in every link (as archived);
 - an identical level in every link;
 - LF line endings;
 - the exact template route.
@@ -235,7 +235,7 @@ kept.
 |---|---|---|
 | D1 | Link 1 is `Stable=Opt` at fixed geometry, not `Opt(TS)`/`Opt Freq` | the pilot needs fixed-geometry labels; `Stable=Opt` on the read fragment guess follows Gaussian's AFC example. The archive has no `Stable` at all, so this is new, not "historically validated" |
 | D2 | Optional third link, `Force Geom=Checkpoint Guess=Read` | forces on the stable state; `Stable` is a job type and is not combined with `Force` in one route. Its SCF must reproduce link 1, or the job is flagged |
-| D3 | `IOP(5/13=1)` kept in link 0, removed from links 1–2 | link 0 only seeds the guess (as archived); the labelled SCF must fail rather than continue unconverged |
+| D3 | none: `IOP(5/13=1)` stays in every link, as archived | without it these Fe SCFs very likely abort (group experience; Gaussian calls it optional). The cost is that an unconverged SCF continues silently, so `parse_tandem_log` flags every "Convergence criterion not met" in links 1–2 and such a job is never `ok` |
 | D4 | `Pop=Hirshfeld` added | Mulliken is unreliable for interior Fe with diffuse functions |
 | D5 | `#p`, explicit `.chk` suffix, `%nprocshared=12`, `%mem=24GB` | cosmetic and resources; no change in method |
 
@@ -265,12 +265,12 @@ shows consistent, reproducible states.
 - `pytest`: 379 passed, 2 skipped. 70 of these are the new or rewritten tandem and BS tests.
 - Regression: the generator rebuilds both archived link-0 routes token for token, along with the
   fragment charge/multiplicity sequence, the atom→fragment map and the single-checkpoint layout. The
-  link-1 differences are exactly D1/D3/D4.
+  link-1 differences are exactly D1 and D4 (the job type and `Pop=Hirshfeld`).
 - The log parser, run on archived excerpts, reproduces: fragment-SCF counts, no supermolecule SCF,
   unconverged-fragment counts, guess read from the checkpoint, and guess ⟨S²⟩ within tolerance. It
   flags the archived multiplicity change across Link1 and the missing stability verdict.
 - 15 deliberately broken inputs are each rejected with the specific reason: `Stable` in link 0,
-  missing `Guess=Read`, `Geom=AllCheck`, M change, different chk, `%oldchk`, lenient IOP in link 1,
+  missing `Guess=Read`, `Geom=AllCheck`, M change, different chk, `%oldchk`, `IOP(5/13=1)` missing from link 1,
   `Opt`, repeated coordinates, level mismatch, unlabelled atom, wrong N, moved geometry, CRLF, missing
   link.
 - **Not yet shown (needs the validation run):** that G09 D.01 builds the same guess for the replays;

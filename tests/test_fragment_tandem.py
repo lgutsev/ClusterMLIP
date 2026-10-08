@@ -119,7 +119,7 @@ def test_generator_reproduces_archived_stage0_and_documents_stage1_deviations(na
     archived = norm_tokens(ref["routes"][1])
     ours = norm_tokens(next(l for l in stages[1].splitlines() if l.startswith("#")))
     assert {"geom=checkpoint", "guess=read"} <= archived & ours
-    assert archived - ours == {"opt(ts,noeigentest,calcfc)", "freq", "iop:5/13=1"}
+    assert archived - ours == {"opt(ts,noeigentest,calcfc)", "freq"}
     assert ours - archived == {"stable=opt", "pop=hirshfeld"}
     assert stages[1].strip().splitlines()[-1] == f"{ref['charge']} {ref['multiplicity']}"
 
@@ -168,7 +168,7 @@ def test_rendered_fe2_input_passes_inspection_and_layout():
     assert "Guess=(Fragment=2)" in text and "Fragment=2,Only" not in text
     s0, s1, s2 = text.split("--Link1--\n")
     assert "Stable" not in s0 and "Stable=Opt" in s1 and "Stable" not in s2
-    assert "5/13=1" in s0 and "5/13" not in s1 + s2
+    assert all("IOP(5/13=1,5/36=1,8/11=1)" in s for s in (s0, s1, s2))
     assert not re.search(r"\bOpt\b(?!=)", text.replace("Stable=Opt", ""))
     assert s0.splitlines()[0] == s1.splitlines()[0] == s2.splitlines()[0] == "%chk=fe2-afm.chk"
 
@@ -189,13 +189,13 @@ def test_control_job_has_no_fragment_stage():
 
 MUTATIONS = {
     "stable in stage 0": (lambda t: t.replace(" Guess=(Fragment=2)", " Guess=(Fragment=2) Stable=Opt", 1), "Stable"),
-    "no Guess=Read": (lambda t: t.replace("Stable=Opt Pop=Hirshfeld IOP(5/36=1,8/11=1) Int=UltraFine Geom=Checkpoint Guess=Read",
-                                           "Stable=Opt Pop=Hirshfeld IOP(5/36=1,8/11=1) Int=UltraFine Geom=Checkpoint"), "Guess=Read"),
+    "no Guess=Read": (lambda t: t.replace("Stable=Opt Pop=Hirshfeld IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine Geom=Checkpoint Guess=Read",
+                                           "Stable=Opt Pop=Hirshfeld IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine Geom=Checkpoint"), "Guess=Read"),
     "allcheck": (lambda t: t.replace("Geom=Checkpoint", "Geom=AllCheck"), "Geom=Checkpoint"),
     "multiplicity changes": (lambda t: t[::-1].replace("1 0", "3 0", 1)[::-1], "changes across Link1"),
     "different chk": (lambda t: t.replace("%chk=fe2-afm.chk", "%chk=other.chk", 1), "differ"),
     "oldchk": (lambda t: t.replace("%chk=fe2-afm.chk\n%mem", "%oldchk=x.chk\n%chk=fe2-afm.chk\n%mem", 1), "%oldchk"),
-    "lenient label SCF": (lambda t: t.replace("Stable=Opt Pop=Hirshfeld IOP(5/36", "Stable=Opt Pop=Hirshfeld IOP(5/13=1,5/36"), "5/13"),
+    "5/13 dropped": (lambda t: t.replace("Stable=Opt Pop=Hirshfeld IOP(5/13=1,5/36", "Stable=Opt Pop=Hirshfeld IOP(5/36"), "5/13=1) is missing"),
     "nuclear optimization": (lambda t: t.replace("Force Pop", "Opt Force Pop"), "job type"),
     "coordinates repeated": (lambda t: t.rstrip("\n") + "\nFe 0.0 0.0 0.0\n\n", "repeat coordinates"),
     "level differs": (lambda t: t[::-1].replace("*G++113-6/19WPBU", "*G++113-6/PYL3BU", 1)[::-1], "level of theory"),
@@ -270,7 +270,7 @@ NORMAL = " Normal termination of Gaussian 09.\n"
 
 
 def synthetic_log(job, *, e=-2526.5, guess_s2=4.0, supermolecule=False, unstable_first=False,
-                  final_stable=True, e3=None, z3=2.02, s=3.0, f=0.01):
+                  final_stable=True, e3=None, z3=2.02, s=3.0, f=0.01, unconverged_link1=False):
     s0 = (_route_block(job.routes()[0]) + " Charge =  0 Multiplicity = 1 in supermolecule\n"
           " Charge =  0 Multiplicity = 5 in fragment      1.\n Charge =  0 Multiplicity =-5 in fragment      2.\n"
           + _orient(2.02))
@@ -283,6 +283,8 @@ def synthetic_log(job, *, e=-2526.5, guess_s2=4.0, supermolecule=False, unstable
           + f" Initial guess <Sx>= 0.0000 <Sy>= 0.0000 <Sz>= 0.0000 <S**2>= {guess_s2:.4f} S= 1.5\n")
     if unstable_first:
         s1 += _scf(e + 0.01, 40, 3.2) + " The wavefunction has an internal instability.\n"
+    if unconverged_link1:  # what IOP(5/13=1) lets through: the SCF stops and the job goes on
+        s1 += " >>>>>>>>>> Convergence criterion not met.\n"
     s1 += _scf(e, 20, 3.9)
     s1 += (" The wavefunction is stable under the perturbations considered.\n" if final_stable
            else " The wavefunction has an internal instability.\n") + _pops(s)
@@ -307,6 +309,7 @@ def test_parser_accepts_a_clean_tandem():
     ({"final_stable": False}, "stable wavefunction"),
     ({"e3": -2526.4}, "did not survive"),
     ({"z3": 2.10}, "geometry moved"),
+    ({"unconverged_link1": True}, "did not converge"),
 ])
 def test_parser_flags_lost_or_changed_states(kwargs, message):
     job = fe2_job()

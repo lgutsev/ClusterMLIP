@@ -22,10 +22,11 @@ What this module changes, and why (each is a documented deviation):
     (gaussian.com/afc), which applies Stable=Opt to the read fragment guess.
   * an optional link 2, ``Force Geom=Checkpoint Guess=Read``, labels forces on the
     stability-optimized state; its SCF must reproduce the link-1 energy.
-  * IOP(5/13=1) is kept in link 0, where it only lets an unconverged fragment SCF
-    still seed the guess (as in 10 of the 27 archived jobs), and it is dropped from
-    links 1 and 2: an unconverged supermolecule SCF must fail, because that SCF
-    solution is the label.
+  * IOP(5/13=1) stays in every link, as archived. Without it these Fe SCFs very
+    often abort (user, from the group's experience, 2026-10-08), even though
+    Gaussian describes it as optional. The cost is that an unconverged SCF continues
+    silently, so parse_tandem_log flags every "Convergence criterion not met" in the
+    labelled links; such a job is never "ok" and never becomes a label.
 
 Fixed syntax (stage keywords, checkpoint continuity, charge/multiplicity layout)
 lives in this module. The scientific settings (functional, basis, SCF options,
@@ -67,26 +68,27 @@ STAGE_FRAGMENT = "fragment_init"
 STAGE_STABLE = "stable_opt"
 STAGE_FORCE = "force"
 STAGE_CONTROL_STABLE = "control_stable_opt"
-LENIENT_SCF_IOP = "5/13=1"
+# Continue past an SCF that misses convergence instead of aborting (archived, every link).
+CONTINUE_SCF_IOP = "5/13=1"
 
 
-def _iop(level: LevelOfTheory, lenient: bool) -> str:
-    parts = ([LENIENT_SCF_IOP] if lenient else []) + [p for p in level.print_iops.split(",") if p]
-    return f"IOP({','.join(parts)})" if parts else ""
+def _iop(level: LevelOfTheory) -> str:
+    parts = [CONTINUE_SCF_IOP] + [p for p in level.print_iops.split(",") if p]
+    return f"IOP({','.join(parts)})"
 
 
 def fragment_route(level: LevelOfTheory, n_fragments: int, guess_only: bool = False) -> str:
     guess = f"Guess=(Fragment={n_fragments},Only)" if guess_only else f"Guess=(Fragment={n_fragments})"
-    return f"#p {level.common()} SP {_iop(level, True)} {level.grid} {guess}"
+    return f"#p {level.common()} SP {_iop(level)} {level.grid} {guess}"
 
 
 def stable_route(level: LevelOfTheory, from_checkpoint: bool = True) -> str:
     tail = " Geom=Checkpoint Guess=Read" if from_checkpoint else ""
-    return f"#p {level.common()} Stable=Opt Pop=Hirshfeld {_iop(level, False)} {level.grid}{tail}"
+    return f"#p {level.common()} Stable=Opt Pop=Hirshfeld {_iop(level)} {level.grid}{tail}"
 
 
 def force_route(level: LevelOfTheory) -> str:
-    return f"#p {level.common()} Force Pop=Hirshfeld {_iop(level, False)} {level.grid} Geom=Checkpoint Guess=Read"
+    return f"#p {level.common()} Force Pop=Hirshfeld {_iop(level)} {level.grid} Geom=Checkpoint Guess=Read"
 
 
 # ------------------------------------------------------------------ fragment plan
@@ -466,7 +468,8 @@ def inspect_tandem_input(text: str, job: TandemJob | None = None, coord_tol: flo
         job_types = sorted({k for k in keys if k in _JOB_TYPES})
         guess = _value(tokens, "guess") or ""
         geom = _value(tokens, "geom")
-        iop = (_value(tokens, "iop") or "").replace(" ", "")
+        # IOP(a/b=c,...) has no "=" before its parentheses, so _value would split inside it.
+        iop = ",".join(re.findall(r"(?i)\biop\(([^)]*)\)", stage.route)).replace(" ", "")
         method = next((t for t in tokens if "/" in t and "=" not in t.split("/")[0]), "")
         signature = (method.lower(), (_value(tokens, "scf") or ""), (_value(tokens, "int") or ""),
                      "nosymm" in keys)
@@ -474,6 +477,8 @@ def inspect_tandem_input(text: str, job: TandemJob | None = None, coord_tol: flo
             level_signature = signature
         elif signature != level_signature:
             p.append(f"{tag}: level of theory differs from stage 0: {signature} vs {level_signature}")
+        if CONTINUE_SCF_IOP not in iop.split(","):
+            p.append(f"{tag}: IOP(5/13=1) is missing; the archived routes carry it in every link")
         if kind == STAGE_FRAGMENT:
             m = re.fullmatch(r"fragment=(\d+)(,only)?", guess)
             if job_types != ["sp"] or not m:
@@ -517,8 +522,6 @@ def inspect_tandem_input(text: str, job: TandemJob | None = None, coord_tol: flo
                 p.append(f"{tag}: must be Stable=Opt only; got {job_types}")
             if "fragment" in guess or geom is not None:
                 p.append(f"{tag}: a default-guess control takes no fragment guess and explicit coordinates")
-            if LENIENT_SCF_IOP in iop:
-                p.append(f"{tag}: IOP(5/13=1) would let an unconverged label SCF pass")
             parsed = [_ATOM_RE.match(l) for l in stage.atom_lines]
             if not stage.atom_lines or not all(parsed) or any(mt.group(2) for mt in parsed):
                 p.append(f"{tag}: needs plain coordinates")
@@ -539,8 +542,6 @@ def inspect_tandem_input(text: str, job: TandemJob | None = None, coord_tol: flo
                 p.append(f"{tag}: must read orbitals with Guess=Read, got Guess={guess or 'default'}")
             if geom not in ("checkpoint", "check"):
                 p.append(f"{tag}: must reuse the geometry with Geom=Checkpoint, got Geom={geom}")
-            if LENIENT_SCF_IOP in iop:
-                p.append(f"{tag}: IOP(5/13=1) would let an unconverged label SCF pass")
             if stage.atom_lines:
                 p.append(f"{tag}: Geom=Checkpoint stage must not repeat coordinates")
             cm = stage.charge_multiplicity

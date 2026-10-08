@@ -14,9 +14,10 @@ charge-separated fragment guesses change convergence or the final state?
 ## Every input (three links, one checkpoint)
 
 ```
-link 0  SP Guess=(Fragment=N)                       IOP(5/13=1,5/36=1,8/11=1)   archived syntax
-link 1  Stable=Opt Pop=Hirshfeld Geom=Checkpoint Guess=Read   IOP(5/36=1,8/11=1)
-link 2  Force Pop=Hirshfeld Geom=Checkpoint Guess=Read        IOP(5/36=1,8/11=1)
+link 0  SP Guess=(Fragment=N)                                 archived syntax
+link 1  Stable=Opt Pop=Hirshfeld Geom=Checkpoint Guess=Read
+link 2  Force Pop=Hirshfeld Geom=Checkpoint Guess=Read
+every link: IOP(5/13=1,5/36=1,8/11=1), as archived; analyze.py flags any unconverged SCF
 ```
 
 Every file passed `inspect_tandem_input` when it was written.
