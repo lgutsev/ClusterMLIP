@@ -275,5 +275,88 @@ class BlindLabelGuardTests(unittest.TestCase):
             self.assertNotIn("FATAL", result.stderr)
 
 
+
+def _add_moment_column(path: Path, values=(4.0, -1.0), skip_frames: int = 0) -> None:
+    """Append a signed per-atom `local_moment` column to an extxyz (test helper)."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    out, i, frame = [], 0, 0
+    while i < len(lines):
+        n = int(lines[i]); header = lines[i + 1]
+        if frame >= skip_frames:
+            header = header.replace("REF_forces:R:3", "REF_forces:R:3:local_moment:R:1")
+            atoms = [f"{line} {values[k % len(values)]:.6f}" for k, line in enumerate(lines[i + 2:i + 2 + n])]
+        else:
+            atoms = lines[i + 2:i + 2 + n]
+        out += [lines[i], header, *atoms]
+        i += n + 2; frame += 1
+    path.write_text("\n".join(out) + "\n", encoding="utf-8")
+
+
+def _level_frame(record_id: str, multiplicity: int = 1, level: str = "BPW91/6-311++g(d)") -> LabeledFrame:
+    frame = _frame(record_id, 0, multiplicity)
+    frame.record.metadata = {"parent_record_id": record_id, "label_level": level}
+    return frame
+
+
+class LabelLevelFallbackTests(unittest.TestCase):
+    def test_label_level_stands_in_for_a_missing_route(self):
+        with tempfile.TemporaryDirectory() as raw:
+            dataset = _dataset(Path(raw), [_level_frame("a"), _level_frame("b", 5)])
+            facts = scan_dataset(dataset)
+            self.assertEqual(facts.label_routes, {"label_level:BPW91/6-311++g(d)"})
+
+    def test_mixed_label_levels_are_still_refused(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            dataset = _dataset(tmp, [_level_frame("a"), _level_frame("b", 5, level="B3LYP/def2tzvp")])
+            with self.assertRaises(ValueError):
+                write_training_campaign(TrainingConfig(dataset_dir=dataset, output_dir=tmp / "run"))
+
+
+class LocalMomentInputTests(unittest.TestCase):
+    def _dataset_with_moments(self, tmp: Path, skip_frames: int = 0) -> Path:
+        dataset = _dataset(tmp, [_frame("a", 0, 1), _frame("b", 0, 5)])
+        for name in ("all.extxyz", "train.extxyz", "valid.extxyz", "test.extxyz"):
+            _add_moment_column(dataset / name, skip_frames=skip_frames if name == "train.extxyz" else 0)
+        return dataset
+
+    def test_per_atom_spec_has_explicit_key_and_manifest_lists_it(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            plan = write_training_campaign(TrainingConfig(
+                dataset_dir=self._dataset_with_moments(tmp), output_dir=tmp / "run",
+                local_moment_key="local_moment"))
+            argv = plan["seed_runs"][0]["argv"]
+            (spec_arg,) = [a for a in argv if a.startswith("--embedding_specs=")]
+            spec = json.loads(spec_arg.partition("=")[2])["local_moment"]
+            self.assertEqual((spec["type"], spec["per"], spec["key"]), ("continuous", "atom", "local_moment"))
+            self.assertIn("local_moment", plan["required_inputs"]["arrays"])
+
+    def test_frame_without_the_column_is_refused(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            dataset = self._dataset_with_moments(tmp, skip_frames=1)
+            with self.assertRaisesRegex(ValueError, "required per-atom input missing"):
+                write_training_campaign(TrainingConfig(
+                    dataset_dir=dataset, output_dir=tmp / "run", local_moment_key="local_moment"))
+
+    def test_baseline_ignores_the_column(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            plan = write_training_campaign(TrainingConfig(
+                dataset_dir=self._dataset_with_moments(tmp), output_dir=tmp / "run"))
+            (spec_arg,) = [a for a in plan["seed_runs"][0]["argv"] if a.startswith("--embedding_specs=")]
+            self.assertNotIn("local_moment", json.loads(spec_arg.partition("=")[2]))
+            self.assertEqual(plan["required_inputs"]["arrays"], {})
+
+    def test_polar_finetune_refuses_a_local_moment_input(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            with self.assertRaisesRegex(ValueError, "silently ignored"):
+                write_training_campaign(TrainingConfig(
+                    dataset_dir=self._dataset_with_moments(tmp), output_dir=tmp / "run",
+                    mode="finetune", foundation_model="polar-1-m", local_moment_key="local_moment"))
+
+
 if __name__ == "__main__":
     unittest.main()
