@@ -11,6 +11,10 @@ from pathlib import Path
 from typing import Iterable
 
 from .basis import render_gen_basis
+from .fragment_tandem import (
+    CONTINUE_SCF_IOP, TandemJob, _JOB_TYPES, _keyword, fragments_from_spec,
+    inspect_tandem_input, render_tandem, route_tokens, validate_fragment_plan,
+)
 from .gaussian import (
     ATOMIC_SYMBOLS, _CM_RE, _SCF_RE, _S2_RE, _MULLIKEN_SPIN_RE,
     _MULLIKEN_ROW_RE, _float, extract_document_records,
@@ -51,6 +55,13 @@ SPIN_MANIFEST_COLUMNS = [
     "checkpoint_lineage", "fragment_label", "fragment_count", "fragment_spec_sha256", "input",
     "input_sha256", "output",
 ]
+
+# How --strategy fragment writes each guess. "single-link" (default) appends
+# Guess=(Fragment=N,Always) to the campaign route in one link. "tandem" is the
+# archived two-link layout (docs/fragment-tandem-method.md): link 0 is
+# SP Guess=(Fragment=N), link 1 the campaign job with Geom=Checkpoint Guess=Read.
+# Tandem stays opt-in until the fe16_bs_tandem_kit validation run comes back clean.
+FRAGMENT_LAYOUTS = ("single-link", "tandem")
 
 SPIN_RESTART_COLUMNS = [
     "submission_active", "restart_root_input",
@@ -661,6 +672,139 @@ def render_fragment_input(
     return "\n".join(lines) + "\n", row
 
 
+def _iop_parts(token: str) -> list[str]:
+    match = re.fullmatch(r"(?is)iop\s*=?\s*\((.*)\)", token)
+    if not match:
+        raise ValueError(f"cannot read IOP token {token!r}")
+    return [part.strip() for part in match.group(1).split(",") if part.strip()]
+
+
+def tandem_campaign_routes(route: str, n_fragments: int) -> tuple[str, str]:
+    """(link 0, link 1) routes of the archived fragment tandem for a campaign route.
+
+    Link 0 keeps the campaign's level of theory, replaces its job keywords with
+    ``SP`` and adds ``Guess=(Fragment=N)``. Link 1 is the campaign route itself
+    -- ``Opt``, ``Opt(TS,...)``, ``Freq`` and their options unchanged -- plus
+    ``Geom=Checkpoint Guess=Read``. Both links carry ``IOP(5/13=1)``, added
+    first in the IOP list if the route lacks it: as archived, these Fe SCFs very
+    likely abort without it.
+    """
+    route = route.strip()
+    prefix = re.match(r"#[pPnNtT]?", route)
+    if not prefix:
+        raise ValueError("Gaussian route must start with '#'")
+    if re.search(r"/gen", route, re.IGNORECASE):
+        raise ValueError(
+            "--fragment-layout tandem does not support /Gen or /GenECP routes yet; the archived "
+            "tandem used a built-in basis"
+        )
+    tokens = route_tokens(route)
+    keys = [_keyword(token) for token in tokens]
+    for key in ("guess", "geom"):
+        if key in keys:
+            raise ValueError(f"route already defines {key}; keep state-control keywords tool-managed")
+    if "stable" in keys:
+        raise ValueError(
+            "the campaign tandem runs the campaign job in link 1 without Stable; the fixed-geometry "
+            "Stable=Opt tandem is prepare-bs-pilot"
+        )
+    if not any(key in _JOB_TYPES and key != "sp" for key in keys):
+        raise ValueError("the campaign tandem needs a job in link 1 (Opt, Opt(TS,...), Freq, ...)")
+    link0: list[str] = []
+    link1: list[str] = []
+    placed_sp = placed_iop = False
+    for token, key in zip(tokens, keys):
+        if key in _JOB_TYPES:
+            if not placed_sp:
+                link0.append("SP")
+                placed_sp = True
+            link1.append(token)
+        elif key == "iop":
+            parts = [part for part in _iop_parts(token) if part.replace(" ", "") != CONTINUE_SCF_IOP]
+            iop = f"IOP({','.join([CONTINUE_SCF_IOP] + parts)})"
+            link0.append(iop)
+            link1.append(iop)
+            placed_iop = True
+        else:
+            link0.append(token)
+            link1.append(token)
+    if not placed_iop:
+        link0.append(f"IOP({CONTINUE_SCF_IOP})")
+        link1.append(f"IOP({CONTINUE_SCF_IOP})")
+    link0.append(f"Guess=(Fragment={n_fragments})")
+    link1 += ["Geom=Checkpoint", "Guess=Read"]
+    return " ".join([prefix.group(0)] + link0), " ".join([prefix.group(0)] + link1)
+
+
+def render_fragment_tandem_input(
+    record: Record,
+    specification: dict,
+    route: str = DEFAULT_SPIN_ROUTE,
+    memory: str = "16GB",
+    nproc: int = 16,
+) -> tuple[str, dict[str, str], TandemJob]:
+    """The archived two-link fragment tandem for one --fragment-spec guess.
+
+    One manifest row, as in the single-link layout. Its ``stage_index`` is 1, the
+    link whose route labels the frames (link 0 is a guess-only SP without forces),
+    so ``collect`` reads the search kind of the campaign job, not of the SP.
+    """
+    target = int(specification["target_multiplicity"])
+    validate_multiplicity(record, target)
+    _validated_fragments(record, specification)  # same messages as the single-link layout
+    symbols = tuple(atom.symbol for atom in record.atoms)
+    plan = validate_fragment_plan(symbols, record.charge, target, fragments_from_spec(specification))
+    label = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(specification.get("name", "afm"))).strip("-") or "afm"
+    job_id = f"{record.record_id}-fragment-{label}-m{target}"
+    link0, link1 = tandem_campaign_routes(route, len(plan.fragments))
+    job = TandemJob(
+        name=job_id,
+        symbols=symbols,
+        coords=tuple((atom.x, atom.y, atom.z) for atom in record.atoms),
+        charge=record.charge,
+        multiplicity=target,
+        plan=plan,
+        campaign_routes=(link0, link1),
+        title=(
+            "ClusterMLIP spin pathway; strategy=manual_fragment_guess; layout=tandem; "
+            f"record={record.record_id}; label={label}; multiplicity={target}"
+        ),
+        memory=memory,
+        nproc=nproc,
+    )
+    text = render_tandem(job)  # raises if inspect_tandem_input finds any problem
+    row = {
+        "job_id": job_id,
+        "chain_id": job_id,
+        "stage_index": "1",
+        "pathway": "fragment_guess",
+        "initialization": "explicit_manual_fragment_map",
+        "audit_classification": "manual_fragment_preparation",
+        "parent_record_id": record.record_id,
+        "source": record.source,
+        "formula": record.formula,
+        "config_type": record.config_type,
+        "route_search_kind": route_search_kind(link1),
+        "first_route": link1,
+        "state_inference": str(record.metadata.get("state_inference", "")),
+        "source_geometry_sha256": _source_geometry_sha256(record),
+        "high_spin_multiplicity": str(record.multiplicity),
+        "final_target_multiplicity": str(target),
+        "intended_charge": str(record.charge),
+        "intended_multiplicity": str(target),
+        "spin_flip_index": "",
+        "predecessor_job_id": "",
+        "predecessor_multiplicity": "",
+        "predecessor_checkpoint": "",
+        "checkpoint": job.checkpoint,
+        "checkpoint_lineage": f"fragment-tandem:{label}:m{target}:{job.checkpoint}",
+        "fragment_label": label,
+        "fragment_count": str(len(plan.fragments)),
+        "fragment_spec_sha256": _canonical_sha256(specification),
+    }
+    return text, row, job
+
+
 def write_spin_jobs(
     records: list[Record],
     output: Path,
@@ -671,11 +815,16 @@ def write_spin_jobs(
     nproc: int = 16,
     fragment_specifications: list[dict] | None = None,
     strategy: str = "auto",
+    fragment_layout: str = "single-link",
 ) -> int:
     if strategy not in {"auto", "ladder", "fragment", "both"}:
         raise ValueError("spin preparation strategy must be auto, ladder, fragment, or both")
+    if fragment_layout not in FRAGMENT_LAYOUTS:
+        raise ValueError(f"fragment layout must be one of {FRAGMENT_LAYOUTS}")
     if strategy == "auto":
         strategy = "both" if fragment_specifications else "ladder"
+    if fragment_layout != "single-link" and strategy == "ladder":
+        raise ValueError(f"--fragment-layout {fragment_layout} applies only to fragment jobs")
     requested_targets = set(targets)
     if not requested_targets:
         raise ValueError("at least one low-spin target multiplicity is required")
@@ -740,6 +889,7 @@ def write_spin_jobs(
     input_directory = Path("inputs")
     files: list[tuple[str, str]] = []
     rows: list[dict[str, str]] = []
+    tandem_jobs: dict[str, TandemJob] = {}
     for record in high_spin_records:
         readable = human_job_stem(record)
         if strategy in {"ladder", "both"}:
@@ -752,12 +902,19 @@ def write_spin_jobs(
             rows.extend(chain_rows)
         if strategy in {"fragment", "both"}:
             for specification in specs_by_record.get(record.record_id, []):
-                text, row = render_fragment_input(record, specification, route, memory, nproc)
+                if fragment_layout == "tandem":
+                    text, row, job = render_fragment_tandem_input(
+                        record, specification, route, memory, nproc
+                    )
+                else:
+                    text, row = render_fragment_input(record, specification, route, memory, nproc)
                 filename = (
                     f"{readable}__spin-fragment-{row['fragment_label']}"
                     f"-m{row['intended_multiplicity']}.gjf"
                 )
                 files.append((filename, text))
+                if fragment_layout == "tandem":
+                    tandem_jobs[filename] = job
                 row["input"] = str(input_directory / filename)
                 row["output"] = f"{Path(filename).stem}.log"
                 rows.append(row)
@@ -776,6 +933,13 @@ def write_spin_jobs(
     inputs.mkdir()
     for filename, text in files:
         write_text_lf(inputs / filename, text)
+    # Inspect each tandem input as written to disk, not only the rendered string.
+    for filename, job in tandem_jobs.items():
+        problems = inspect_tandem_input((inputs / filename).read_bytes().decode("utf-8"), job).problems
+        if problems:
+            raise RuntimeError(
+                f"{filename} failed tandem inspection after writing:\n  " + "\n  ".join(problems)
+            )
     # Hash what was actually written, not the pre-write string: write_text's
     # universal-newline translation turns "\n" into the platform line
     # separator on disk (a no-op on Linux, but "\r\n" on Windows), which
@@ -833,6 +997,9 @@ def write_spin_jobs(
             if fragment_specifications else None
         ),
     }
+    if fragment_layout != "single-link":
+        # Recorded only when opted in, so a default campaign is byte-identical.
+        campaign["fragment_layout"] = fragment_layout
     (output / "spin_campaign.json").write_text(
         json.dumps(campaign, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )

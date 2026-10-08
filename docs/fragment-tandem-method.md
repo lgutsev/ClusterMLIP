@@ -160,7 +160,7 @@ without `Only`; it never did on G09 D.01. The parser flags it if it happens (`s1
 
 | Where | Discrepancy with the archived method | Consequence | Status |
 |---|---|---|---|
-| `main`: `spin.render_fragment_input` (`prepare-spins --strategy fragment`) | one link with `Guess=(Fragment=N,Always)` added to the campaign route (e.g. `Opt`) | not a tandem; `Always` rebuilds the fragment guess at **every optimization step** and discards the previous step's SCF; stability is never tested | not changed here (affects `prepare-spins` campaigns); follow-up below |
+| `main`: `spin.render_fragment_input` (`prepare-spins --strategy fragment`) | one link with `Guess=(Fragment=N,Always)` added to the campaign route (e.g. `Opt`) | not a tandem; `Always` rebuilds the fragment guess at **every optimization step** and discards the previous step's SCF; stability is never tested | still the default; opt-in `--fragment-layout tandem` (draft, section G) |
 | `main`: `spin._validated_fragments` | `int()` coercion: charge 1.7 → 1, multiplicity 6.9 → 6, `True` → 1 | silent change of the guess's electron count | **fixed** (rejects non-integers; test added) |
 | pilot (`feat/fe16-broken-symmetry-pilot`) stage 0 | `SP Stable=Opt Pop=Hirshfeld Guess=(Fragment=16,Always)` | `Stable=Opt` in the fragment link; a supermolecule SCF in link 0; `Always` not archived | **replaced** by the tandem below |
 | pilot `IOP(5/13=1)` | dropped from every link | these Fe SCFs very likely abort without it (group experience; 10/27 archived jobs had an unconverged fragment SCF) | kept in every link, as archived (D3) |
@@ -297,7 +297,54 @@ Limitations:
 - Fragment charges in P0Q/P1Q are initialization perturbations, weakly motivated by interior atoms
   carrying more electron density. They are not oxidation states.
 
+## G. `prepare-spins --fragment-layout tandem` (draft, opt-in)
+
+Status: **draft, pending the `validation/` run.** The default is still `--fragment-layout single-link`
+(the `Guess=(Fragment=N,Always)` form above), and its output is byte-identical to before. `tandem`
+writes the archived two-link form for each `--fragment-spec` guess. It uses the same `spin_jobs.csv`
+columns as `single-link` (one row per guess, `pathway=fragment_guess`). `spin_campaign.json` gets
+`"fragment_layout": "tandem"`.
+
+How the campaign `--route` maps onto the two links (`spin.tandem_campaign_routes`):
+
+| Campaign route | Link 0 (guess only) | Link 1 (labels the frames) |
+|---|---|---|
+| default `… NoSymm Opt IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine` | `… NoSymm SP IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine Guess=(Fragment=N)`: the archived link 0, token for token | `… NoSymm Opt IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine Geom=Checkpoint Guess=Read`: the archived link 1 |
+| `… Opt=(TS,CalcFC,NoEigenTest) Freq …` (saddle seeds) | same `SP … Guess=(Fragment=N)`: every job keyword (`Opt`, `Freq`, `IRC`, …) is replaced by one `SP` | `… Opt=(TS,CalcFC,NoEigenTest) Freq … Geom=Checkpoint Guess=Read`: the archived `Opt(TS,NoEigenTest,CalcFC) Freq` link 1 |
+| route without `IOP(5/13=1)` | `5/13=1` added first in the IOP list | `5/13=1` added first in the IOP list |
+
+Rules:
+- The level of theory (method/basis, `SCF=`, `Int=`, `NoSymm`, `Pop=`) is identical in both links.
+- `IOP(5/13=1)` is in both links, as archived and as the rest of the tandem now does (these Fe SCFs very
+  likely abort without it). The cost: an unconverged SCF inside the link-1 optimization continues
+  silently (6 of 27 archived jobs). `prepare-spins` does not parse logs, so screen the outputs for
+  "Convergence criterion not met" before collecting; the endpoint, not every step, is what to trust.
+- Link 1 has no `Stable` (the archive had none). Routes with `Stable`, `Guess=`, `Geom=`, `/Gen` or
+  `/GenECP`, or with no job keyword, are refused.
+- `Q M` is the same in both links, and there is one `%chk` and no `%oldchk`.
+- The saddle-seed guard is unchanged. Saddle seeds still need a TS route, which then lands in link 1.
+- The manifest row has `stage_index=1` (the link whose route `collect` uses for `stage_search_kind`; link 0
+  is an SP without forces), `first_route` = link-1 route, and
+  `checkpoint_lineage=fragment-tandem:<label>:m<M>:<chk>`.
+- Every file is checked by `inspect_tandem_input` twice: on the rendered string (`render_tandem`) and
+  again after it is written to disk. The inspector has a `campaign_job` stage kind for link 1.
+
+Not assumed, still open until the validation run:
+- whether G09/G16 runs a supermolecule SCF in link 0 without `Only` (on G09 D.01 it never did);
+- the real SCF cycle cap (G09 logged 128 with `MaxCyc=200`);
+- that `Opt` in link 1 keeps the fragment-guess BS state. Nothing tests stability here, which is the
+  same as the archive.
+
+Known consequences:
+- In `collect`, the first link-1 frame gets `frame_role=spin_flip_start` (`stage_index>0`), not
+  `input_geometry`, even though its geometry is the input geometry. This is conservative.
+- `relaunch-routes` refuses a tandem spin job (2 Link1 stages, 1 manifest row).
+- `validate-spins` sees the link-0 section at the same (Q, M) as link 1, and a stray observation is
+  possible. This is untested without a real log.
+
+Tests: `tests/test_prepare_spins_tandem.py`.
+
 ## Follow-ups (not done here)
 
-- `prepare-spins --strategy fragment` on `main` still writes the single-link `Guess=(Fragment=N,Always)`
-  form. Once the validation run confirms the tandem, port it to `fragment_tandem` (or retire it).
+- Once the validation run confirms the tandem, consider making `--fragment-layout tandem` the default (or
+  retiring `single-link`), and settle the three "known consequences" in G.

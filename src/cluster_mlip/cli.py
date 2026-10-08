@@ -749,7 +749,8 @@ def command_prepare_spins(args: argparse.Namespace) -> int:
     if args.auto_from_data:
         if args.high_spin is not None or args.targets is not None:
             raise ValueError("--auto-from-data infers --high-spin and --targets; do not pass them")
-        if specifications is not None or args.strategy not in {"auto", "ladder"}:
+        if (specifications is not None or args.strategy not in {"auto", "ladder"}
+                or args.fragment_layout != "single-link"):
             raise ValueError("--auto-from-data prepares ladders only and cannot infer fragment guesses")
         stages = write_automatic_fe_spin_jobs(
             records=records,
@@ -773,6 +774,7 @@ def command_prepare_spins(args: argparse.Namespace) -> int:
             nproc=args.nproc,
             fragment_specifications=specifications,
             strategy=args.strategy,
+            fragment_layout=args.fragment_layout,
         )
     print(f"Prepared {stages} traceable spin stages")
     print(f"Manifest: {Path(args.output).resolve() / 'spin_jobs.csv'}")
@@ -1310,6 +1312,15 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "state preparation: ladder, fragment, both, or auto (both when a fragment spec is "
             "supplied; otherwise ladder)"
+        ),
+    )
+    prepare_spins.add_argument(
+        "--fragment-layout", choices=("single-link", "tandem"), default="single-link",
+        help=(
+            "how fragment guesses are written: single-link (default) appends "
+            "Guess=(Fragment=N,Always) to the route; tandem (draft, pending the "
+            "fe16_bs_tandem_kit validation run) writes the archived two-link form, "
+            "SP Guess=(Fragment=N) then the --route job with Geom=Checkpoint Guess=Read"
         ),
     )
     prepare_spins.add_argument("--elements", help="comma-separated element allow-list")

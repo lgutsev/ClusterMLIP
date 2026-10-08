@@ -70,6 +70,9 @@ STAGE_FORCE = "force"
 STAGE_CONTROL_STABLE = "control_stable_opt"
 # Continue past an SCF that misses convergence instead of aborting (archived, every link).
 CONTINUE_SCF_IOP = "5/13=1"
+# prepare-spins --fragment-layout tandem: link 1 runs the campaign job (Opt, Opt(TS), ...)
+# on the read fragment guess, as every archived job did, instead of Stable=Opt.
+STAGE_CAMPAIGN = "campaign_job"
 
 
 def _iop(level: LevelOfTheory) -> str:
@@ -273,16 +276,23 @@ class TandemJob:
     title: str = ""
     memory: str = "24GB"
     nproc: int = 12
+    # (link 0, link 1) routes built by the caller; link 1 is a campaign job, and
+    # force_stage/guess_only/level do not apply. See spin.tandem_campaign_routes.
+    campaign_routes: tuple[str, str] | None = None
 
     @property
     def checkpoint(self) -> str:
         return f"{self.name}.chk"
 
     def stage_kinds(self) -> list[str]:
+        if self.campaign_routes is not None:
+            return [STAGE_FRAGMENT, STAGE_CAMPAIGN]
         kinds = [STAGE_CONTROL_STABLE] if self.plan is None else [STAGE_FRAGMENT, STAGE_STABLE]
         return kinds + ([STAGE_FORCE] if self.force_stage else [])
 
     def routes(self) -> list[str]:
+        if self.campaign_routes is not None:
+            return list(self.campaign_routes)
         routes = []
         for kind in self.stage_kinds():
             if kind == STAGE_FRAGMENT:
@@ -297,6 +307,8 @@ class TandemJob:
 
 
 def render_tandem(job: TandemJob) -> str:
+    if job.campaign_routes is not None and job.plan is None:
+        raise ValueError("a campaign tandem needs a fragment plan")
     if job.plan is not None:
         if (job.plan.charge, job.plan.multiplicity) != (job.charge, job.multiplicity):
             raise ValueError("fragment plan and job disagree on total charge/multiplicity")
@@ -446,8 +458,15 @@ def inspect_tandem_input(text: str, job: TandemJob | None = None, coord_tol: flo
         p.append(f"expected {len(kinds)} Link1 stages, found {len(stages)}")
     first_has_fragments = bool(stages) and "fragment" in stages[0].route.lower()
     if kinds is None:
-        kinds = ([STAGE_FRAGMENT, STAGE_STABLE] if first_has_fragments else [STAGE_CONTROL_STABLE])
-        kinds += [STAGE_FORCE] * max(0, len(stages) - len(kinds))
+        campaign = (first_has_fragments and len(stages) > 1
+                    and "stable" not in [_keyword(t) for t in _safe_tokens(stages[1].route)])
+        if campaign:
+            kinds = [STAGE_FRAGMENT, STAGE_CAMPAIGN]
+            if len(stages) != 2:
+                p.append(f"a fragment + campaign-job tandem has 2 Link1 stages, found {len(stages)}")
+        else:
+            kinds = ([STAGE_FRAGMENT, STAGE_STABLE] if first_has_fragments else [STAGE_CONTROL_STABLE])
+            kinds += [STAGE_FORCE] * max(0, len(stages) - len(kinds))
     chk_names = []
     level_signature = None
     total_cm = None
@@ -530,6 +549,23 @@ def inspect_tandem_input(text: str, job: TandemJob | None = None, coord_tol: flo
             total_cm = tuple(stage.charge_multiplicity[:2]) if len(stage.charge_multiplicity) == 2 else None
             if total_cm is None:
                 p.append(f"{tag}: charge/multiplicity line must be 'Q M'")
+        elif kind == STAGE_CAMPAIGN:
+            # The archived link 1: the campaign job on the read guess and geometry.
+            if not job_types or job_types == ["sp"]:
+                p.append(f"{tag}: needs the campaign job (Opt, Opt(TS), Freq, ...); got {job_types or 'none'}")
+            if "stable" in keys:
+                p.append(f"{tag}: Stable is not part of the campaign tandem")
+            if guess != "read":
+                p.append(f"{tag}: must read orbitals with Guess=Read, got Guess={guess or 'default'}")
+            if geom not in ("checkpoint", "check"):
+                p.append(f"{tag}: must reuse the geometry with Geom=Checkpoint, got Geom={geom}")
+            if stage.atom_lines:
+                p.append(f"{tag}: Geom=Checkpoint stage must not repeat coordinates")
+            cm = stage.charge_multiplicity
+            if len(cm) != 2:
+                p.append(f"{tag}: charge/multiplicity line must be 'Q M', got {cm}")
+            elif total_cm is not None and tuple(cm) != total_cm:
+                p.append(f"{tag}: charge/multiplicity {tuple(cm)} changes across Link1 (stage 0: {total_cm})")
         else:
             want = "stable" if kind == STAGE_STABLE else "force"
             if job_types != [want]:
@@ -562,6 +598,13 @@ def inspect_tandem_input(text: str, job: TandemJob | None = None, coord_tol: flo
             if stage.route != route:
                 p.append(f"stage {index}: route differs from the fixed template: {stage.route!r}")
     return report
+
+
+def _safe_tokens(route: str) -> list[str]:
+    try:
+        return route_tokens(route)
+    except ValueError:
+        return []
 
 
 def plan_from_input(text: str) -> tuple[FragmentPlan | None, int]:
