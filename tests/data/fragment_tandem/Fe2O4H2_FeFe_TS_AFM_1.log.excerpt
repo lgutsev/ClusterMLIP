@@ -1,0 +1,61 @@
+ Entering Link 1 = (path and PID removed)
+ %NProcShared=20
+ %mem=50GB
+ %chk=Fe2O4H2_FeFe_TS_AFM_1
+ ----------------------------------------------------------------------
+ # UBPW91/6-311++G* scf=(VSHIFT=5,NoIncFock,MAXCYC=200,Tight,NoVarAcc) 
+ # NOSYMM SP IOP(5/13=1,5/36=1,8/11=1) INT=UltraFine GUESS=(FRAGMENT=4)
+ ----------------------------------------------------------------------
+ Charge =  0 Multiplicity = 1 in supermolecule
+ Charge =  1 Multiplicity = 6 in fragment      1.
+ Charge =  1 Multiplicity =-6 in fragment      2.
+ Charge = -2 Multiplicity = 1 in fragment      3.
+ Charge =  0 Multiplicity = 1 in fragment      4.
+ Fe(Fragment=1)        0.04249   1.19868  -0.00083 
+ Fe(Fragment=2)        0.01505  -1.19416   0.00437 
+ O(Fragment=3)        -0.34584   0.03375  -1.24823 
+ O(Fragment=3)        -0.334    -0.02111   1.25532 
+ O(Fragment=1)         0.47088   2.72576  -0.00874 
+ O(Fragment=2)         0.40962  -2.73018   0.00917 
+ H(Fragment=4)         1.52867   0.51293  -0.01488 
+ H(Fragment=4)         1.51606  -0.54137   0.00383 
+ Fragment guess: doing full dimer calculation.
+ Initial guess <Sx>= 0.0000 <Sy>= 0.0000 <Sz>= 0.0000 <S**2>= 0.0000 S= 0.0000
+ Fragment guess: doing MCBS calculation for fragment   1
+ Initial guess <Sx>= 0.0000 <Sy>= 0.0000 <Sz>= 2.5000 <S**2>= 8.7500 S= 2.5000
+ Requested convergence on RMS density matrix=1.00D-08 within 128 cycles.
+ SCF Done:  E(UB-PW91) =  -1338.68944539     A.U. after   15 cycles
+ S**2 before annihilation     8.7568,   after     8.7500
+ Fragment guess: doing MCBS calculation for fragment   2
+ Initial guess <Sx>= 0.0000 <Sy>= 0.0000 <Sz>= 2.5000 <S**2>= 8.7500 S= 2.5000
+ Requested convergence on RMS density matrix=1.00D-08 within 128 cycles.
+ SCF Done:  E(UB-PW91) =  -1338.68943352     A.U. after   15 cycles
+ S**2 before annihilation     8.7568,   after     8.7500
+ Fragment guess: doing MCBS calculation for fragment   3
+ Initial guess <Sx>= 0.0000 <Sy>= 0.0000 <Sz>= 0.0000 <S**2>= 0.0000 S= 0.0000
+ Requested convergence on RMS density matrix=1.00D-08 within 128 cycles.
+ SCF Done:  E(UB-PW91) =  -150.087542331     A.U. after   13 cycles
+ S**2 before annihilation     0.0000,   after     0.0000
+ Fragment guess: doing MCBS calculation for fragment   4
+ Initial guess <Sx>= 0.0000 <Sy>= 0.0000 <Sz>= 0.0000 <S**2>= 0.0000 S= 0.0000
+ Requested convergence on RMS density matrix=1.00D-08 within 128 cycles.
+ SCF Done:  E(UB-PW91) =  -1.14021847153     A.U. after    5 cycles
+ S**2 before annihilation     0.0000,   after     0.0000
+ Normal termination of Gaussian 09.
+ Entering Link 1 = (path and PID removed)
+ %NProcShared=20
+ %mem=50GB
+ %chk=Fe2O4H2_FeFe_TS_AFM_1
+ ----------------------------------------------------------------------
+ # UBPW91/6-311++G* scf=(VSHIFT=5,NoIncFock,MAXCYC=200,Tight,NoVarAcc) 
+ NOSYMM OPT(TS,NoEigenTest,CalcFC) FREQ IOP(5/13=1,5/36=1,8/11=1) INT=U
+ ltraFine GEOM=CHECKPOINT GUESS=READ
+ ----------------------------------------------------------------------
+ Structure from the checkpoint file:  "Fe2O4H2_FeFe_TS_AFM_1.chk"
+ Charge =  0 Multiplicity = 1
+ Initial guess from the checkpoint file:  "Fe2O4H2_FeFe_TS_AFM_1.chk"
+ Initial guess <Sx>= 0.0000 <Sy>= 0.0000 <Sz>= 0.0000 <S**2>= 5.0082 S= 1.7931
+ Requested convergence on RMS density matrix=1.00D-08 within 128 cycles.
+ SCF Done:  E(UB-PW91) =  -2829.80312953     A.U. after   28 cycles
+ S**2 before annihilation     2.1193,   after     6.4787
+ (excerpt ends: remainder of the archived Opt/Freq job omitted)

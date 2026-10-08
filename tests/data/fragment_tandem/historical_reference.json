@@ -1,0 +1,258 @@
+[
+ {
+  "name": "Fe2O2N2_DimAd_AFM_1",
+  "archive_path": "LG_Calcs/Fe2O2N2_DimAd/Fe2O2N2_DimAd_AFM_1.out",
+  "gaussian": "G09 D.01",
+  "link0": [
+   [
+    "%NProcShared=20",
+    "%mem=50GB",
+    "%chk=Fe2O2N2_DimAd_AFM_1"
+   ],
+   [
+    "%NProcShared=20",
+    "%mem=50GB",
+    "%chk=Fe2O2N2_DimAd_AFM_1"
+   ]
+  ],
+  "routes": [
+   "# UBPW91/6-311++G* scf=(VSHIFT=5,NoIncFock,MAXCYC=200,Tight,NoVarAcc) NOSYMM SP IOP(5/13=1,5/36=1,8/11=1) INT=UltraFine GUESS=(Fragment=3)",
+   "# UBPW91/6-311++G* scf=(VSHIFT=5,NoIncFock,MAXCYC=200,Tight,NoVarAcc) NOSYMM OPT(TS,NoEigenTest,CalcFC) FREQ IOP(5/13=1,5/36=1,8/11=1) INT=UltraFine GEOM=CHECKPOINT GUESS=READ"
+  ],
+  "charge": 0,
+  "multiplicity": 1,
+  "fragments": [
+   {
+    "charge": 0,
+    "multiplicity": 5
+   },
+   {
+    "charge": 0,
+    "multiplicity": -5
+   },
+   {
+    "charge": 0,
+    "multiplicity": 1
+   }
+  ],
+  "atoms": [
+   {
+    "symbol": "Fe",
+    "fragment": 1,
+    "xyz": [
+     "-1.04914",
+     "-0.09571",
+     "-0.31538"
+    ]
+   },
+   {
+    "symbol": "Fe",
+    "fragment": 2,
+    "xyz": [
+     "1.08263",
+     "0.08187",
+     "-0.21416"
+    ]
+   },
+   {
+    "symbol": "O",
+    "fragment": 1,
+    "xyz": [
+     "-0.07622",
+     "1.35317",
+     "-0.69354"
+    ]
+   },
+   {
+    "symbol": "O",
+    "fragment": 2,
+    "xyz": [
+     "0.14998",
+     "-1.36616",
+     "-0.68541"
+    ]
+   },
+   {
+    "symbol": "N",
+    "fragment": 3,
+    "xyz": [
+     "0.52591",
+     "0.0409",
+     "1.58103"
+    ]
+   },
+   {
+    "symbol": "N",
+    "fragment": 3,
+    "xyz": [
+     "-0.66478",
+     "-0.05829",
+     "1.52448"
+    ]
+   }
+  ],
+  "stage1_fragment_scf": [
+   {
+    "energy": -1339.00179102,
+    "cycles": 129
+   },
+   {
+    "energy": -1339.00179719,
+    "cycles": 44
+   },
+   {
+    "energy": -109.534944024,
+    "cycles": 7
+   }
+  ],
+  "stage1_unconverged_fragment_scf": 1,
+  "stage2_guess_s2": 3.9992,
+  "stage2_first_scf": {
+   "energy": -2787.66713025,
+   "cycles": 49,
+   "s2": 2.385
+  },
+  "stage2_normal_termination": false
+ },
+ {
+  "name": "Fe2O4H2_FeFe_TS_AFM_1",
+  "archive_path": "LG_Calcs/AFM_Cr/Fe2O4H2_FeFe_TS_AFM_1.out",
+  "gaussian": "G09 D.01",
+  "link0": [
+   [
+    "%NProcShared=20",
+    "%mem=50GB",
+    "%chk=Fe2O4H2_FeFe_TS_AFM_1"
+   ],
+   [
+    "%NProcShared=20",
+    "%mem=50GB",
+    "%chk=Fe2O4H2_FeFe_TS_AFM_1"
+   ]
+  ],
+  "routes": [
+   "# UBPW91/6-311++G* scf=(VSHIFT=5,NoIncFock,MAXCYC=200,Tight,NoVarAcc) # NOSYMM SP IOP(5/13=1,5/36=1,8/11=1) INT=UltraFine GUESS=(FRAGMENT=4)",
+   "# UBPW91/6-311++G* scf=(VSHIFT=5,NoIncFock,MAXCYC=200,Tight,NoVarAcc) NOSYMM OPT(TS,NoEigenTest,CalcFC) FREQ IOP(5/13=1,5/36=1,8/11=1) INT=UltraFine GEOM=CHECKPOINT GUESS=READ"
+  ],
+  "charge": 0,
+  "multiplicity": 1,
+  "fragments": [
+   {
+    "charge": 1,
+    "multiplicity": 6
+   },
+   {
+    "charge": 1,
+    "multiplicity": -6
+   },
+   {
+    "charge": -2,
+    "multiplicity": 1
+   },
+   {
+    "charge": 0,
+    "multiplicity": 1
+   }
+  ],
+  "atoms": [
+   {
+    "symbol": "Fe",
+    "fragment": 1,
+    "xyz": [
+     "0.04249",
+     "1.19868",
+     "-0.00083"
+    ]
+   },
+   {
+    "symbol": "Fe",
+    "fragment": 2,
+    "xyz": [
+     "0.01505",
+     "-1.19416",
+     "0.00437"
+    ]
+   },
+   {
+    "symbol": "O",
+    "fragment": 3,
+    "xyz": [
+     "-0.34584",
+     "0.03375",
+     "-1.24823"
+    ]
+   },
+   {
+    "symbol": "O",
+    "fragment": 3,
+    "xyz": [
+     "-0.334",
+     "-0.02111",
+     "1.25532"
+    ]
+   },
+   {
+    "symbol": "O",
+    "fragment": 1,
+    "xyz": [
+     "0.47088",
+     "2.72576",
+     "-0.00874"
+    ]
+   },
+   {
+    "symbol": "O",
+    "fragment": 2,
+    "xyz": [
+     "0.40962",
+     "-2.73018",
+     "0.00917"
+    ]
+   },
+   {
+    "symbol": "H",
+    "fragment": 4,
+    "xyz": [
+     "1.52867",
+     "0.51293",
+     "-0.01488"
+    ]
+   },
+   {
+    "symbol": "H",
+    "fragment": 4,
+    "xyz": [
+     "1.51606",
+     "-0.54137",
+     "0.00383"
+    ]
+   }
+  ],
+  "stage1_fragment_scf": [
+   {
+    "energy": -1338.68944539,
+    "cycles": 15
+   },
+   {
+    "energy": -1338.68943352,
+    "cycles": 15
+   },
+   {
+    "energy": -150.087542331,
+    "cycles": 13
+   },
+   {
+    "energy": -1.14021847153,
+    "cycles": 5
+   }
+  ],
+  "stage1_unconverged_fragment_scf": 0,
+  "stage2_guess_s2": 5.0082,
+  "stage2_first_scf": {
+   "energy": -2829.80312953,
+   "cycles": 28,
+   "s2": 2.1193
+  },
+  "stage2_normal_termination": true
+ }
+]

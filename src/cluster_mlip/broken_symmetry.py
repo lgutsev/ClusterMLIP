@@ -1,51 +1,58 @@
 """Fixed-geometry broken-symmetry (BS) pilot inputs for Fe clusters.
 
-Each job holds geometry, charge and multiplicity fixed and asks whether the SCF
-converges to a different stable solution when started from a different site
-pattern:
+Every job holds geometry, total charge and multiplicity fixed and starts the SCF
+from a different per-Fe fragment pattern, using the archived tandem structure
+(see fragment_tandem.py and docs/fragment-tandem-method.md):
 
-  stage 0  SP Stable=Opt Pop=Hirshfeld, from the default guess (P0) or a
-           per-Fe fragment guess with chosen sites flipped (beta)
-  stage 1  --Link1-- Force Guess=Read Geom=Checkpoint Pop=Hirshfeld
+  link 0  SP Guess=(Fragment=N)                 one fragment per Fe atom
+  link 1  Stable=Opt Geom=Checkpoint Guess=Read  fixed geometry
+  link 2  Force Geom=Checkpoint Guess=Read       forces on the stable state
 
-The level matches the archived spin campaign (UBPW91/6-311++G*), except that
-IOP(5/13=1) is dropped: an unconverged SCF must fail, because the SCF solution
-is the label.
+Patterns (0-based site indices from choose_sites, printed 1-based in sites.csv):
+  P0   every Fe alpha (aligned reference)
+  P1   central (highest-coordination) Fe beta
+  P2   surface site A (lowest coordination) beta
+  P3   surface site B (not bonded to A, geometrically distinct) beta
+  P0Q, P1Q  as P0/P1 but charge-separated initialization: central Fe(-1), site A Fe(+1)
+  C0   control: default (Harris) guess, Stable=Opt then Force, no fragment link
 
-Fragment parity: a neutral Fe fragment has 26 electrons, so its multiplicity
-must be odd. Only m=5 (4 unpaired, the Fe atomic ground state) and m=3 (2
-unpaired), plus m=7 when needed, are used; each fragment is validated by
-spin._validated_fragments, as is the signed total sum = M - 1.
+Fragment charges only set the electron count of each atomic guess (26 - q for
+Fe). They are not oxidation states, and the SCF decides the final charges.
+
+Per-atom unpaired counts must match the fragment parity: neutral Fe (26 e) takes
+2, 4 or 6 unpaired (m = 3, 5, 7); Fe(+1) and Fe(-1) (25, 27 e) take 3 or 5
+(m = 4, 6). The non-flipped sites are lowered (highest coordination first) or
+raised (lowest coordination first) in steps of two until the signed sum is M - 1.
 """
 from __future__ import annotations
 
 import csv
 import hashlib
+import json
 import math
 from pathlib import Path
 
+from .fragment_tandem import (
+    ARCHIVED_LEVEL, Fragment, FragmentPlan, LevelOfTheory, TandemJob, render_tandem,
+    validate_fragment_plan,
+)
 from .io import write_text_lf
 from .jobs import human_job_stem
 from .models import Record
 from .routes import route_search_kind
-from .spin import (
-    SPIN_MANIFEST_COLUMNS, _canonical_sha256, _coordinates, _link_header, _route_with,
-    _source_geometry_sha256, _validated_fragments, validate_multiplicity,
-)
+from .spin import SPIN_MANIFEST_COLUMNS, _canonical_sha256, _source_geometry_sha256, validate_multiplicity
 
-BS_SCF = "SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc)"
-BS_STAGE0_ROUTE = (
-    f"#p UBPW91/6-311++G* {BS_SCF} NoSymm SP Stable=Opt Pop=Hirshfeld "
-    "IOP(5/36=1,8/11=1) Int=UltraFine"
-)
-BS_FORCE_ROUTE = (
-    f"#p UBPW91/6-311++G* {BS_SCF} NoSymm Force Pop=Hirshfeld "
-    "IOP(5/36=1,8/11=1) Int=UltraFine Geom=Checkpoint Guess=Read"
-)
-BS_EXTRA_COLUMNS = ["bs_pattern", "flipped_sites", "fragment_unpaired"]
+BS_EXTRA_COLUMNS = [
+    "bs_pattern", "flipped_sites", "charged_sites", "fragment_charges", "fragment_multiplicities",
+    "ideal_guess_s2", "stage_kind", "tandem_stages",
+]
 PATTERNS = ("P0", "P1", "P2", "P3")
+ALL_PATTERNS = PATTERNS + ("P0Q", "P1Q", "C0")
 BOND_CUTOFF = 3.0  # Å, Fe-Fe neighbour cutoff for coordination numbers
-FLIP_UNPAIRED = 4  # a flipped site starts as a beta quintet Fe
+FLIP_UNPAIRED = 4  # a flipped neutral site starts as a beta quintet Fe
+# Allowed unpaired counts and the starting value, by Fe fragment charge.
+UNPAIRED_CHOICES = {0: (2, 4, 6), 1: (3, 5), -1: (3, 5)}
+UNPAIRED_START = {0: 4, 1: 5, -1: 3}
 
 
 def _distances(record: Record) -> list[list[float]]:
@@ -77,136 +84,175 @@ def choose_sites(record: Record) -> dict[str, list[int]]:
     # (largest sorted-distance fingerprint difference among low-CN candidates).
     low = [i for i in surface[1:] if cn[i] <= cn[a] + 1 and d[a][i] >= BOND_CUTOFF] or surface[1:]
     b = max(low, key=fp_gap)
-    return {"P0": [], "P1": [central], "P2": [a], "P3": [b]}
+    return {"P0": [], "P1": [central], "P2": [a], "P3": [b], "P0Q": [], "P1Q": [central], "C0": [],
+            "_central": [central], "_surface_a": [a]}
 
 
-def fragment_assignment(record: Record, multiplicity: int, flipped: list[int]) -> list[int]:
-    """Signed unpaired electrons per atom (one Fe fragment per atom).
+def pattern_charges(record: Record, pattern: str, sites: dict[str, list[int]]) -> dict[int, int]:
+    """Charge-separated patterns: central Fe(-1), surface site A Fe(+1); others neutral."""
+    if not pattern.endswith("Q"):
+        return {}
+    central, surface_a = sites["_central"][0], sites["_surface_a"][0]
+    return {central: -1, surface_a: +1}
 
-    Flipped sites start at -4; the others start at +4 and are lowered to +2
-    (highest coordination first, where moments are smallest) or raised to +6
-    (lowest coordination first) until the signed sum equals M - 1.
-    """
+
+def fragment_assignment(
+    record: Record, multiplicity: int, flipped: list[int], charges: dict[int, int] | None = None,
+) -> list[int]:
+    """Signed unpaired electrons per Fe atom (one fragment per atom)."""
     n = len(record.atoms)
     if any(a.symbol != "Fe" for a in record.atoms):
         raise ValueError("the BS pilot generator handles pure Fe clusters only")
-    up = [i for i in range(n) if i not in flipped]
-    target = multiplicity - 1 + FLIP_UNPAIRED * len(flipped)
-    values = {i: 4 for i in up}
-    diff = target - 4 * len(up)
+    charges = charges or {}
+    if any(q not in UNPAIRED_CHOICES for q in charges.values()):
+        raise ValueError(f"Fe fragment charges must be in {sorted(UNPAIRED_CHOICES)}")
+    values = {i: UNPAIRED_START[charges.get(i, 0)] for i in range(n)}  # neutral start = FLIP_UNPAIRED
+    up =[i for i in range(n) if i not in flipped]
+    target = multiplicity - 1 + sum(values[i] for i in flipped)
+    diff = target - sum(values[i] for i in up)
     if diff % 2:
-        raise ValueError(f"M={multiplicity} cannot be reached with even per-Fe unpaired counts")
+        raise ValueError(f"M={multiplicity} cannot be reached: the unpaired-count parity is wrong")
     cn = coordination(record)
-    if diff < 0:
-        order = sorted(up, key=lambda i: -cn[i])
-        steps = -diff // 2
-        if steps > len(up):
-            raise ValueError(f"M={multiplicity} too low for {len(flipped)} flipped site(s) with m>=3 fragments")
-        for i in order[:steps]:
-            values[i] = 2
-    elif diff > 0:
-        order = sorted(up, key=lambda i: cn[i])
-        steps = diff // 2
-        if steps > len(up):
-            raise ValueError(f"M={multiplicity} too high for m<=7 fragments")
-        for i in order[:steps]:
-            values[i] = 6
-    signed = [(-FLIP_UNPAIRED if i in flipped else values[i]) for i in range(n)]
-    assert sum(signed) == multiplicity - 1
+    step = -2 if diff < 0 else 2
+    order = sorted(up, key=lambda i: -cn[i]) if diff < 0 else sorted(up, key=lambda i: cn[i])
+    remaining = abs(diff) // 2
+    # Several passes so one site can move twice when every site has been moved once.
+    while remaining:
+        moved = False
+        for i in order:
+            choices = UNPAIRED_CHOICES[charges.get(i, 0)]
+            if remaining and values[i] + step in choices:
+                values[i] += step
+                remaining -= 1
+                moved = True
+        if not moved:
+            raise ValueError(f"M={multiplicity} is out of range for {len(flipped)} flipped site(s) "
+                             f"with the allowed per-Fe moments")
+    signed = [(-values[i] if i in flipped else values[i]) for i in range(n)]
+    if sum(signed) != multiplicity - 1:
+        raise AssertionError("internal error: signed unpaired sum")
     return signed
 
 
-def fragment_specification(record: Record, multiplicity: int, signed: list[int], name: str) -> dict:
-    return {
-        "name": name,
-        "target_multiplicity": multiplicity,
-        "fragments": [
-            {"atoms": [i + 1], "charge": 0, "multiplicity": abs(s) + 1,
-             "orientation": "alpha" if s >= 0 else "beta"}
-            for i, s in enumerate(signed)
-        ],
-    }
+def build_plan(record: Record, multiplicity: int, signed: list[int], charges: dict[int, int]) -> FragmentPlan:
+    fragments = [
+        Fragment((i + 1,), charges.get(i, 0), (abs(s) + 1) * (1 if s >= 0 else -1))
+        for i, s in enumerate(signed)
+    ]
+    return validate_fragment_plan([a.symbol for a in record.atoms], record.charge, multiplicity, fragments)
 
 
-def render_bs_input(
-    record: Record, multiplicity: int, pattern: str, flipped: list[int],
-    memory: str = "24GB", nproc: int = 12,
-) -> tuple[str, list[dict[str, str]], list[int] | None]:
+def make_job(
+    record: Record, multiplicity: int, pattern: str, sites: dict[str, list[int]],
+    level: LevelOfTheory = ARCHIVED_LEVEL, memory: str = "24GB", nproc: int = 12, force_stage: bool = True,
+) -> tuple[TandemJob, list[int] | None, dict[int, int]]:
     validate_multiplicity(record, multiplicity)
-    job = f"{record.record_id}-bs-m{multiplicity}-{pattern.lower()}"
-    chk = f"{job}.chk"
-    signed: list[int] | None = None
-    if pattern == "P0":
-        route0 = BS_STAGE0_ROUTE
-        cm_line = f"{record.charge} {multiplicity}"
-        coords = _coordinates(record.atoms)
-        spec_sha = ""
-    else:
-        signed = fragment_assignment(record, multiplicity, flipped)
-        spec = fragment_specification(record, multiplicity, signed, job)
-        atom_map, states = _validated_fragments(record, spec)  # per-fragment parity + total
-        route0 = _route_with(BS_STAGE0_ROUTE, f"Guess=(Fragment={len(states)},Always)")
-        cm_line = f"{record.charge} {multiplicity} " + " ".join(f"{q} {m}" for q, m in states)
-        coords = _coordinates(record.atoms, atom_map)
-        spec_sha = _canonical_sha256(spec)
-    sites = ";".join(str(i + 1) for i in flipped)
-    title = (f"ClusterMLIP BS pilot; record={record.record_id}; pattern={pattern}; "
-             f"multiplicity={multiplicity}; flipped_atoms={sites or 'none'}")
-    lines = _link_header(chk, memory, nproc)
-    lines += [route0, "", title + "; stage=0 stable", "", cm_line, *coords, ""]
-    lines += ["--Link1--", *_link_header(chk, memory, nproc),
-              BS_FORCE_ROUTE, "", title + "; stage=1 force", "",
-              f"{record.charge} {multiplicity}", ""]
+    if pattern not in ALL_PATTERNS:
+        raise ValueError(f"unknown BS pattern {pattern}; choose from {ALL_PATTERNS}")
+    name = f"{record.record_id}-bs-m{multiplicity}-{pattern.lower()}"
+    flipped = sites[pattern]
+    title = (f"ClusterMLIP BS pilot; record={record.record_id}; pattern={pattern}; multiplicity={multiplicity}; "
+             f"flipped_atoms={';'.join(str(i + 1) for i in flipped) or 'none'}")
+    coords = tuple((a.x, a.y, a.z) for a in record.atoms)
+    symbols = tuple(a.symbol for a in record.atoms)
+    if pattern == "C0":
+        job = TandemJob(name, symbols, coords, record.charge, multiplicity, None, level, force_stage,
+                        title=title, memory=memory, nproc=nproc)
+        return job, None, {}
+    charges = pattern_charges(record, pattern, sites)
+    signed = fragment_assignment(record, multiplicity, flipped, charges)
+    plan = build_plan(record, multiplicity, signed, charges)
+    job = TandemJob(name, symbols, coords, record.charge, multiplicity, plan, level, force_stage,
+                    title=title, memory=memory, nproc=nproc)
+    return job, signed, charges
+
+
+def manifest_rows(record: Record, job: TandemJob, pattern: str, sites: dict[str, list[int]],
+                  charges: dict[int, int]) -> list[dict[str, str]]:
+    kinds, routes = job.stage_kinds(), job.routes()
+    plan = job.plan
     common = {
-        "chain_id": job, "pathway": "broken_symmetry_pilot",
+        "chain_id": job.name, "pathway": "broken_symmetry_pilot",
         "parent_record_id": record.record_id, "source": record.source,
         "formula": record.formula, "config_type": record.config_type,
         "state_inference": str(record.metadata.get("state_inference", "")),
         "source_geometry_sha256": _source_geometry_sha256(record),
-        "high_spin_multiplicity": "", "final_target_multiplicity": str(multiplicity),
-        "intended_charge": str(record.charge), "intended_multiplicity": str(multiplicity),
-        "spin_flip_index": "", "checkpoint": chk,
-        "fragment_label": pattern, "fragment_count": "" if signed is None else str(len(signed)),
-        "fragment_spec_sha256": spec_sha,
-        "bs_pattern": pattern, "flipped_sites": sites,
-        "fragment_unpaired": "" if signed is None else " ".join(str(s) for s in signed),
+        "high_spin_multiplicity": "", "final_target_multiplicity": str(job.multiplicity),
+        "intended_charge": str(job.charge), "intended_multiplicity": str(job.multiplicity),
+        "spin_flip_index": "", "checkpoint": job.checkpoint,
+        "fragment_label": pattern, "fragment_count": "" if plan is None else str(len(plan.fragments)),
+        "fragment_spec_sha256": "" if plan is None else _canonical_sha256(
+            [[list(f.atoms), f.charge, f.multiplicity] for f in plan.fragments]),
+        "bs_pattern": pattern,
+        "flipped_sites": ";".join(str(i + 1) for i in sites[pattern]),
+        "charged_sites": ";".join(f"{i + 1}:{q:+d}" for i, q in sorted(charges.items())),
+        "fragment_charges": "" if plan is None else " ".join(str(f.charge) for f in plan.fragments),
+        "fragment_multiplicities": "" if plan is None else " ".join(str(f.multiplicity) for f in plan.fragments),
+        "ideal_guess_s2": "" if plan is None else f"{plan.ideal_guess_s2:.4f}",
+        "tandem_stages": ">".join(kinds),
     }
-    rows = [
-        {**common, "job_id": f"{job}-s00", "stage_index": "0",
-         "initialization": "default_guess" if signed is None else "per_fe_fragment_guess",
-         "audit_classification": "bs_pilot_stable_sp", "route_search_kind": route_search_kind(route0),
-         "first_route": route0, "predecessor_job_id": "", "predecessor_multiplicity": "",
-         "predecessor_checkpoint": "", "checkpoint_lineage": f"bs:{pattern}:{chk}"},
-        {**common, "job_id": f"{job}-s01", "stage_index": "1",
-         "initialization": "checkpoint_read", "audit_classification": "bs_pilot_force",
-         "route_search_kind": route_search_kind(BS_FORCE_ROUTE), "first_route": BS_FORCE_ROUTE,
-         "predecessor_job_id": f"{job}-s00", "predecessor_multiplicity": str(multiplicity),
-         "predecessor_checkpoint": chk, "checkpoint_lineage": f"bs:{pattern}:{chk}>force"},
-    ]
-    return "\n".join(lines) + "\n", rows, signed
+    rows = []
+    for index, (kind, route) in enumerate(zip(kinds, routes)):
+        rows.append({
+            **common, "job_id": f"{job.name}-s{index:02d}", "stage_index": str(index), "stage_kind": kind,
+            "initialization": {"fragment_init": "per_fe_fragment_guess", "stable_opt": "checkpoint_read",
+                               "force": "checkpoint_read", "control_stable_opt": "default_guess"}[kind],
+            "audit_classification": f"bs_pilot_{kind}",
+            "route_search_kind": route_search_kind(route), "first_route": route,
+            "predecessor_job_id": "" if index == 0 else f"{job.name}-s{index - 1:02d}",
+            "predecessor_multiplicity": "" if index == 0 else str(job.multiplicity),
+            "predecessor_checkpoint": "" if index == 0 else job.checkpoint,
+            "checkpoint_lineage": f"bs:{pattern}:{job.checkpoint}" + "".join(f">{k}" for k in kinds[1:index + 1]),
+        })
+    return rows
+
+
+def site_table(record: Record, sites: dict[str, list[int]], reference_spins: dict[int, float] | None = None) -> list[dict]:
+    """Per-atom identity used to assign patterns: 1-based index, CN, radius, roles, reference spin."""
+    n = len(record.atoms)
+    cn = coordination(record)
+    cx = [sum(getattr(a, k) for a in record.atoms) / n for k in "xyz"]
+    roles: dict[int, list[str]] = {}
+    for pattern in ("P1", "P2", "P3"):
+        for i in sites[pattern]:
+            roles.setdefault(i, []).append(pattern)
+    rows = []
+    for i, a in enumerate(record.atoms):
+        rows.append({
+            "record": record.record_id, "atom": i + 1, "symbol": a.symbol, "cn_3.0A": cn[i],
+            "r_centroid_A": f"{math.dist((a.x, a.y, a.z), cx):.3f}",
+            "flipped_in": "+".join(roles.get(i, [])),
+            "reference_mulliken_spin": "" if not reference_spins or (i + 1) not in reference_spins
+            else f"{reference_spins[i + 1]:.3f}",
+        })
+    return rows
 
 
 def write_bs_jobs(
     records: list[Record], output: Path, multiplicity: int,
     patterns: tuple[str, ...] = PATTERNS, memory: str = "24GB", nproc: int = 12,
+    level: LevelOfTheory = ARCHIVED_LEVEL, reference_spins: dict[str, dict[int, float]] | None = None,
 ) -> int:
-    unknown = sorted(set(patterns) - set(PATTERNS))
+    unknown = sorted(set(patterns) - set(ALL_PATTERNS))
     if unknown:
-        raise ValueError(f"unknown BS patterns {unknown}; choose from {PATTERNS}")
+        raise ValueError(f"unknown BS patterns {unknown}; choose from {ALL_PATTERNS}")
     if output.exists() and any(output.iterdir()):
         raise RuntimeError(f"refusing to overwrite existing campaign {output}")
     files: list[tuple[str, str]] = []
     rows: list[dict[str, str]] = []
+    sites_rows: list[dict] = []
     for record in records:
         sites = choose_sites(record)
+        sites_rows += site_table(record, sites, (reference_spins or {}).get(record.record_id))
         for pattern in patterns:
-            text, job_rows, _ = render_bs_input(record, multiplicity, pattern, sites[pattern], memory, nproc)
+            job, _, charges = make_job(record, multiplicity, pattern, sites, level, memory, nproc)
+            text = render_tandem(job)  # raises if the independent inspection finds any problem
             name = f"{human_job_stem(record)}__bs-m{multiplicity}-{pattern.lower()}.gjf"
             files.append((name, text))
-            for row in job_rows:
+            for row in manifest_rows(record, job, pattern, sites, charges):
                 row["input"] = f"inputs/{name}"
                 row["output"] = f"{Path(name).stem}.log"
-            rows.extend(job_rows)
+                rows.append(row)
     names = [n for n, _ in files]
     if len(set(names)) != len(names):
         raise ValueError("duplicate BS input filenames")
@@ -219,4 +265,9 @@ def write_bs_jobs(
         writer = csv.DictWriter(handle, fieldnames=SPIN_MANIFEST_COLUMNS + BS_EXTRA_COLUMNS)
         writer.writeheader()
         writer.writerows(rows)
+    with (output / "sites.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(sites_rows[0]))
+        writer.writeheader()
+        writer.writerows(sites_rows)
+    write_text_lf(output / "level_of_theory.json", json.dumps(level.__dict__, indent=1) + "\n")
     return len(files)

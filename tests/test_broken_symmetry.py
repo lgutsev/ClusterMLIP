@@ -4,9 +4,8 @@ import re
 
 import pytest
 
-from cluster_mlip.broken_symmetry import (
-    choose_sites, fragment_assignment, render_bs_input, write_bs_jobs,
-)
+from cluster_mlip.broken_symmetry import choose_sites, fragment_assignment, make_job, write_bs_jobs
+from cluster_mlip.fragment_tandem import render_tandem
 from cluster_mlip.gaussian import parse_hirshfeld_table
 from cluster_mlip.models import Atom, Record
 from cluster_mlip.spin import _validated_fragments
@@ -19,25 +18,50 @@ def fe16() -> Record:
     return Record("toy", "toy.out", atoms, charge=0, multiplicity=49, config_type="minimum")
 
 
-def fragment_multiplicities(text: str) -> list[int]:
+def stage0_pairs(text: str) -> list[tuple[int, int]]:
     line = next(l for l in text.splitlines() if l.startswith("0 49 "))
     values = [int(v) for v in line.split()[2:]]
-    return values[1::2]
+    return list(zip(values[0::2], values[1::2]))
 
 
-@pytest.mark.parametrize("pattern", ["P1", "P2", "P3"])
-def test_every_fragment_is_odd_and_validated(pattern):
+@pytest.mark.parametrize("pattern", ["P0", "P1", "P2", "P3"])
+def test_neutral_patterns_validate_and_flip_the_chosen_site(pattern):
     record = fe16()
     sites = choose_sites(record)
-    text, rows, signed = render_bs_input(record, 49, pattern, sites[pattern])
-    mults = fragment_multiplicities(text)
-    assert len(mults) == 16
-    assert all(abs(m) % 2 == 1 for m in mults), mults  # neutral Fe: 26 electrons -> odd multiplicity
-    assert set(abs(m) for m in mults) <= {3, 5, 7}
-    assert sum((1 if m > 0 else -1) * (abs(m) - 1) for m in mults) == 48
-    assert sum(1 for m in mults if m < 0) == 1
-    flipped = sites[pattern][0]
-    assert mults[flipped] == -5
+    job, signed, charges = make_job(record, 49, pattern, sites)
+    text = render_tandem(job)
+    pairs = stage0_pairs(text)
+    assert len(pairs) == 16 and charges == {}
+    assert all(q == 0 for q, _ in pairs)
+    assert all(abs(m) % 2 == 1 and abs(m) in (3, 5, 7) for _, m in pairs)  # neutral Fe: 26 e
+    assert sum((1 if m > 0 else -1) * (abs(m) - 1) for _, m in pairs) == 48
+    negative = [i for i, (_, m) in enumerate(pairs) if m < 0]
+    assert negative == sites[pattern]
+    if pattern == "P0":
+        assert job.plan.n_beta_unpaired == 0 and job.plan.ideal_guess_s2 == 600.0
+    else:
+        assert pairs[sites[pattern][0]][1] == -5 and job.plan.ideal_guess_s2 == 604.0
+
+
+@pytest.mark.parametrize("pattern", ["P0Q", "P1Q"])
+def test_charge_separated_patterns_conserve_charge_and_parity(pattern):
+    record = fe16()
+    sites = choose_sites(record)
+    job, signed, charges = make_job(record, 49, pattern, sites)
+    pairs = stage0_pairs(render_tandem(job))
+    central, surface = sites["_central"][0], sites["_surface_a"][0]
+    assert charges == {central: -1, surface: +1}
+    assert sum(q for q, _ in pairs) == 0
+    assert pairs[central][0] == -1 and pairs[surface][0] == +1
+    assert abs(pairs[central][1]) % 2 == 0 and abs(pairs[surface][1]) % 2 == 0  # 27 and 25 electrons
+    assert (pairs[central][1] < 0) == (pattern == "P1Q")
+
+
+def test_control_pattern_has_no_fragments():
+    record = fe16()
+    job, signed, _ = make_job(record, 49, "C0", choose_sites(record))
+    text = render_tandem(job)
+    assert signed is None and "Fragment" not in text and text.count("--Link1--") == 1
 
 
 def test_assignment_rejects_impossible_and_wrong_parity():
@@ -58,17 +82,15 @@ def test_validator_rejects_a_quartet_fragment():
         _validated_fragments(record, spec)
 
 
-def test_two_stage_routes():
+def test_three_link_tandem_routes():
     record = fe16()
-    text, rows, signed = render_bs_input(record, 49, "P0", [])
-    assert signed is None
-    assert "Fragment" not in text
-    assert "5/13" not in text
-    stages = text.split("--Link1--")
-    assert len(stages) == 2
-    assert "Stable=Opt" in stages[0] and "Pop=Hirshfeld" in stages[0] and " SP " in stages[0]
-    assert re.search(r"Force .*Geom=Checkpoint Guess=Read", stages[1])
-    assert [r["stage_index"] for r in rows] == ["0", "1"]
+    job, _, _ = make_job(record, 49, "P1", choose_sites(record))
+    stages = render_tandem(job).split("--Link1--")
+    assert len(stages) == 3
+    assert "Guess=(Fragment=16)" in stages[0] and " SP " in stages[0] and "Stable" not in stages[0]
+    assert re.search(r"Stable=Opt Pop=Hirshfeld .*Geom=Checkpoint Guess=Read", stages[1])
+    assert re.search(r"Force Pop=Hirshfeld .*Geom=Checkpoint Guess=Read", stages[2])
+    assert "5/13" not in stages[1] + stages[2]
 
 
 def test_sites_are_distinct():
@@ -79,12 +101,16 @@ def test_sites_are_distinct():
 
 def test_write_bs_jobs_manifest(tmp_path):
     out = tmp_path / "bs"
-    assert write_bs_jobs([fe16()], out, 49) == 4
+    assert write_bs_jobs([fe16()], out, 49, reference_spins={"toy": {1: 3.5}}) == 4
     rows = list(csv.DictReader((out / "spin_jobs.csv").open(encoding="utf-8")))
-    assert len(rows) == 8
+    assert len(rows) == 12
     assert {r["bs_pattern"] for r in rows} == {"P0", "P1", "P2", "P3"}
+    assert {r["stage_kind"] for r in rows} == {"fragment_init", "stable_opt", "force"}
     for r in rows:
         assert (out / r["input"]).is_file() and r["input_sha256"]
+    sites = list(csv.DictReader((out / "sites.csv").open(encoding="utf-8")))
+    assert len(sites) == 16 and sites[0]["reference_mulliken_spin"] == "3.500"
+    assert sum(1 for s in sites if s["flipped_in"]) == 3
     with pytest.raises(RuntimeError):
         write_bs_jobs([fe16()], out, 49)
 
