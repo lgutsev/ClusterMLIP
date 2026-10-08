@@ -91,8 +91,14 @@ one parent remain in one split. Duplicate output names are reported instead
 of silently duplicating training labels. Unrelated scheduler logs are ignored
 when a manifest is available. Inspect failed_outputs.tsv and label_report.md.
 An empty collection exits nonzero and refreshes the report to zero frames.
-SCF convergence warnings are retained as frame metadata, not silently discarded
-or treated as proof of physically bad labels. IOP(5/13=1) remains unchanged.
+IOP(5/13=1) remains in the routes, so an SCF that misses convergence continues
+instead of aborting the job. Gaussian prints "Convergence criterion not met" and
+computes forces on that unconverged density. `collect` flags each such frame
+(`scf_unconverged=True`) from its own SCF, between its geometry and its force
+table, and drops it by default. A dropped final frame is not replaced by an
+earlier step. Dropped frames are listed in `unconverged_scf_frames.tsv`, and
+`--allow-unconverged-scf` keeps them, still flagged. Other SCF warnings
+(`scf_convergence_warning`) stay as frame metadata only.
 
 `validate-spins --strict` continues to test archived-root coverage and lineage.
 It no longer requires a stability calculation by default; add

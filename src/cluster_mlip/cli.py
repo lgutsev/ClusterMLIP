@@ -481,8 +481,10 @@ def command_collect(args: argparse.Namespace) -> int:
         )
     frames = []
     failures: list[tuple[str, str]] = []
+    allow_unconverged = getattr(args, "allow_unconverged_scf", False)
+    unconverged: list[tuple[str, str, str, int]] = []
     for outputs in output_roots:
-        spin_campaign = (outputs / "spin_jobs.csv").is_file()
+        spin_campaign =(outputs / "spin_jobs.csv").is_file()
         manifest_path = outputs / ("spin_jobs.csv" if spin_campaign else "jobs.csv")
         manifest = read_jobs_manifest(manifest_path)
         manifest_by_output: dict[str, list[dict[str, str]]] = {}
@@ -604,6 +606,20 @@ def command_collect(args: argparse.Namespace) -> int:
                             selected.append(final)
                     else:
                         selected.append(members[-1])
+                # A frame whose own SCF printed "Convergence criterion not met"
+                # (allowed to continue by IOP(5/13=1)) carries forces on an
+                # unconverged density. Drop it, after frame labelling so the
+                # remaining frames keep their roles; a dropped final frame is not
+                # replaced by an earlier step, which is a different geometry.
+                if not allow_unconverged:
+                    for frame in selected:
+                        if frame.record.metadata.get("scf_unconverged"):
+                            unconverged.append((
+                                str(path), str(frame.record.metadata.get("parent_record_id", "")),
+                                frame.record.record_id, frame.record.metadata["force_frame_index"],
+                            ))
+                    selected = [frame for frame in selected
+                                if not frame.record.metadata.get("scf_unconverged")]
                 frames.extend(selected)
             except Exception as exc:
                 failures.append((str(path), str(exc)))
@@ -616,7 +632,20 @@ def command_collect(args: argparse.Namespace) -> int:
     with (destination / "failed_outputs.tsv").open("w", encoding="utf-8") as handle:
         for name, message in failures:
             handle.write(f"{name}\t{message}\n")
+    with (destination / "unconverged_scf_frames.tsv").open("w", encoding="utf-8") as handle:
+        handle.write("output\tparent_record_id\trecord_id\tforce_frame_index\n")
+        for output, parent, record_id, frame_index in unconverged:
+            handle.write(f"{output}\t{parent}\t{record_id}\t{frame_index}\n")
     print(f"Collected {len(frames)} labeled frames; rejected {len(failures)} outputs")
+    if unconverged:
+        print(
+            f"Dropped {len(unconverged)} frame(s) whose SCF did not converge "
+            f"(Convergence criterion not met) -- see {destination / 'unconverged_scf_frames.tsv'}"
+        )
+    elif allow_unconverged:
+        kept = sum(1 for frame in frames if frame.record.metadata.get("scf_unconverged"))
+        print(f"Kept {kept} frame(s) with an unconverged SCF (--allow-unconverged-scf; "
+              "flagged scf_unconverged=True)")
     print("Split: " + ", ".join(f"{name}={len(values)}" for name, values in splits.items()))
     label_summary = write_label_report(
         frames, destination, args.force_outlier_threshold,
@@ -1325,6 +1354,14 @@ def build_parser() -> argparse.ArgumentParser:
             "ingest labels from jobs whose route searched for a different stationary point "
             "than their label claims (for example a transition state run with a plain Opt). "
             "Off by default: such a frame is a minimum labeled as a saddle"
+        ),
+    )
+    collect.add_argument(
+        "--allow-unconverged-scf", action="store_true",
+        help=(
+            "keep force frames whose SCF printed 'Convergence criterion not met' (continued "
+            "under IOP(5/13=1)); they stay flagged scf_unconverged=True. Off by default: their "
+            "energies and forces belong to an unconverged density"
         ),
     )
     collect.add_argument(

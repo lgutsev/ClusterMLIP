@@ -168,3 +168,59 @@ class GaussianCollectionTests(unittest.TestCase):
         self.assertEqual(frames[0].record.metadata['s2_after'], 2.0)
         self.assertEqual(frames[0].record.metadata['atomic_spins'], [[1, 'H', 0.7], [2, 'H', -0.7]])
         self.assertNotIn('atomic_spins', frames[1].record.metadata)
+
+    # IOP(5/13=1) lets Gaussian continue past an unconverged SCF; it prints this
+    # line right before "SCF Done" and computes forces on that density.
+    UNCONVERGED = ' >>>>>>>>>> Convergence criterion not met.\n SCF Done:'
+
+    def test_unconverged_scf_is_flagged_per_frame(self):
+        good = FIXTURE.read_text()
+        bad = good.replace(' SCF Done:', self.UNCONVERGED, 1)
+        frames = parse_force_frames(good + bad + good, FIXTURE)
+        self.assertEqual([f.record.metadata['scf_unconverged'] for f in frames], [False, True, False])
+        self.assertEqual([f.record.metadata['scf_convergence_warning'] for f in frames],
+                         [False, True, False])
+
+    def _unconverged_campaign(self, root: Path, log_text: str) -> None:
+        with (root / 'spin_jobs.csv').open('w', newline='') as handle:
+            fields = ['job_id', 'output', 'parent_record_id', 'intended_charge',
+                      'intended_multiplicity', 'checkpoint']
+            writer = csv.DictWriter(handle, fieldnames=fields)
+            writer.writeheader()
+            writer.writerow(dict(job_id='m1', output='job.log', parent_record_id='parent',
+                                 intended_charge=0, intended_multiplicity=1, checkpoint='m1.chk'))
+        (root / 'job.log').write_text(log_text)
+
+    def _collect(self, root: Path, *extra: str) -> list:
+        args = build_parser().parse_args(['collect', str(root), '-o', str(root / 'data'), *extra])
+        with redirect_stdout(io.StringIO()):
+            args.func(args)
+        return read_labeled_extxyz(root / 'data/all.extxyz')
+
+    def _dropped(self, root: Path) -> list[list[str]]:
+        lines = (root / 'data/unconverged_scf_frames.tsv').read_text().splitlines()
+        self.assertEqual(lines[0], 'output\tparent_record_id\trecord_id\tforce_frame_index')
+        return [line.split('\t') for line in lines[1:]]
+
+    def test_collect_drops_unconverged_scf_frames(self):
+        good = FIXTURE.read_text()
+        bad = good.replace(' SCF Done:', self.UNCONVERGED, 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            # An unconverged intermediate step: only that frame is dropped.
+            self._unconverged_campaign(root, good + bad + good + NORMAL)
+            frames = self._collect(root, '--frames', 'all')
+            self.assertEqual([f.record.metadata['force_frame_index'] for f in frames], [0, 2])
+            dropped = self._dropped(root)
+            self.assertEqual([(row[1], row[3]) for row in dropped], [('parent', '1')])
+            # The final frame is unconverged: the job contributes nothing, and no
+            # earlier (different-geometry) step is substituted.
+            self._unconverged_campaign(root, good + bad + NORMAL)
+            self.assertEqual(self._collect(root), [])
+            self.assertEqual(len(self._dropped(root)), 1)
+            self.assertEqual((root / 'data/failed_outputs.tsv').read_text(), '')
+            # Opt-out keeps it, flagged.
+            frames = self._collect(root, '--allow-unconverged-scf')
+            self.assertEqual(len(frames), 1)
+            self.assertTrue(frames[0].record.metadata['scf_unconverged'])
+            self.assertEqual(self._dropped(root), [])
