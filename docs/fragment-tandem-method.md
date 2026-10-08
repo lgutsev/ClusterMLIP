@@ -317,8 +317,9 @@ Rules:
 - The level of theory (method/basis, `SCF=`, `Int=`, `NoSymm`, `Pop=`) is identical in both links.
 - `IOP(5/13=1)` is in both links, as archived and as the rest of the tandem now does (these Fe SCFs very
   likely abort without it). The cost: an unconverged SCF inside the link-1 optimization continues
-  silently (6 of 27 archived jobs). `prepare-spins` does not parse logs, so screen the outputs for
-  "Convergence criterion not met" before collecting; the endpoint, not every step, is what to trust.
+  silently (6 of 27 archived jobs). `collect` drops every frame whose own SCF printed "Convergence
+  criterion not met" and lists it in `unconverged_scf_frames.tsv` (`--allow-unconverged-scf` keeps them,
+  flagged).
 - Link 1 has no `Stable` (the archive had none). Routes with `Stable`, `Guess=`, `Geom=`, `/Gen` or
   `/GenECP`, or with no job keyword, are refused.
 - `Q M` is the same in both links, and there is one `%chk` and no `%oldchk`.
