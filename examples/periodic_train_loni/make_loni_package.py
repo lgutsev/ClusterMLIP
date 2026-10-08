@@ -40,13 +40,13 @@ def main() -> int:
     _lf_copy(repo / "examples" / "periodic_zero_shot" / "zero_shot.py", dest / "zero_shot.py")
     runtime = dest / "runtime" / "cluster_mlip"
     runtime.mkdir(parents=True)
-    (runtime / "__init__.py").write_text("", encoding="utf-8")
+    (runtime / "__init__.py").write_text("", encoding="utf-8", newline="\n")
     for name in RUNTIME_MODULES:
         _lf_copy(repo / "src" / "cluster_mlip" / name, runtime / name)
     (dest / "logs").mkdir()
-    (dest / "logs" / "README.txt").write_text("Slurm logs land here.\n", encoding="utf-8")
-    (dest / ".gitignore").write_text("outputs/\nwork/\nlogs/*\n!logs/README.txt\n", encoding="utf-8")
-    (dest / "export.list").write_text("outputs/*\n", encoding="utf-8")
+    (dest / "logs" / "README.txt").write_text("Slurm logs land here.\n", encoding="utf-8", newline="\n")
+    (dest / ".gitignore").write_text("outputs/\nwork/\nlogs/*\n!logs/README.txt\n", encoding="utf-8", newline="\n")
+    (dest / "export.list").write_text("outputs/*\n", encoding="utf-8", newline="\n")
 
     commit = subprocess.run(["git", "-C", str(repo), "rev-parse", "--short", "HEAD"],
                             capture_output=True, text=True, check=False).stdout.strip()
@@ -68,7 +68,7 @@ def main() -> int:
         "outputs": ["outputs/<variant>/"],
         "files_sha256": hashes,
         "submitted": False,
-    }, indent=1) + "\n", encoding="utf-8")
+    }, indent=1) + "\n", encoding="utf-8", newline="\n")
     print(f"wrote {dest} ({len(hashes)} files, commit {commit}{'-dirty' if dirty else ''})")
     return 0
 

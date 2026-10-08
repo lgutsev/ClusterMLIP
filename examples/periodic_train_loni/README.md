@@ -51,12 +51,17 @@ checkpoint pretrained without them. If it does not, only task 2 fails.
 ## Run
 
 ```bash
-cd /work/lgutsev/loni_smoke_tests && git pull
-cd 32_clustermlip_periodic_train && sbatch run_periodic_train.slurm
+cd /work/lgutsev/loni_smoke_tests && git pull && bash submit_smokes.sh --dry-run 32
+bash submit_smokes.sh 32
 ```
 
-`submit_smokes.sh` dispatches by script name and does not know `run_periodic_train.slurm` (as with 27's
-`run_stageA.slurm`); the desk may add a case for it. `export.list` names `outputs/*` for the export.
+`submit_smokes.sh` knows `run_periodic_train.slurm` (desk, 2026-10-07): one unit per variant, done
+when `outputs/<variant>/DONE` exists with `exit_code` 0. It reports SETUP and submits nothing until
+all six of package 27's `outputs/A3_*/DONE` exist, and checks the MP-0 small checkpoint first
+(`resolve_smoke_mace`). `export_results.sh` packs `outputs/*` (`export.list`).
+
+`run_periodic_train.slurm` sources `../model_paths.sh`, so submit or resubmit the package from the
+top level of the loni_smoke_tests checkout, before the desk sorts it into a batch folder.
 
 If a task is preempted or runs out of time, submit it again; it resumes from its last checkpoint.
 Expect hours, not minutes. On an 8 GB laptop GPU, one epoch over the A1/A2 frames took more than
