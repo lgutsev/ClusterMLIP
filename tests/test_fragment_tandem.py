@@ -240,8 +240,8 @@ def _route_block(route):
            " ----------------------------------------------------------------------\n"
 
 
-def _scf(e, cycles, s2):
-    return (f" SCF Done:  E(UB-PW91) =  {e:.8f}     A.U. after   {cycles} cycles\n"
+def _scf(e, cycles, s2, units="A.U."):
+    return (f" SCF Done:  E(UB-PW91) =  {e:.8f}     {units} after   {cycles} cycles\n"
             f" S**2 before annihilation     {s2:.4f},   after     {s2:.4f}\n")
 
 
@@ -270,12 +270,16 @@ NORMAL = " Normal termination of Gaussian 09.\n"
 
 
 def synthetic_log(job, *, e=-2526.5, guess_s2=4.0, supermolecule=False, unstable_first=False,
-                  final_stable=True, e3=None, z3=2.02, s=3.0, f=0.01, unconverged_link1=False):
+                  final_stable=True, e3=None, z3=2.02, s=3.0, f=0.01, unconverged_link1=False, g16=False,
+                  reoptimised_e=None):
     s0 = (_route_block(job.routes()[0]) + " Charge =  0 Multiplicity = 1 in supermolecule\n"
           " Charge =  0 Multiplicity = 5 in fragment      1.\n Charge =  0 Multiplicity =-5 in fragment      2.\n"
           + _orient(2.02))
-    for _ in range(2):
-        s0 += " Fragment guess: doing MCBS calculation for fragment   1\n" + _scf(-1263.0, 30, 6.03)
+    if g16:  # G16 C.01 announces a full-system step that runs no SCF, then one SCF per fragment
+        s0 += " Fragment guess: doing full-system calculation.\n"
+    for i in (1, 2):
+        s0 += (f" Fragment guess: doing calculation for fragment   {i} using the basis set of the fragment.\n"
+               if g16 else f" Fragment guess: doing MCBS calculation for fragment   {i}\n") + _scf(-1263.0, 30, 6.03)
     if supermolecule:
         s0 += _scf(e, 40, 4.0)
     s1 = (_route_block(job.routes()[1]) + " Charge =  0 Multiplicity = 1\n" + _orient(2.02)
@@ -286,6 +290,8 @@ def synthetic_log(job, *, e=-2526.5, guess_s2=4.0, supermolecule=False, unstable
     if unconverged_link1:  # what IOP(5/13=1) lets through: the SCF stops and the job goes on
         s1 += " >>>>>>>>>> Convergence criterion not met.\n"
     s1 += _scf(e, 20, 3.9)
+    if reoptimised_e is not None:  # G16 Stable=Opt: the re-optimised SCF is printed with "a.u."
+        s1 += " The wavefunction has an internal instability.\n" + _scf(reoptimised_e, 8, 3.8, units="a.u.")
     s1 += (" The wavefunction is stable under the perturbations considered.\n" if final_stable
            else " The wavefunction has an internal instability.\n") + _pops(s)
     s2 = (_route_block(job.routes()[2]) + " Charge =  0 Multiplicity = 1\n" + _orient(z3)
@@ -303,6 +309,16 @@ def test_parser_accepts_a_clean_tandem():
     assert len(r["forces_ev_ang"]) == 2
 
 
+def test_parser_counts_g16_fragment_scfs_as_fragments():
+    job = fe2_job()
+    r = parse_tandem_log(synthetic_log(job, g16=True), job.plan)
+    assert r["status"] == "ok", r["issues"]
+    assert r["s1_fragment_scf"] == 2 and r["s1_supermolecule_scf"] == 0
+    assert r["s1_fragment_scf_energies"] == [-1263.0, -1263.0]
+    r = parse_tandem_log(synthetic_log(job, g16=True, supermolecule=True), job.plan)
+    assert any("supermolecule SCF" in issue for issue in r["issues"]), r["issues"]
+
+
 @pytest.mark.parametrize("kwargs, message", [
     ({"guess_s2": 0.0}, "guess <S**2>"),
     ({"supermolecule": True}, "supermolecule SCF"),
@@ -316,6 +332,14 @@ def test_parser_flags_lost_or_changed_states(kwargs, message):
     r = parse_tandem_log(synthetic_log(job, **kwargs), job.plan)
     assert r["status"] == "check"
     assert any(message in issue for issue in r["issues"]), r["issues"]
+
+
+def test_g16_reoptimised_state_is_the_one_link2_must_reproduce():
+    job = fe2_job()
+    r = parse_tandem_log(synthetic_log(job, reoptimised_e=-2526.502, e3=-2526.502), job.plan)
+    assert r["status"] == "ok", r["issues"]
+    assert r["s2_scf_energies"] == [-2526.5, -2526.502]
+    assert r["stable_opt_changed_state"] is True
 
 
 def test_stable_opt_change_is_recorded_not_hidden():
