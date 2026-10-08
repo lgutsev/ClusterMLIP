@@ -130,6 +130,10 @@ def main() -> None:
                    "Check bs_pairs.csv (dE, D_F) before any dataset decision.")
     elif n_geom_multi == 1:
         verdict = "Distinct stable solutions for one geometry only: below the pilot's bar (>= 2 geometries)."
+    elif not any(len(states) >= 2 for states in usable.values()):
+        # missing or failed logs, or a one-job smoke: nothing was compared, so no negative result either
+        verdict = (f"No geometry has two usable jobs to compare ({sum(map(len, usable.values()))} usable of "
+                   f"{len(rows)}); no conclusion about alternative states.")
     else:
         verdict = ("No alternative stable state was found for these geometries, this M and these guesses. "
                    "That does not show local spin is irrelevant in general.")
