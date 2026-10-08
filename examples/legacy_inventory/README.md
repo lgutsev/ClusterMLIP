@@ -12,9 +12,8 @@ bash submit_smokes.sh --dry-run 26
 bash submit_smokes.sh 26
 ```
 
-The job uses `single`, one CPU, two hours, no `--mem`. A longer walltime may be
-needed once collection size/timing is known; override with `sbatch --time` when
-submitting manually from this package directory. Runtime defaults to
+The job uses `single`, 16 allocated cores for memory, a 24-hour cap, no `--mem`.
+Parsing uses one CPU thread. Runtime defaults to
 `/project/lgutsev/env/cluster_mlip_runtime`; it needs NumPy/SciPy, `strings`, and
 Gaussian `formchk` for binary checkpoints. No installation happens in the job.
 Parser modules are a pinned snapshot copied by the generator, so no branch switch
@@ -35,7 +34,33 @@ into package `outputs/` for normal export/intake. A failed attempt is retried wi
 bash export_results.sh 26
 ```
 
-## Review
+## Progress
+
+New runs write `PROGRESS.json` (an atomically replaced snapshot) and
+`progress.jsonl` (history) in the campaign's `run_<jobid>` directory. The Slurm
+stdout log receives flushed `PROGRESS` lines. Each item is recorded before it is
+processed; a heartbeat every 60 seconds reports the latest counters even while
+a large file or overlap comparison is still in progress.
+
+Counters include phase, completed/total items, phase percentage, current file or
+record, extracted records, files with parsing errors, overlap pairs, and elapsed
+seconds. Parsing counts source files, including archives and unsupported files;
+overlap counts incoming records. These are separate phase percentages, not an
+overall completion estimate. Reference loading happens before tracking starts.
+
+```bash
+cd /work/lgutsev/loni_smoke_tests/26_clustermlip_legacy_inventory
+cat "$(cat outputs/result_path.txt)/PROGRESS.json"
+```
+
+The exit/TERM traps copy available progress files into `outputs/` for export.
+An OOM kill or abrupt node loss may prevent those traps; the campaign files and
+Slurm log still retain the latest writes. A `running` snapshot records the last
+observation, so check the queue to determine whether the process is still alive.
+An exception records `failed` and its message. This is monitoring, not a resume
+checkpoint. Existing running jobs gain no progress instrumentation from this edit.
+
+## Result checks
 
 `outputs/DONE` and exit code 0 mean the inventory process completed, not that all
 records are accepted. Read `RUN_STATUS.json`, `summary.json`, `files.csv` and

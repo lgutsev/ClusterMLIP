@@ -14,7 +14,7 @@ def main():
     here = Path(__file__).resolve().parent
     repo = here.parents[1]
     args.destination.mkdir(parents=True, exist_ok=False)
-    for name in ('inventory.py', 'run_inventory.slurm', 'README.md'):
+    for name in ('inventory.py', 'progress.py', 'run_inventory.slurm', 'README.md'):
         shutil.copyfile(here / name, args.destination / name)
     runtime = args.destination / 'runtime' / 'cluster_mlip'
     runtime.mkdir(parents=True)

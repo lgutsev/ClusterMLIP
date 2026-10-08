@@ -9,6 +9,8 @@ import platform
 import re
 from pathlib import Path
 
+from progress import Progress
+
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial import cKDTree
@@ -128,14 +130,25 @@ def main():
         reference_inputs.append({'warehouse': name, 'manifest': str(manifest), 'manifest_sha256': sha(manifest),
                                  'seeds': str(seeds), 'seeds_sha256': sha(seeds), 'records': len(rs)})
     out.mkdir(parents=True, exist_ok=False)
+    progress = Progress(out)
+    with progress:
+        _inventory(source, out, references, reference_inputs, args, progress)
+
+
+def _inventory(source, out, references, reference_inputs, args, progress):
+    from cluster_mlip.gaussian import extract_document_records, parse_force_frames
+    from cluster_mlip.io import SUPPORTED_SUFFIXES, read_document, source_tree, write_extxyz, write_manifest
     extracted = out / 'extracted'
     extracted.mkdir()
     files, incoming, provenance = [], [], []
+    errors = 0
     # Hash every source file. Nested archives are read only in temporary storage.
-    for file in sorted(source.rglob('*')):
-        if not file.is_file():
-            continue
+    progress.phase('enumerating_source_files')
+    source_files = sorted(p for p in source.rglob('*') if p.is_file())
+    progress.phase('parsing', len(source_files))
+    for file in source_files:
         rel = file.relative_to(source).as_posix()
+        progress.current(rel)
         entry = {'source': rel, 'sha256': '', 'bytes': '', 'status': 'unsupported', 'records': 0,
                  'force_frames': 0, 'error': ''}
         try:
@@ -143,12 +156,15 @@ def main():
             entry.update(sha256=sha(file), bytes=before.st_size)
             if file.suffix.lower() not in SUPPORTED_SUFFIXES | {'.zip'}:
                 files.append(entry)
+                progress.advance(records=len(incoming), errors=errors)
                 continue
             with source_tree(file) as tree:
                 docs = [file] if file.suffix.lower() != '.zip' else sorted(
                     p for p in tree.rglob('*') if p.is_file() and p.suffix.lower() in SUPPORTED_SUFFIXES)
                 for doc in docs:
                     docrel = rel if doc == file else rel + '::' + doc.relative_to(tree).as_posix()
+                    if docrel != rel:
+                        progress.current(docrel)
                     try:
                         text = read_document(doc)
                         records = extract_document_records(text, docrel)
@@ -179,6 +195,9 @@ def main():
         except Exception as exc:
             entry.update(status='error', error=entry['error'] + str(exc))
         files.append(entry)
+        errors += bool(entry['error'])
+        progress.advance(records=len(incoming), errors=errors)
+    progress.phase('writing_extracted_data')
     write_extxyz(incoming, extracted / 'seeds.extxyz')
     write_manifest(incoming, extracted / 'manifest.csv')
     csv_write(out / 'files.csv', list(files[0]) if files else ['source','status'], files)
@@ -197,12 +216,15 @@ def main():
     incoming_by_formula = collections.defaultdict(list)
     for r in incoming:
         incoming_by_formula[r.formula].append(r)
+    progress.phase('overlap', len(incoming))
     for formula, new_records in incoming_by_formula.items():
+        progress.current('building index: ' + formula)
         old = groups[formula]
         combined = old + [('incoming', r) for r in new_records]
         tree = cKDTree(np.array([descriptor(r) for _, r in combined]))
         offset = len(old)
         for i, r in enumerate(new_records):
+            progress.current(formula + ': ' + r.record_id)
             candidates = tree.query_ball_point(descriptor(r), 2 * args.max_deviation, p=np.inf)
             found = 0
             for j in candidates:
@@ -226,6 +248,8 @@ def main():
             inclusion.append({'record_id': r.record_id, 'formula': formula, 'candidate_count': found,
                               'decision': 'retain_pending_review' if found else 'no_overlap_candidate_at_tolerance',
                               'training_ready': False})
+            progress.advance(overlap_pairs=len(matches))
+    progress.phase('writing_reports')
     columns = ['incoming_record','other_warehouse','other_record','incoming_source','other_source','match_type',
                'aligned_rmsd_A','aligned_max_deviation_A','same_charge_multiplicity','identical_raw_route','decision']
     csv_write(out / 'overlap.csv', columns, matches)
@@ -252,6 +276,7 @@ def main():
     complete = bool(incoming) and not any(f['status'] in ('partial','error') for f in files)
     (out / 'RUN_STATUS.json').write_text(json.dumps({'status': 'complete' if complete else 'partial',
                                                    'summary_written': True}) + '\n')
+    progress.update(result_status='complete' if complete else 'partial')
     print(json.dumps({'status': 'complete' if complete else 'partial', 'records': len(incoming), 'output': str(out)}))
 
 
