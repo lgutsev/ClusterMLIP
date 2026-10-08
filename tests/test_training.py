@@ -4,6 +4,8 @@ import json
 import os
 import shutil
 import subprocess
+import sys
+import types
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +16,8 @@ from cluster_mlip.io import parse_extxyz_info_line
 from cluster_mlip.periodic import Structure, write_structures
 from cluster_mlip.training import (
     BLIND_LABELS_EXIT_CODE,
+    MODEL_CHECK_PY,
+    MODEL_EMBEDDING_EXIT_CODE,
     TrainingConfig,
     scan_dataset,
     write_training_campaign,
@@ -279,7 +283,16 @@ c="$FAKE_COUNT"
 echo "INFO: Total Training set [energy: 2, forces: 2, total_charge: $c, total_spin: $c]" >> "$log"
 echo "INFO: Total Validation set [energy: 1, forces: 1, total_charge: $c, total_spin: $c]" >> "$log"
 echo "INFO: Started training, reporting errors on validation set" >> "$log"
-exec sleep "${FAKE_SLEEP:-0}"
+sleep "${FAKE_SLEEP:-0}"
+echo model > "${n}.model"
+"""
+
+# Stands in for the MACE env's python in run.sh's post-training model check.
+_FAKE_PYTHON = """#!/usr/bin/env bash
+cat > /dev/null
+[[ -f "$2" ]] || { echo "FATAL: no trained model at $2" >&2; exit 1; }
+[[ "${FAKE_MODEL_HAS_EMBEDDINGS:-1}" == 1 ]] || { echo "FATAL: $2 has no total_spin embedding" >&2; exit 1; }
+echo "model embedding check: ok"
 """
 
 
@@ -287,19 +300,23 @@ exec sleep "${FAKE_SLEEP:-0}"
 class BlindLabelGuardTests(unittest.TestCase):
     """run.sh kills a MACE run whose log shows zero charge/spin labels."""
 
-    def _run(self, tmp: Path, count: int, sleep: int = 0) -> subprocess.CompletedProcess:
+    def _run(self, tmp: Path, count: int, sleep: int = 0, embeddings: bool = True) -> subprocess.CompletedProcess:
         bindir = tmp / "bin"
         bindir.mkdir(exist_ok=True)
         fake = bindir / "mace_run_train"
         fake.write_bytes(_FAKE_MACE.encode())
         fake.chmod(0o755)
+        fake_python = bindir / "fake_python"
+        fake_python.write_bytes(_FAKE_PYTHON.encode())
+        fake_python.chmod(0o755)
         output = tmp / "run"
         if not output.exists():
             dataset = _dataset(tmp, [_frame("a", 0, 1), _frame("b", 0, 5)])
             write_training_campaign(
                 TrainingConfig(dataset_dir=dataset, output_dir=output, seeds=(7,))
             )
-        env = dict(os.environ, FAKE_COUNT=str(count), FAKE_SLEEP=str(sleep))
+        env = dict(os.environ, FAKE_COUNT=str(count), FAKE_SLEEP=str(sleep),
+                   CLUSTER_MLIP_PYTHON=str(fake_python), FAKE_MODEL_HAS_EMBEDDINGS="1" if embeddings else "0")
         env["PATH"] = f"{bindir}{os.pathsep}{env['PATH']}"
         return subprocess.run(
             [_git_bash(), str(output / "seed_7" / "run.sh")],
@@ -327,6 +344,64 @@ class BlindLabelGuardTests(unittest.TestCase):
             result = self._run(tmp, count=14452)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertNotIn("FATAL", result.stderr)
+            self.assertIn("model embedding check", result.stdout)
+
+    def test_model_without_embeddings_fails_after_training(self):
+        with tempfile.TemporaryDirectory() as raw:
+            result = self._run(Path(raw), count=14452, embeddings=False)
+            self.assertEqual(result.returncode, MODEL_EMBEDDING_EXIT_CODE, result.stderr)
+            self.assertIn("no total_spin embedding", result.stderr)
+
+
+class ModelCheckScriptTests(unittest.TestCase):
+    """MODEL_CHECK_PY itself, run against a stub torch that unpickles plain objects."""
+
+    def _check(self, tmp: Path, model) -> subprocess.CompletedProcess:
+        stub = tmp / "stub"
+        stub.mkdir()
+        (stub / "torch.py").write_text(
+            "import pickle\n"
+            "def load(path, map_location=None, weights_only=None):\n"
+            "    with open(path, 'rb') as handle:\n"
+            "        return pickle.load(handle)\n"
+        )
+        path = tmp / "m.model"
+        if model is not None:
+            import pickle
+            path.write_bytes(pickle.dumps(model))
+        env = dict(os.environ, PYTHONPATH=str(stub))
+        return subprocess.run([sys.executable, "-", str(path), "total_spin", "total_charge"],
+                              input=MODEL_CHECK_PY, env=env, capture_output=True, text=True, timeout=60)
+
+    def test_model_with_embeddings_passes(self):
+        with tempfile.TemporaryDirectory() as raw:
+            model = types.SimpleNamespace(embedding_specs={"total_spin": {}, "total_charge": {}},
+                                          joint_embedding=object())
+            result = self._check(Path(raw), model)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_foundation_rebuilt_model_fails(self):
+        with tempfile.TemporaryDirectory() as raw:
+            result = self._check(Path(raw), types.SimpleNamespace())  # MP-0 fine-tune: no specs
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("total_spin, total_charge embedding", result.stderr)
+
+    def test_missing_model_fails(self):
+        with tempfile.TemporaryDirectory() as raw:
+            result = self._check(Path(raw), None)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("no trained model", result.stderr)
+
+
+class ModelCheckRenderTests(unittest.TestCase):
+    def test_check_is_rendered_only_with_embedding_specs(self):
+        from cluster_mlip.training import _render_script
+        with_specs = _render_script(["mace_run_train", "--name=r", "--work_dir=w",
+                                     '--embedding_specs={"total_spin": {}, "total_charge": {}}'])
+        self.assertIn("CLUSTER_MLIP_PYTHON", with_specs)
+        self.assertIn("w/r.model total_spin total_charge", with_specs)
+        self.assertIn(f"|| exit {MODEL_EMBEDDING_EXIT_CODE}", with_specs)
+        self.assertNotIn("CLUSTER_MLIP_PYTHON", _render_script(["mace_run_train", "--name=r"]))
 
 
 if __name__ == "__main__":

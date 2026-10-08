@@ -512,11 +512,55 @@ wait "$mace_pid"
 """
 
 
+# Post-training model check. The label guard above only sees the data. In
+# mace-torch 0.3.16 a fine-tune from a foundation checkpoint is rebuilt from the
+# foundation's own configuration (tools/model_script_utils.py: "Model
+# configuration extracted from foundation model"), so --embedding_specs is
+# dropped without an error when the foundation has none (MACE-MP-0 small,
+# package 32, 2026-10-08): the saved model then ignores charge and spin. After
+# training, load the saved model and fail unless every requested embedding is
+# still in it. CLUSTER_MLIP_PYTHON selects the interpreter (the MACE env's).
+MODEL_EMBEDDING_EXIT_CODE = 4
+MODEL_CHECK_PY = r"""import sys
+import torch
+path, wanted = sys.argv[1], sys.argv[2:]
+try:
+    model = torch.load(path, map_location="cpu", weights_only=False)
+except FileNotFoundError:
+    sys.exit(f"FATAL: no trained model at {path}; cannot confirm its embeddings")
+specs = getattr(model, "embedding_specs", None) or {}
+missing = [key for key in wanted if key not in specs]
+if missing or not hasattr(model, "joint_embedding"):
+    sys.exit(f"FATAL: {path} has no {', '.join(missing or wanted)} embedding; it ignores "
+             "charge/spin input. A fine-tune rebuilt from a foundation without these "
+             "embeddings drops --embedding_specs silently.")
+print(f"model embedding check: {path} carries {', '.join(sorted(specs))}")
+"""
+
+
+def _model_path(argv: list[str]) -> str:
+    """``{model_dir or work_dir or .}/{name}.model``, where mace_run_train saves the model."""
+    directory = _last_flag_value(argv, "model_dir") or _last_flag_value(argv, "work_dir") or "."
+    return f"{directory}/{_last_flag_value(argv, 'name')}.model"
+
+
+def _model_check(argv: list[str]) -> str:
+    specs = _last_flag_value(argv, "embedding_specs")
+    if specs is None:
+        return ""
+    keys = " ".join(shlex.quote(key) for key in json.loads(specs))
+    return (
+        "\n# The trained model must still carry the requested charge/spin embeddings.\n"
+        f'"${{CLUSTER_MLIP_PYTHON:-python}}" - {shlex.quote(_model_path(argv))} {keys} <<\'PY\''
+        f" || exit {MODEL_EMBEDDING_EXIT_CODE}\n{MODEL_CHECK_PY}PY\n"
+    )
+
+
 def _render_script(argv: list[str]) -> str:
     body = " \\\n  ".join(_quote_arg(part) for part in argv)
     guarded = _GUARD_TEMPLATE.format(
         log=shlex.quote(_mace_log_path(argv)), body=body, code=BLIND_LABELS_EXIT_CODE
-    )
+    ) + _model_check(argv)
     return (
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n\n"
@@ -558,14 +602,14 @@ def _preflight_text(config: TrainingConfig, family: str) -> str:
         ]
     else:
         lines += [
-            "- This foundation was pretrained WITHOUT a charge/spin channel, so",
-            "  this run attaches --embedding_specs modules on top of it. Whether",
-            "  your installed mace-torch tolerates new embedding modules on a",
-            "  foundation checkpoint (vs. a state-dict mismatch) is unverified --",
-            "  this is exactly the open question in configs/finetune_foundation.sh.",
-            "- If it errors, the documented fallback is multihead-replay",
-            "  (`--multiheads_finetuning=True --pt_train_file ...`), which also",
-            "  needs pretraining-replay data.",
+            "- This foundation was pretrained WITHOUT a charge/spin channel, and",
+            "  mace-torch 0.3.16 drops the requested --embedding_specs on such a",
+            "  fine-tune without an error: it rebuilds the model from the",
+            "  foundation's configuration (package 32, MACE-MP-0 small, 2026-10-08).",
+            "  The result is a charge/spin-blind model. run.sh now loads the saved",
+            "  model and exits 4 when the embeddings are missing; expect that here.",
+            "- For a charge/spin-aware fine-tune, use a foundation that already",
+            "  carries the embeddings (polar-1, mace-omol), or train from scratch.",
         ]
     lines += [
         "",
