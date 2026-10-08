@@ -14,7 +14,9 @@ Check on the laptop after export and intake:
 """
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 import json
 import subprocess
 import sys
@@ -42,7 +44,8 @@ SLURM = """#!/bin/bash
 # Written by ClusterMLIP experiments/fe16_bs_pilot/make_loni_package.py. One array task per frame:
 # a three-link Gaussian tandem (fragment guess > Stable=Opt > Force) run in work/frame_NNNN, where its
 # checkpoint stays; the log goes to outputs/frame_NNNN.log. inputs/frames.csv names each frame.
-set -euo pipefail
+# LONI's module function reads unset variables: -u only after it (as package 24).
+set -eo pipefail
 cd "${{SLURM_SUBMIT_DIR:?submit from the package directory}}"
 PKG=$PWD
 frame=$(printf 'frame_%04d' "$SLURM_ARRAY_TASK_ID")
@@ -50,6 +53,7 @@ mkdir -p outputs "work/$frame"
 # Which Gaussian builds this cluster offers (the archive used G09 D.01): recorded once per task.
 {{ module -t avail gaussian 2>&1 || true; }} > "outputs/${{frame}}.modules.txt"
 module load gaussian/g16-c01
+set -u
 scratch="${{TMPDIR:-/tmp}}/g16_${{SLURM_JOB_ID}}_${{frame}}"
 mkdir -p "$scratch"
 trap 'rm -rf "$scratch"' EXIT
@@ -136,7 +140,7 @@ def main() -> None:
         raise SystemExit("commit src/ and experiments/ first: package.json must name a real commit")
     (out / "inputs").mkdir(parents=True)
     (out / "logs").mkdir()
-    expected, frame_rows, table = {}, ["frame,label,job,purpose"], []
+    expected, frame_rows, table = {}, [["frame", "label", "job", "purpose"]], []
     for index, (label, job, ref) in enumerate(jobs()):
         frame = f"frame_{index:04d}"
         text = render_tandem(job)
@@ -155,10 +159,12 @@ def main() -> None:
                 "archived_link1_first_scf": ref["stage2_first_scf"],
             })
         expected[label] = entry
-        frame_rows.append(f"{frame},{label},{job.name},{PURPOSE[label]}")
+        frame_rows.append([frame, label, job.name, PURPOSE[label]])
         table.append(f"| {index:04d} | {label} `{job.name}` | {PURPOSE[label]} |")
     last = len(expected) - 1
-    write_text_lf(out / "inputs" / "frames.csv", "\n".join(frame_rows) + "\n")
+    buffer = io.StringIO()
+    csv.writer(buffer, lineterminator="\n").writerows(frame_rows)
+    write_text_lf(out / "inputs" / "frames.csv", buffer.getvalue())
     write_text_lf(out / "expected.json", json.dumps(expected, indent=1, ensure_ascii=False) + "\n")
     write_text_lf(out / "run_gaussian.slurm", SLURM.format(last=last, cpus=CPUS))
     write_text_lf(out / "README.md", README.format(
