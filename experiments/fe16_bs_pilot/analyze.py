@@ -15,7 +15,11 @@ Per job, from cluster_mlip.fragment_tandem.parse_tandem_log:
   * link 2: does the force SCF reproduce the stable state, and did the geometry stay fixed;
   * Mulliken and Hirshfeld spins, CM5 charges (charges, not spins), forces.
 
-States: two usable jobs at one geometry are the SAME state only if energy (1 meV),
+States are compared only within one geometry and one multiplicity M (the AFM pilot runs
+A0 at M = 1, A1/A1C at M = 9, A2 at M = 17); across M the summary lists each solution's
+energy against the geometry's lowest, with <S**2> and the Hirshfeld beta-site count.
+
+States: two usable jobs at one geometry and M are the SAME state only if energy (1 meV),
 per-site Hirshfeld spin (0.2), <S**2> (0.05) and force RMS (5 meV/Å) all agree;
 DISTINCT if the criteria disagree clearly (spin and energy both beyond tolerance, or
 all criteria); otherwise AMBIGUOUS, which is reported and not counted. These are
@@ -58,6 +62,7 @@ def main() -> None:
         plan, n_stages = plan_from_input((campaign / meta["input"]).read_text(encoding="utf-8"))
         force_stage = n_stages == (2 if plan is None else 3)
         base = {"record": meta["parent_record_id"], "pattern": meta.get("bs_pattern") or meta.get("fragment_label"),
+                "multiplicity": int(meta["intended_multiplicity"]),
                 "log": output, "ideal_guess_s2": None if plan is None else plan.ideal_guess_s2}
         path = found.get(output)
         if path is None:
@@ -66,9 +71,9 @@ def main() -> None:
         r = parse_tandem_log(path.read_text(errors="replace"), plan, force_stage)
         rows.append({**base, **r})
         if r["status"] == "ok" and r.get("energy_ev") is not None:
-            usable[base["record"]][base["pattern"]] = r
+            usable[(base["record"], base["multiplicity"])][base["pattern"]] = r
 
-    cols = ["record", "pattern", "status", "issues", "s1_fragment_scf", "s1_unconverged_scf",
+    cols = ["record", "pattern", "multiplicity", "status", "issues", "s1_fragment_scf", "s1_unconverged_scf",
             "s1_supermolecule_scf", "ideal_guess_s2", "s2_guess_s2", "s2_scf_cycles", "s2_cycle_cap",
             "s2_instabilities", "stable_opt_changed_state", "stable_opt_dE_meV", "stable_opt_dS2",
             "s2_final_stable", "s3_scf_cycles", "s3_minus_s2_hartree", "geometry_max_shift_ang",
@@ -89,8 +94,8 @@ def main() -> None:
                         "SAME needs energy (1 meV), per-site Hirshfeld spin (0.2), <S^2> (0.05) and force RMS "
                         "(5 meV/Å) to agree; these are reproducibility tolerances, not physical thresholds. "
                         "CM5 values are charges, not spins.", ""]
-    n_geom_multi = 0
-    for record, states in sorted(usable.items()):
+    multi_geoms: set[str] = set()
+    for (record, m), states in sorted(usable.items()):
         groups: list[list[str]] = []
         for pattern in sorted(states):
             for g in groups:
@@ -104,20 +109,30 @@ def main() -> None:
             for g2 in groups[i + 1:]:
                 c = compare_states(states[g1[0]], states[g2[0]])
                 verdicts.append(c["verdict"])
-                pairs.append({"record": record, "state_a": "+".join(g1), "state_b": "+".join(g2), **c})
+                pairs.append({"record": record, "multiplicity": m, "state_a": "+".join(g1), "state_b": "+".join(g2), **c})
         distinct = 1 + sum(1 for v in verdicts if v == "distinct") if groups else 0
-        n_geom_multi += distinct >= 2
+        multi_geoms.update([record] if distinct >= 2 else [])
         e0 = min(states[g[0]]["energy_ev"] for g in groups)
-        lines.append(f"- `{record}`: {len(states)} usable jobs -> {len(groups)} group(s): "
+        lines.append(f"- `{record}` M={m}: {len(states)} usable jobs -> {len(groups)} group(s): "
                      + "; ".join(f"{'+'.join(g)} ({1000 * (states[g[0]]['energy_ev'] - e0):+.1f} meV)" for g in groups)
                      + (f"; ambiguous pairs: {verdicts.count('ambiguous')}" if "ambiguous" in verdicts else ""))
     with (campaign / "bs_pairs.csv").open("w", newline="", encoding="utf-8") as fh:
-        fields = ["record", "state_a", "state_b", "verdict", "dE_meV", "max_dspin_hirshfeld",
+        fields = ["record", "multiplicity", "state_a", "state_b", "verdict", "dE_meV", "max_dspin_hirshfeld",
                   "hirshfeld_sign_flips", "dS2", "force_rms_diff_meV_ang"]
         w = csv.DictWriter(fh, fieldnames=fields)
         w.writeheader()
         w.writerows({k: fmt(v) for k, v in p.items()} for p in pairs)
 
+    n_geom_multi = len(multi_geoms)
+    lines += ["", "Energies across M, per geometry (relative to its lowest usable solution; n_beta = Hirshfeld "
+              "spins below -0.5):"]
+    for record in sorted({k[0] for k in usable}):
+        solutions = [(m, p, r) for (rec, m), states in usable.items() if rec == record for p, r in states.items()]
+        e0 = min(r["energy_ev"] for _, _, r in solutions)
+        for m, p, r in sorted(solutions, key=lambda x: x[2]["energy_ev"]):
+            spins = table_values(r.get("s3_hirshfeld"), "atomic_spins_hirshfeld")
+            lines.append(f"  - `{record}` {p} M={m}: {1000 * (r['energy_ev'] - e0):+.1f} meV, <S^2> {fmt(r.get('s3_s2'))}, "
+                         f"n_beta {sum(v < -0.5 for v in spins)}, sum|s| {sum(abs(v) for v in spins):.1f}")
     changed = [r for r in rows if r.get("stable_opt_changed_state")]
     lines += ["", f"Stable=Opt changed the read-in state in {len(changed)} job(s):",
               *[f"  - {r['log']}: dE {r['stable_opt_dE_meV']:+.1f} meV, d<S^2> {fmt(r.get('stable_opt_dS2'))}, "
@@ -132,8 +147,8 @@ def main() -> None:
         verdict = "Distinct stable solutions for one geometry only: below the pilot's bar (>= 2 geometries)."
     elif not any(len(states) >= 2 for states in usable.values()):
         # missing or failed logs, or a one-job smoke: nothing was compared, so no negative result either
-        verdict = (f"No geometry has two usable jobs to compare ({sum(map(len, usable.values()))} usable of "
-                   f"{len(rows)}); no conclusion about alternative states.")
+        verdict = (f"No geometry and M has two usable jobs to compare ({sum(map(len, usable.values()))} usable of "
+                   f"{len(rows)}); no conclusion about alternative states at one M (see energies across M).")
     else:
         verdict = ("No alternative stable state was found for these geometries, this M and these guesses. "
                    "That does not show local spin is irrelevant in general.")

@@ -309,6 +309,15 @@ def test_parser_accepts_a_clean_tandem():
     assert len(r["forces_ev_ang"]) == 2
 
 
+def test_overflowed_guess_s2_is_read_from_s():
+    # package 36 (Fe16, M=49): G16 prints <S**2>=******* for a guess above ~100; S= is still there
+    job = fe2_job()
+    text = synthetic_log(job).replace("<S**2>= 4.0000 S= 1.5", "<S**2>=******* S=24.1299")
+    r = parse_tandem_log(text, job.plan)
+    assert r["s2_guess_s2"] == pytest.approx(24.1299 * 25.1299)
+    assert any("guess <S**2>=606.3" in issue for issue in r["issues"])
+
+
 def test_parser_counts_g16_fragment_scfs_as_fragments():
     job = fe2_job()
     r = parse_tandem_log(synthetic_log(job, g16=True), job.plan)

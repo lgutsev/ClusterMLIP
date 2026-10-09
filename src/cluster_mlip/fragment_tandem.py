@@ -596,7 +596,9 @@ _TERMINATION_RE = re.compile(r"^ (?:Normal termination of Gaussian|Error termina
 # G16 prints "a.u." for the SCF that Stable=Opt re-optimises, "A.U." elsewhere
 _SCF_RE = re.compile(r"SCF Done:\s+E\((\S+)\)\s+=\s+(-?\d+\.\d+)\s+[Aa]\.[Uu]\. after\s+(\d+) cycles")
 _S2_RE = re.compile(r"S\*\*2 before annihilation\s+(-?\d+\.\d+)")
-_GUESS_S2_RE = re.compile(r"Initial guess <Sx>=.*?<S\*\*2>=\s*(-?\d+\.\d+)")
+# <S**2> overflows its field ("*******") from 1000 down to ~100 for large clusters (Fe16 M=49: 604);
+# S= is still printed, so <S**2> = S(S+1) then
+_GUESS_S2_RE = re.compile(r"Initial guess <Sx>=.*?<S\*\*2>=\s*(-?\d+\.\d+|\*+)\s+S=\s*(-?\d+\.\d+)")
 _CM_RE = re.compile(r"Charge =\s*(-?\d+) Multiplicity =\s*(-?\d+)\b(?! in fragment)")
 _FRAG_CM_RE = re.compile(r"Charge =\s*(-?\d+) Multiplicity =\s*(-?\d+) in fragment\s+(\d+)")
 _ROUTE_RE = re.compile(r"\n -{10,}\n( #.*?)\n -{10,}\n", re.S)
@@ -605,6 +607,15 @@ _STABLE = "The wavefunction is stable under the perturbations considered"
 _UNSTABLE_RE = re.compile(r"The wavefunction has an? (internal|RHF -> UHF|RHF -> RHF)[^\n]*instability")
 _MULLIKEN_RE = re.compile(r"Mulliken charges and spin densities:\n\s+1\s+2\n(.*?)\n Sum of Mulliken", re.S)
 _CAP_RE = re.compile(r"within\s+(\d+) cycles")
+
+
+def _guess_s2(match: re.Match | None) -> float | None:
+    if match is None:
+        return None
+    if match.group(1).startswith("*"):
+        spin = float(match.group(2))
+        return spin * (spin + 1)
+    return float(match.group(1))
 
 
 def split_log_stages(text: str) -> list[tuple[str, str]]:
@@ -699,7 +710,7 @@ def parse_tandem_log(text: str, plan: FragmentPlan | None, force_stage: bool = T
             "s2_route": _route(s2),
             "s2_charge_multiplicity": f"{cm.group(1)} {cm.group(2)}" if cm else "",
             "s2_guess_from_checkpoint": "Initial guess from the checkpoint file" in s2,
-            "s2_guess_s2": float(guess.group(1)) if guess else None,
+            "s2_guess_s2": _guess_s2(guess),
             "s2_scf_energies": [float(e) for _, e, _ in scf],
             "s2_scf_cycles": [int(c) for _, _, c in scf],
             "s2_scf_s2": s2s,
@@ -717,7 +728,8 @@ def parse_tandem_log(text: str, plan: FragmentPlan | None, force_stage: bool = T
             if not r["s2_guess_from_checkpoint"]:
                 issues.append("link 1 did not read its guess from the checkpoint")
             elif r["s2_guess_s2"] is None or abs(r["s2_guess_s2"] - plan.ideal_guess_s2) > plan.guess_s2_tolerance:
-                issues.append(f"link 1 guess <S**2>={r['s2_guess_s2']} is not the fragment pattern's "
+                fmt_s2 = "None" if r["s2_guess_s2"] is None else f"{r['s2_guess_s2']:.3f}"
+                issues.append(f"link 1 guess <S**2>={fmt_s2} is not the fragment pattern's "
                               f"{plan.ideal_guess_s2:.3f} (tol {plan.guess_s2_tolerance:.2f})")
             if cm and (int(cm.group(1)), int(cm.group(2))) != (plan.charge, plan.multiplicity):
                 issues.append(f"link 1 charge/multiplicity {r['s2_charge_multiplicity']} differs from "

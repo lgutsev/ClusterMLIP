@@ -1334,11 +1334,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     prepare_bs.add_argument("seeds", help="extxyz holding the source geometries")
     prepare_bs.add_argument("--record-id", dest="record_ids", action="append", required=True)
-    prepare_bs.add_argument("--multiplicity", type=int, required=True, help="fixed total multiplicity M")
+    prepare_bs.add_argument("--multiplicity", type=int, default=None,
+                            help="fixed total multiplicity M for every pattern; omit it with the AFM patterns "
+                                 "so each takes its natural M (A0 = 1 for Fe16, A1 = 9, A2 = 17)")
     prepare_bs.add_argument("--patterns", default=",".join(PATTERNS),
                             help=f"from {','.join(ALL_PATTERNS)}: P0 all Fe alpha; P1 central Fe beta; P2/P3 two "
                                  "surface Fe beta; P0Q/P1Q charge-separated (central -1, surface +1); "
-                                 "C0 default-guess control")
+                                 "C0 default-guess control; A0 full AFM (two equal sublattices, most antiparallel bonds); "
+                                 "A1/A2 one/two cheapest beta->alpha flips from A0; A1C A0 with the central Fe reversed")
     prepare_bs.add_argument("--reference-spins", default=None,
                             help="local_spins.csv from collect: adds each site's reference Mulliken spin "
                                  "to sites.csv so site identity can be checked before submission")

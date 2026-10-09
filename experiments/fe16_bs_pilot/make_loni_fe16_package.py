@@ -2,7 +2,7 @@
 
     python make_loni_fe16_package.py KIT OUT_PARENT --stage smoke|pilot [--number 35]
 
-KIT is the generated `fe16_bs_tandem_kit` (its `smoke/`, `pilot/` and `charge_init/` folders hold
+KIT is the generated `fe16_bs_tandem_kit` (its `smoke/`, `afm_pilot/` and `afm_control/` folders hold
 inputs that passed `inspect_tandem_input` when written). The package uses the desk's Gaussian layout:
 inputs/frame_NNNN.gjf -> outputs/frame_NNNN.log, one `single` array task per frame, gaussian/g16-c01
 on QB4. Package 34 showed G16 C.01 reproduces the archived G09 D.01 tandem (fragment SCFs, link-1 guess
@@ -29,9 +29,14 @@ from pathlib import Path
 from cluster_mlip.fragment_tandem import plan_from_input
 from cluster_mlip.io import write_text_lf
 
-STAGES = {"smoke": ["smoke"], "pilot": ["pilot", "charge_init"]}
-NAMES = {"smoke": "clustermlip_fe16_bs_smoke", "pilot": "clustermlip_fe16_bs_pilot"}
-HOURS = 48  # the kit's own estimate per Fe16 tandem; the smoke measures it
+# The pilot is the AFM pilot (kit afm_pilot/ + afm_control/): package 36's M = 49 smoke collapsed to the
+# ferromagnetic state, and the PI's direction (2026-10-09) is to start at full AFM and flip outward. The
+# old M = 49 pilot/ and charge_init/ folders stay in the kit, unused.
+STAGES = {"smoke": ["smoke"], "pilot": ["afm_pilot", "afm_control"]}
+NAMES = {"smoke": "clustermlip_fe16_bs_smoke", "pilot": "clustermlip_fe16_bs_afm_pilot"}
+# smoke: the kit's estimate. pilot: package 36 measured 1.8 h (6473 s) for one M = 49 tandem on 12
+# cores; low-Ms SCFs and Stable=Opt re-optimisations take longer, so ~6x that
+HOURS = {"smoke": 48, "pilot": 12}
 
 SLURM = """#!/bin/bash
 #SBATCH --job-name=fe16-bs-{stage}
@@ -60,8 +65,12 @@ mkdir -p "$scratch"
 trap 'rm -rf "$scratch"' EXIT
 cd "work/$frame"
 start=$(date +%s)
-GAUSS_SCRDIR="$scratch" g16 < "$PKG/inputs/$frame.gjf" > "$PKG/outputs/$frame.log"
+# desk 2026-10-08 (package 36): write .seconds even when g16 ends in an Error termination (a Stable=Opt
+# l508 abort is a result here, and the wall time is measured), then pass g16's status on
+status=0
+GAUSS_SCRDIR="$scratch" g16 < "$PKG/inputs/$frame.gjf" > "$PKG/outputs/$frame.log" || status=$?
 printf '%s\\n' "$(( $(date +%s) - start ))" > "$PKG/outputs/$frame.seconds"
+exit "$status"
 """
 
 README = """# {number}_{name}: Fe16 broken-symmetry {stage} (ClusterMLIP)
@@ -72,9 +81,8 @@ not here. `package.json` records every file's SHA-256.
 
 ## The question
 
-At a fixed Fe16 geometry with q = 0 and M = 49, does UBPW91/6-311++G* have more than one stable SCF
-solution, with different site-resolved spins and different forces? Each frame is one fixed geometry
-and one starting spin pattern, run as the archived Gaussian fragment tandem on one checkpoint:
+{question} Each frame is one fixed geometry, one multiplicity and one starting spin pattern, run as
+the archived Gaussian fragment tandem on one checkpoint:
 
 ```
 link 0  SP Guess=(Fragment=16)                                fragment guess, as archived
@@ -85,8 +93,8 @@ every link: IOP(5/13=1,5/36=1,8/11=1)
 
 {stage_note}
 
-| frame | geometry | pattern | start |
-|---|---|---|---|
+| frame | geometry | M | pattern | start |
+|---|---|---|---|---|
 {rows}
 
 Package 34 validated this tandem on QB4: G16 C.01 reproduced two archived 2019 G09 D.01 jobs (fragment
@@ -101,8 +109,7 @@ bash submit_smokes.sh {number}
 
 Uses `run_gaussian.slurm` and the existing Gaussian handler (`inputs/frame_*.gjf` →
 `outputs/frame_*.log`). `gaussian/g16-c01`, `single`, {cpus} cores and {mem} per task (QB4 CPU nodes
-have 256 GB), {hours} h cap. {n} task(s), at most {sus} SUs. The {hours} h cap is the kit's estimate for
-one Fe16 tandem, not a measurement; {time_note} Checkpoints stay in `work/` on LONI and are not exported.
+have 256 GB), {hours} h cap. {n} task(s), at most {sus} SUs. {time_note} Checkpoints stay in `work/` on LONI and are not exported.
 `outputs/frame_NNNN.seconds` records the wall time of each Gaussian run.
 
 ## Pass criteria (desk)
@@ -121,24 +128,43 @@ Route: agent `ClusterMLIP`, source `experiments/fe16_bs_pilot/make_loni_fe16_pac
 
 NOTES = {
     "smoke": dict(
+        question="At a fixed Fe16 geometry with q = 0 and M = 49, does UBPW91/6-311++G* have more than one "
+                 "stable SCF solution, with different site-resolved spins and different forces?",
         stage_note="This is the **smoke** (kit step 2): one Fe16 job, to measure the wall time and check that "
                    "a 16-fragment tandem completes and gives a Hirshfeld table on QB4 before the 15-job pilot.",
-        time_note="if it hits the cap, report the time and the last SCF cycle reached rather than resubmitting.",
+        time_note="The cap is the kit's estimate for one Fe16 tandem, not a measurement; if it hits the cap, "
+                  "report the time and the last SCF cycle reached rather than resubmitting.",
         control_note="one log",
         next_step="ClusterMLIP runs `analyze.py`, reads the wall time and Hirshfeld spins, and decides "
                   "whether the pilot package (same generator, `--stage pilot`) goes."),
     "pilot": dict(
-        stage_note="This is the **pilot** (kit step 3), after the smoke passed: three geometries × patterns "
-                   "P0 (all α), P1 (central Fe β), P2/P3 (surface Fe β), plus geometry 1 with charge-separated "
-                   "fragment starts (P0Q, P1Q) and a default-guess control (C0).",
-        time_note="the smoke's measured time sets whether it is enough.",
+        question="Where do the broken-symmetry UBPW91/6-311++G* solutions of neutral Fe16 lie, at fixed "
+                 "geometry, starting from the fully antiferromagnetic arrangement (low Ms) and flipping "
+                 "outward, and how do their energies, local spins and forces compare with the M = 49 "
+                 "ferromagnetic state?",
+        stage_note="This is the **AFM pilot** (kit step 3), rebuilt after the smoke (package 36): at M = 49 "
+                   "the flipped central Fe of P1 collapsed and the SCF converged to the ferromagnetic state "
+                   "(<S²> 600.01, all 16 Hirshfeld spins positive). At Ms = 24 there is no room for a "
+                   "flipped site, so, on the PI's direction (2026-10-09), every start here is at or near "
+                   "full AFM, every Fe a neutral quintet fragment (±4 unpaired):\n\n"
+                   "- **A0** (M = 1): the Fe–Fe bonds (< 3.0 Å) split into two equal 8/8 sublattices with "
+                   "the most antiparallel bonds (central Fe α by convention; ties broken towards short bonds);\n"
+                   "- **A1** (M = 9): A0 with its cheapest β → α flip (fewest antiparallel bonds lost);\n"
+                   "- **A2** (M = 17): A1 with the next cheapest flip;\n"
+                   "- **A1C** (M = 9): A0 with the central Fe reversed against its former sublattice;\n"
+                   "- **C0** (M = 1, geometry 1 only): default-guess control, no fragment link.\n\n"
+                   "`sites.csv` lists, per atom, the patterns in which it starts β.",
+        time_note="The cap is ~6x the smoke's measured 1.8 h (one M = 49 tandem, 12 cores); low-Ms SCFs "
+                  "and Stable=Opt re-optimisations are expected to take longer. If a task hits it, report the "
+                  "time and the last SCF cycle reached rather than resubmitting.",
         control_note="two for the C0 control, which has no fragment link",
-        next_step="ClusterMLIP runs `analyze.py` and reports distinct stable states per geometry "
-                  "(success: at least 2 geometries with at least 2 distinct stable states)."),
+        next_step="ClusterMLIP runs `analyze.py` and reports, per geometry, the energy of each stable "
+                  "solution across M against the M = 49 reference, with ⟨S²⟩ and Hirshfeld sublattice "
+                  "spins; the converged low-Ms solutions are the starting points for the next flips."),
 }
 
 _GEOM_RE = re.compile(r"^a-(fe16-[^_]+)__")
-_PAT_RE = re.compile(r"__bs-m49-(\w+)\.gjf$")
+_PAT_RE = re.compile(r"__bs-m(\d+)-(\w+)\.gjf$")
 _MEM_RE = re.compile(r"^%mem=(\S+)", re.M | re.I)
 _NPROC_RE = re.compile(r"^%nprocshared=(\d+)", re.M | re.I)
 
@@ -176,10 +202,11 @@ def main() -> None:
             frame = f"frame_{index:04d}"
             write_text_lf(out / "inputs" / f"{frame}.gjf", text)
             frames.append([frame, folder, Path(kit_input).name])
-            pattern = _PAT_RE.search(kit_input).group(1).upper()
+            m, pattern = _PAT_RE.search(kit_input).groups()
+            pattern = pattern.upper()
             start = "default guess (control)" if plan is None else (
                 "charge-separated fragments" if pattern.endswith("Q") else "neutral fragments")
-            table.append(f"| {index:04d} | {_GEOM_RE.search(Path(kit_input).name).group(1)} | {pattern} | {start} |")
+            table.append(f"| {index:04d} | {_GEOM_RE.search(Path(kit_input).name).group(1)} | {m} | {pattern} | {start} |")
             for r in rows:
                 if r["input"] == kit_input:
                     job_rows.append({**r, "input": f"inputs/{frame}.gjf", "output": f"{frame}.log",
@@ -206,10 +233,11 @@ def main() -> None:
     if sites:
         unique = list({tuple(s.items()): s for s in sites}.values())
         write_csv(out / "sites.csv", unique, list(unique[0]))
-    write_text_lf(out / "run_gaussian.slurm", SLURM.format(stage=stage, last=n - 1, cpus=ncpu, hours=HOURS, mem=mem))
+    hours = HOURS[stage]
+    write_text_lf(out / "run_gaussian.slurm", SLURM.format(stage=stage, last=n - 1, cpus=ncpu, hours=hours, mem=mem))
     write_text_lf(out / "README.md", README.format(
         number=number, name=name, stage=stage, branch=branch, commit=commit, kit_folders=", ".join(STAGES[stage]),
-        rows="\n".join(table), cpus=ncpu, mem=mem, hours=HOURS, n=n, sus=n * ncpu * HOURS, **NOTES[stage]))
+        rows="\n".join(table), cpus=ncpu, mem=mem, hours=hours, n=n, sus=n * ncpu * hours, **NOTES[stage]))
     write_text_lf(out / "export.list", "outputs/*\n")
     write_text_lf(out / ".gitignore", "outputs/\nwork/\nlogs/*\n!logs/README.txt\n")
     write_text_lf(out / "logs" / "README.txt", "Slurm logs land here.\n")
@@ -218,7 +246,7 @@ def main() -> None:
         "package": f"{number}_{name}", "owner": "ClusterMLIP",
         "generator": "experiments/fe16_bs_pilot/make_loni_fe16_package.py", "commit": commit, "branch": branch,
         "kit": str(kit), "kit_folders": STAGES[stage], "cluster": "LONI QB4", "partition": "single",
-        "gaussian": "gaussian/g16-c01", "cpus_per_task": ncpu, "memory_per_task": mem, "time_hours": HOURS,
+        "gaussian": "gaussian/g16-c01", "cpus_per_task": ncpu, "memory_per_task": mem, "time_hours": hours,
         "array": [f"frame_{i:04d}" for i in range(n)],
         "outputs": ["outputs/frame_NNNN.log", "outputs/frame_NNNN.seconds"],
         "files_sha256": {p.relative_to(out).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in files},

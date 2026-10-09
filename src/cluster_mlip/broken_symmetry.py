@@ -16,6 +16,17 @@ Patterns (0-based site indices from choose_sites, printed 1-based in sites.csv):
   P0Q, P1Q  as P0/P1 but charge-separated initialization: central Fe(-1), site A Fe(+1)
   C0   control: default (Harris) guess, Stable=Opt then Force, no fragment link
 
+Antiferromagnetic (AFM) patterns, each at its own natural M unless one is given:
+  A0   full AFM: the Fe-Fe bond graph split into two equal sublattices with the most
+       antiparallel bonds (central Fe alpha by convention); M = 1 for an even cluster
+  A1   A0 with the cheapest beta -> alpha flip (the beta site whose flip loses the fewest
+       antiparallel bonds): one step outward, M = 9 at four unpaired per Fe
+  A2   A1 with the next cheapest flip, M = 17
+  A1C  A0 with the central Fe reversed against its former sublattice (reported with the
+       majority alpha, so the central Fe stays alpha and A0's seven alpha shell sites are beta)
+Package 36 (2026-10-09) showed why: at M = 49 a flipped site has nowhere to go and the
+SCF collapsed to the ferromagnetic state; the interesting BS solutions are at low Ms.
+
 Fragment charges only set the electron count of each atomic guess (26 - q for
 Fe). They are not oxidation states, and the SCF decides the final charges.
 
@@ -28,6 +39,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import itertools
 import json
 import math
 from pathlib import Path
@@ -47,7 +59,9 @@ BS_EXTRA_COLUMNS = [
     "ideal_guess_s2", "stage_kind", "tandem_stages",
 ]
 PATTERNS = ("P0", "P1", "P2", "P3")
-ALL_PATTERNS = PATTERNS + ("P0Q", "P1Q", "C0")
+AFM_PATTERNS = ("A0", "A1", "A2", "A1C")
+ALL_PATTERNS = PATTERNS + ("P0Q", "P1Q", "C0") + AFM_PATTERNS
+AFM_MAX_ATOMS = 20  # the sublattice search enumerates every balanced split
 BOND_CUTOFF = 3.0  # Å, Fe-Fe neighbour cutoff for coordination numbers
 FLIP_UNPAIRED = 4  # a flipped neutral site starts as a beta quintet Fe
 # Allowed unpaired counts and the starting value, by Fe fragment charge.
@@ -86,6 +100,47 @@ def choose_sites(record: Record) -> dict[str, list[int]]:
     b = max(low, key=fp_gap)
     return {"P0": [], "P1": [central], "P2": [a], "P3": [b], "P0Q": [], "P1Q": [central], "C0": [],
             "_central": [central], "_surface_a": [a]}
+
+
+def afm_sites(record: Record) -> dict[str, list[int]]:
+    """0-based beta sites of the AFM patterns (see the module docstring).
+
+    Sublattices: every split into floor(n/2) beta and the rest alpha with the central Fe
+    alpha; most antiparallel bonds first, then the most antiparallel bond-length weight
+    (sum of cutoff - d, so short bonds count more), then the lowest beta indices.
+    """
+    n = len(record.atoms)
+    if n > AFM_MAX_ATOMS:
+        raise ValueError(f"AFM sublattice search enumerates every split; {n} atoms > {AFM_MAX_ATOMS}")
+    d = _distances(record)
+    cn = coordination(record)
+    edges = [(i, j) for i in range(n) for j in range(i + 1, n) if d[i][j] < BOND_CUTOFF]
+    central = choose_sites(record)["_central"][0]
+
+    def score(beta: set[int]) -> tuple[int, float]:
+        cut = [(i, j) for i, j in edges if (i in beta) != (j in beta)]
+        return len(cut), round(sum(BOND_CUTOFF - d[i][j] for i, j in cut), 9)
+
+    others = [i for i in range(n) if i != central]
+    a0 = set(max(itertools.combinations(others, n // 2),
+                 key=lambda beta: (*score(set(beta)), tuple(-i for i in beta))))
+
+    def cheapest_flip(beta: set[int]) -> int:
+        # flipping beta site i to alpha changes the antiparallel count by (beta nbrs - alpha nbrs)
+        def gain(i: int) -> tuple:
+            nbrs = [j for j in range(n) if j != i and d[i][j] < BOND_CUTOFF]
+            return (sum(j in beta for j in nbrs) - sum(j not in beta for j in nbrs), -cn[i], -i)
+        return max(beta, key=gain)
+
+    a1 = a0 - {cheapest_flip(a0)}
+    a2 = a1 - {cheapest_flip(a1)}
+    a1c = set(others) - a0
+    return {"A0": sorted(a0), "A1": sorted(a1), "A2": sorted(a2), "A1C": sorted(a1c)}
+
+
+def natural_multiplicity(record: Record, beta: list[int]) -> int:
+    """M of a pattern with FLIP_UNPAIRED unpaired electrons on every Fe, alpha or beta."""
+    return 1 + FLIP_UNPAIRED * abs(len(record.atoms) - 2 * len(beta))
 
 
 def pattern_charges(record: Record, pattern: str, sites: dict[str, list[int]]) -> dict[int, int]:
@@ -207,14 +262,16 @@ def manifest_rows(record: Record, job: TandemJob, pattern: str, sites: dict[str,
     return rows
 
 
-def site_table(record: Record, sites: dict[str, list[int]], reference_spins: dict[int, float] | None = None) -> list[dict]:
-    """Per-atom identity used to assign patterns: 1-based index, CN, radius, roles, reference spin."""
+def site_table(record: Record, sites: dict[str, list[int]], reference_spins: dict[int, float] | None = None,
+               patterns: tuple[str, ...] = PATTERNS) -> list[dict]:
+    """Per-atom identity used to assign patterns: 1-based index, CN, radius, the patterns in
+    which the site starts beta (P1-P3 and the AFM patterns requested), reference spin."""
     n = len(record.atoms)
     cn = coordination(record)
     cx = [sum(getattr(a, k) for a in record.atoms) / n for k in "xyz"]
     roles: dict[int, list[str]] = {}
-    for pattern in ("P1", "P2", "P3"):
-        for i in sites[pattern]:
+    for pattern in (p for p in ("P1", "P2", "P3") + AFM_PATTERNS if p in patterns):
+        for i in sites.get(pattern, []):
             roles.setdefault(i, []).append(pattern)
     rows = []
     for i, a in enumerate(record.atoms):
@@ -229,7 +286,7 @@ def site_table(record: Record, sites: dict[str, list[int]], reference_spins: dic
 
 
 def write_bs_jobs(
-    records: list[Record], output: Path, multiplicity: int,
+    records: list[Record], output: Path, multiplicity: int | None,
     patterns: tuple[str, ...] = PATTERNS, memory: str = "24GB", nproc: int = 12,
     level: LevelOfTheory = ARCHIVED_LEVEL, reference_spins: dict[str, dict[int, float]] | None = None,
 ) -> int:
@@ -238,16 +295,23 @@ def write_bs_jobs(
         raise ValueError(f"unknown BS patterns {unknown}; choose from {ALL_PATTERNS}")
     if output.exists() and any(output.iterdir()):
         raise RuntimeError(f"refusing to overwrite existing campaign {output}")
+    if multiplicity is None and any(p.startswith(("P", "C")) for p in patterns) and not set(patterns) & set(AFM_PATTERNS):
+        raise ValueError("P patterns need a fixed --multiplicity; only the AFM patterns have a natural one")
     files: list[tuple[str, str]] = []
     rows: list[dict[str, str]] = []
     sites_rows: list[dict] = []
     for record in records:
         sites = choose_sites(record)
-        sites_rows += site_table(record, sites, (reference_spins or {}).get(record.record_id))
+        if set(patterns) & set(AFM_PATTERNS):
+            sites.update(afm_sites(record))
+        sites_rows += site_table(record, sites, (reference_spins or {}).get(record.record_id), patterns)
         for pattern in patterns:
-            job, _, charges = make_job(record, multiplicity, pattern, sites, level, memory, nproc)
+            # without a fixed M, each AFM pattern takes its natural M; P patterns and the C0
+            # control then take A0's (the lowest)
+            m = multiplicity or natural_multiplicity(record, sites[pattern] if pattern in AFM_PATTERNS else sites["A0"])
+            job, _, charges = make_job(record, m, pattern, sites, level, memory, nproc)
             text = render_tandem(job)  # raises if the independent inspection finds any problem
-            name = f"{human_job_stem(record)}__bs-m{multiplicity}-{pattern.lower()}.gjf"
+            name = f"{human_job_stem(record)}__bs-m{m}-{pattern.lower()}.gjf"
             files.append((name, text))
             for row in manifest_rows(record, job, pattern, sites, charges):
                 row["input"] = f"inputs/{name}"

@@ -4,7 +4,9 @@ import re
 
 import pytest
 
-from cluster_mlip.broken_symmetry import choose_sites, fragment_assignment, make_job, write_bs_jobs
+from cluster_mlip.broken_symmetry import (
+    afm_sites, choose_sites, fragment_assignment, make_job, natural_multiplicity, write_bs_jobs,
+)
 from cluster_mlip.fragment_tandem import render_tandem
 from cluster_mlip.gaussian import parse_hirshfeld_table
 from cluster_mlip.models import Atom, Record
@@ -114,6 +116,50 @@ def test_write_bs_jobs_manifest(tmp_path):
     with pytest.raises(RuntimeError):
         write_bs_jobs([fe16()], out, 49)
 
+
+
+def test_afm_patterns_step_outward_from_two_equal_sublattices():
+    record = fe16()
+    sites = choose_sites(record)
+    afm = afm_sites(record)
+    central = sites["_central"][0]
+    assert len(afm["A0"]) == 8 and central not in afm["A0"]
+    assert set(afm["A1"]) < set(afm["A0"]) and len(afm["A1"]) == 7
+    assert set(afm["A2"]) < set(afm["A1"]) and len(afm["A2"]) == 6
+    assert set(afm["A1C"]) == set(range(16)) - set(afm["A0"]) - {central}
+    assert [natural_multiplicity(record, afm[p]) for p in ("A0", "A1", "A2", "A1C")] == [1, 9, 17, 9]
+    sites.update(afm)
+    for pattern, m, s2 in (("A0", 1, 32.0), ("A1", 9, 48.0), ("A2", 17, 96.0), ("A1C", 9, 48.0)):
+        job, signed, _ = make_job(record, m, pattern, sites)
+        assert [i for i, v in enumerate(signed) if v < 0] == afm[pattern]
+        assert all(abs(v) == 4 for v in signed)  # every Fe a quintet: no moment adjusted to reach M
+        assert job.plan.ideal_guess_s2 == s2
+        render_tandem(job)
+
+
+def test_afm_sublattices_maximise_antiparallel_bonds():
+    record = fe16()
+    afm = afm_sites(record)
+    d = [[((a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2) ** 0.5 for b in record.atoms] for a in record.atoms]
+    edges = [(i, j) for i in range(16) for j in range(i + 1, 16) if d[i][j] < 3.0]
+    central = choose_sites(record)["_central"][0]
+    cut = lambda beta: sum((i in beta) != (j in beta) for i, j in edges)
+    others = [i for i in range(16) if i != central]
+    assert cut(set(afm["A0"])) == max(cut(set(b)) for b in itertools.combinations(others, 8))
+
+
+def test_write_bs_jobs_afm_natural_multiplicities(tmp_path):
+    out = tmp_path / "afm"
+    assert write_bs_jobs([fe16()], out, None, ("A0", "A1", "A2", "A1C", "C0")) == 5
+    rows = list(csv.DictReader((out / "spin_jobs.csv").open(encoding="utf-8")))
+    by_pattern = {r["bs_pattern"]: r["intended_multiplicity"] for r in rows}
+    assert by_pattern == {"A0": "1", "A1": "9", "A2": "17", "A1C": "9", "C0": "1"}
+    assert sorted(p.name.split("__bs-")[1] for p in (out / "inputs").iterdir()) == [
+        "m1-a0.gjf", "m1-c0.gjf", "m17-a2.gjf", "m9-a1.gjf", "m9-a1c.gjf"]
+    sites = list(csv.DictReader((out / "sites.csv").open(encoding="utf-8")))
+    assert not any("P" in s["flipped_in"] for s in sites)
+    with pytest.raises(ValueError, match="fixed --multiplicity"):
+        write_bs_jobs([fe16()], tmp_path / "p", None, ("P1",))
 
 HIRSHFELD = """
  Hirshfeld charges, spin densities, dipoles, and CM5 charges using IRadAn=      4:
