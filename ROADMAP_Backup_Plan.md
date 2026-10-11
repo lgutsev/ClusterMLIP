@@ -154,6 +154,16 @@ Alternative guesses may converge to the same final electronic state. Verify dist
 
 Constrained magnetic datasets and magnetic derivative targets may ultimately be useful, but equilibrium Mulliken labels alone are not such a dataset. Do not infer magnetic forces from nuclear force tables.
 
+## Deferred lead: charge-embedded multifidelity MLIPs (2026-10-11)
+
+Reference: X. Wang, I. Mosquera-Lois, and A. Walsh, *Multifidelity Machine Learning Interatomic Potentials for Charged Point Defects*, PRX Energy **5**, 043001 (2026), https://doi.org/10.1103/tzwd-cl3y ; supporting data https://doi.org/10.5281/zenodo.22756145 .
+
+The authors add a global total-charge embedding to MACE and use semilocal/hybrid-DFT multifidelity training to resolve charge-dependent defect potential-energy surfaces in Sb2Se3. This is a **future methodology lead only** for ClusterMLIP, not a result established for Fe clusters or a reason to change the current workflow.
+
+- The present Fe16 baseline already conditions on global charge and multiplicity; determine whether the paper's embedding and multifidelity objective provide anything *incremental* over that baseline before adopting them. Charge-state conditioning is not the same as resolving multiple local-spin/broken-symmetry solutions at identical (Q, M).
+- Revisit only after the current audited training/held-out evaluation and electronic-state label work are resolved, or if a reproducible charge-state-specific error remains. Compare matched baselines with consistent splits, labels, training budgets, and errors by charge/multiplicity. Consider targeted high-level reference data only with a clear cost/benefit rationale.
+- No training, new Gaussian/VASP jobs, architecture implementation, branch merge, or resource expenditure is authorized by this note. Preserve the existing roadmap gates, especially the same-(Q,M) local-spin evidence requirement and separate authorization for the Section 8 pilot.
+
 ## Literature leads to verify before implementation
 
 These links are inherited research leads, not independently verified citations for this roadmap commit. Read the primary papers and record their exact scope and assumptions before adapting them.
