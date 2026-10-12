@@ -1,6 +1,6 @@
 # ROADMAP: Fe16 Backup Plan
 
-Updated: 2026-10-06.
+Updated: 2026-10-12.
 
 ## Decision and scope
 
@@ -163,6 +163,21 @@ The authors add a global total-charge embedding to MACE and use semilocal/hybrid
 - The present Fe16 baseline already conditions on global charge and multiplicity; determine whether the paper's embedding and multifidelity objective provide anything *incremental* over that baseline before adopting them. Charge-state conditioning is not the same as resolving multiple local-spin/broken-symmetry solutions at identical (Q, M).
 - Revisit only after the current audited training/held-out evaluation and electronic-state label work are resolved, or if a reproducible charge-state-specific error remains. Compare matched baselines with consistent splits, labels, training budgets, and errors by charge/multiplicity. Consider targeted high-level reference data only with a clear cost/benefit rationale.
 - No training, new Gaussian/VASP jobs, architecture implementation, branch merge, or resource expenditure is authorized by this note. Preserve the existing roadmap gates, especially the same-(Q,M) local-spin evidence requirement and separate authorization for the Section 8 pilot.
+
+## Deferred branch proposal: Fe–O basin hopping and structural active learning (2026-10-12)
+
+Reference: M. Slama, K. Issa, and M. Ben El Hadj Rhouma, *Geometric and energetic properties of Fe_n O_m nanoparticles*, *Physica Scripta* **101**, 415401 (2026), https://doi.org/10.1088/1402-4896/aea9d8 . The publisher abstract reports Monte Carlo / basin-hopping searches with an empirical potential model for stoichiometric (FeO)_n (n ≤ 16) and larger (Fe2O3)_n (n ≤ 100). It cites the group's earlier Fe–O cluster studies, including G. L. Gutsev et al., *Computational Materials Science* **137**, 134–143 (2017), https://doi.org/10.1016/j.commatsci.2017.05.028 . Only the abstract and bibliographic information were verified; the potential's exact form, coordinate availability and numerical comparisons require full-text inspection.
+
+**Disposition:** a **deferred, separate exploratory development branch**, tentatively `feat/fe-oxide-basin-hopping` (proposed name, not an existing/created branch). Low-to-medium priority; do not divert the ongoing Fe16 charge/multiplicity training, local-spin/BS pilot, or Gaussian label audits. An (FeO)_16 oxide cluster is chemically and magnetically distinct from elemental Fe16; this paper does not explain the latter's force-fitting difficulty or demonstrate charge/multiplicity-resolved BS states.
+
+If separately authorized later, scope the branch as follows:
+
+1. **Literature / benchmark audit.** Obtain the full paper and any supplemental structures/code; establish the potential formula, optimization settings, stoichiometries, units, and provenance. Compare reported (FeO)_12–16 candidate geometries and relative-energy rankings to the group's earlier DFT minima using structure matching and the same reference level where recalculation is justified. Do not infer DFT-level ordering from empirical-potential rankings.
+2. **Structure-generation prototype.** Explore ASE-compatible Monte Carlo/basin hopping as an *external candidate generator*, first on Fe–O clusters. Generate diverse low-energy and off-minimum geometries, track search seeds and composition, and filter near duplicates and pathological contacts. Keep generated structures clearly identified as **unlabelled candidates**, never as Gaussian energy/force labels.
+3. **Active-learning interface, design only.** Specify optional preliminary-MLIP screening, uncertainty/diversity selection, and preparation of candidate Gaussian fixed-geometry label inputs. Preserve explicit charge/multiplicity bookkeeping and electronic-state provenance. For fragment-based AFM/BS initialization, preserve validated tandem `--Link1--` inputs, fragment charges/local and total multiplicities, exact checkpoint/guess linkage, fixed nuclei, and `Stable=Opt` only in the **second** Link1 stage; audit generated files against working Gaussian examples before any submissions.
+4. **Stop/go deliverable.** Produce a short reproducible benchmark/prototype report (structures, method assumptions, command/configuration record, comparison to UBPW91, estimated labeling cost, and an integration proposal). A useful increment must improve structural coverage or recover a genuinely distinct DFT basin; otherwise archive the idea.
+
+This note authorizes **documentation only**. Do not create the proposed branch, launch structural searches, submit Gaussian jobs, mix empirical-potential energies/forces into the UBPW91 dataset, merge new code, or spend HPC resources without a separate implementation decision.
 
 ## Literature leads to verify before implementation
 
