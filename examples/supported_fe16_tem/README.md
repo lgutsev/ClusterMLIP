@@ -60,8 +60,14 @@ model (MACE-POLAR-1 / MACE-OMOL, or our own) for the gas-phase term.
 | E_int (frozen supported geometry) | −5.6 … −7.0 eV | −0.60 … −0.62 eV |
 | cluster strain | **+1.1 … +1.9 eV** | +0.005 … −0.70 eV |
 | support strain | +0.45 … +0.65 eV (sheet buckles 1.2–1.5 Å) | 0 |
-| cluster RMSD vs gas minimum | 0.36 … 1.0 Å | 0.01 … 0.75 Å |
+| cluster RMSD vs gas minimum¹ | 0.36 … 1.0 Å | 0.01 … 0.75 Å |
 | closest Fe–support contact | 2.2 Å (Fe–C) | **3.4 Å (no Fe–O bond)** |
+
+¹ Same atom order (how far atoms moved). With the best atom mapping
+(`cluster-mlip geometry-check`, `docs/geometry-verification.md`), the shape change
+is 0.23 … 0.52 Å on graphene and 0.01 … 0.46 Å on MgO. The stored `height`
+is measured from the highest support atom; on the buckled sheet, the local
+Fe–sheet height is 1.9–2.0 Å.
 
 On graphene the cluster strain alone (1–2 eV) is larger than the gas-phase gaps
 (0.24 and 0.71 eV), so the support can reorder the isomers: the gas-phase global
@@ -74,7 +80,8 @@ conclusion "not a perturbation" holds well outside that noise.
 3.4 Å above the surface with only D3 attraction (E_int ≈ −0.61 eV for every
 isomer), whereas DFT studies of Fe on MgO(100) typically find O-site binding at ~2.0–2.1 Å with real chemical
 bonding. The negative "strain" means every higher basin simply relaxed into B0
-once it was nudged. Treat the MgO rows as evidence that the foundation model lacks
+once it was nudged (verified geometrically: all seven landed clusters are within
+0.019 Å shape RMSD of gas B0). Treat the MgO rows as evidence that the foundation model lacks
 Fe/oxide interface chemistry — exactly the gap the ΔE_interaction term has to be
 trained to fill (VASP labels).
 

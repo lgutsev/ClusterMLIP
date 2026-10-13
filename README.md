@@ -1083,6 +1083,30 @@ cluster-mlip vasp-collect vasp_campaign -o vasp_labels
 `SubtractiveInteraction` and a per-multiplicity relaxation helper. The worked example is
 `examples/supported_fe16_tem` (section 5 of its README).
 
+## Structural evidence: `geometry-check`
+
+Structural claims (close contacts, coordination, adsorption site, adsorbate
+orientation, rearrangement, "relaxed into the same isomer") should come from
+computed distances, not from reading coordinate listings. `geometry-check`
+(needs `.[geometry]`: numpy, scipy, ASE) writes a JSON report with every cutoff
+it used:
+
+```bash
+# one structure: contacts, coordination, shape, sites, adsorbate
+cluster-mlip geometry-check supported.extxyz@4 --substrate 0:192 --site-elements O --metal Fe -o b4.json
+# isolated clusters: optimal atom mapping + proper superposition (no reflections)
+cluster-mlip geometry-check a.xyz --compare b.xyz --adsorbate 16:18 -o a_vs_b.json
+```
+
+Defaults: bonded `d <= 1.2 (r_i + r_j)` (Cordero radii, same as `stratify`),
+close contact `d < 0.6 (r_i + r_j)`, minimum image along periodic axes, groups
+unwrapped across cell edges. With `--substrate`, `--compare` assumes the same atom
+order and reports both trajectory RMSD (same order) and shape RMSD (best mapping).
+On oxides pass the anion as `--site-elements`, otherwise metal–cation pairs inside
+the covalent cutoff inflate site counts. Geometry does not establish oxidation
+states, local spins, broken-symmetry roots or barriers. Coverage, conventions and
+a worked Fe16/MgO/graphene comparison are in `docs/geometry-verification.md`.
+
 ## Model and data storage
 
 Keep code, small configs, manifests, and reports in Git. Keep raw warehouses,
