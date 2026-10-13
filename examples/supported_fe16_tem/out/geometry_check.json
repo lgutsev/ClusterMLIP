@@ -1,0 +1,1110 @@
+{
+ "definitions": {
+  "stored.rmsd_vs_gas": "s2_relax.kabsch_rmsd: same atom order (index i -> i), proper Kabsch; = how far atoms moved from the landed gas basin",
+  "stored.height": "min cluster z minus max z of ANY support atom (s2_relax)",
+  "stored.n_contact": "cluster atoms with z < max support z + 2.8 A (s2_relax)",
+  "trajectory_rmsd": "same as stored.rmsd_vs_gas, recomputed after unwrapping the cluster",
+  "shape_rmsd_own_gas": "best element-preserving mapping (heuristic multi-start), proper Kabsch, vs the gas basin that was landed",
+  "shape_rmsd_gas_B0": "same, vs gas basin B0",
+  "local_min_height": "min over Fe of z minus mean z of surface atoms within 3 A laterally",
+  "bonded": "d <= tol * (r_i + r_j), Cordero radii (Fe 1.52, O 0.66, C 0.76); default tol 1.2"
+ },
+ "matching": {
+  "method": "multi-start Hungarian+Kabsch (heuristic, no error bound)",
+  "max_iter": 50,
+  "random_starts": 64,
+  "seed": 0
+ },
+ "caveat": "Geometry only; does not establish electronic state, spin, oxidation state or energy basin.",
+ "MgO100": {
+  "B0": {
+   "gas_basin": "B0 (D00)",
+   "stored": {
+    "rmsd_vs_gas": 0.0105,
+    "height": 3.3251,
+    "n_contact": 0
+   },
+   "trajectory_rmsd": 0.0105,
+   "shape_rmsd_own_gas": 0.0104,
+   "shape_rmsd_gas_B0": 0.0104,
+   "local_min_height": {
+    "i": 199,
+    "h": 3.3729
+   },
+   "surface_z_range": [
+    5.1998,
+    5.2805
+   ],
+   "closest_fe_support": {
+    "i": 199,
+    "j": 131,
+    "pair": "Fe-O",
+    "d": 3.3829,
+    "bond_cutoff": 2.616
+   },
+   "n_fe_within_bond_cutoff": 0,
+   "site_labels": {},
+   "fe_fe_bonded": {
+    "n": 54,
+    "min": 2.3283,
+    "max": 2.8157,
+    "mean": 2.5895
+   },
+   "connectivity_change_vs_own_gas": [
+    {
+     "tolerance": 1.1,
+     "formed": 0,
+     "broken": 0,
+     "pair_types": []
+    },
+    {
+     "tolerance": 1.15,
+     "formed": 0,
+     "broken": 0,
+     "pair_types": []
+    },
+    {
+     "tolerance": 1.2,
+     "formed": 0,
+     "broken": 0,
+     "pair_types": []
+    },
+    {
+     "tolerance": 1.25,
+     "formed": 0,
+     "broken": 0,
+     "pair_types": []
+    },
+    {
+     "tolerance": 1.3,
+     "formed": 0,
+     "broken": 0,
+     "pair_types": []
+    }
+   ]
+  },
+  "B1": {
+   "gas_basin": "B1 (D04)",
+   "stored": {
+    "rmsd_vs_gas": 0.2968,
+    "height": 3.3691,
+    "n_contact": 0
+   },
+   "trajectory_rmsd": 0.2968,
+   "shape_rmsd_own_gas": 0.2892,
+   "shape_rmsd_gas_B0": 0.0158,
+   "local_min_height": {
+    "i": 204,
+    "h": 3.4143
+   },
+   "surface_z_range": [
+    5.2011,
+    5.2781
+   ],
+   "closest_fe_support": {
+    "i": 204,
+    "j": 119,
+    "pair": "Fe-O",
+    "d": 3.3969,
+    "bond_cutoff": 2.616
+   },
+   "n_fe_within_bond_cutoff": 0,
+   "site_labels": {},
+   "fe_fe_bonded": {
+    "n": 54,
+    "min": 2.3316,
+    "max": 2.8119,
+    "mean": 2.5894
+   },
+   "connectivity_change_vs_own_gas": [
+    {
+     "tolerance": 1.1,
+     "formed": 2,
+     "broken": 0,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.15,
+     "formed": 1,
+     "broken": 1,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.2,
+     "formed": 0,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.25,
+     "formed": 0,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.3,
+     "formed": 0,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    }
+   ]
+  },
+  "B2": {
+   "gas_basin": "B2 (D60)",
+   "stored": {
+    "rmsd_vs_gas": 0.4279,
+    "height": 3.4055,
+    "n_contact": 0
+   },
+   "trajectory_rmsd": 0.4279,
+   "shape_rmsd_own_gas": 0.4279,
+   "shape_rmsd_gas_B0": 0.0192,
+   "local_min_height": {
+    "i": 197,
+    "h": 3.4518
+   },
+   "surface_z_range": [
+    5.2013,
+    5.2774
+   ],
+   "closest_fe_support": {
+    "i": 197,
+    "j": 131,
+    "pair": "Fe-O",
+    "d": 3.4727,
+    "bond_cutoff": 2.616
+   },
+   "n_fe_within_bond_cutoff": 0,
+   "site_labels": {},
+   "fe_fe_bonded": {
+    "n": 54,
+    "min": 2.3265,
+    "max": 2.8298,
+    "mean": 2.5902
+   },
+   "connectivity_change_vs_own_gas": [
+    {
+     "tolerance": 1.1,
+     "formed": 2,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.15,
+     "formed": 2,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.2,
+     "formed": 2,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.25,
+     "formed": 2,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.3,
+     "formed": 0,
+     "broken": 5,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    }
+   ]
+  },
+  "B3": {
+   "gas_basin": "B3 (D50)",
+   "stored": {
+    "rmsd_vs_gas": 0.5312,
+    "height": 3.4303,
+    "n_contact": 0
+   },
+   "trajectory_rmsd": 0.5312,
+   "shape_rmsd_own_gas": 0.4472,
+   "shape_rmsd_gas_B0": 0.017,
+   "local_min_height": {
+    "i": 202,
+    "h": 3.4742
+   },
+   "surface_z_range": [
+    5.2014,
+    5.2752
+   ],
+   "closest_fe_support": {
+    "i": 202,
+    "j": 81,
+    "pair": "Fe-O",
+    "d": 3.5246,
+    "bond_cutoff": 2.616
+   },
+   "n_fe_within_bond_cutoff": 0,
+   "site_labels": {},
+   "fe_fe_bonded": {
+    "n": 54,
+    "min": 2.3304,
+    "max": 2.8171,
+    "mean": 2.5902
+   },
+   "connectivity_change_vs_own_gas": [
+    {
+     "tolerance": 1.1,
+     "formed": 2,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.15,
+     "formed": 2,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.2,
+     "formed": 2,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.25,
+     "formed": 2,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.3,
+     "formed": 0,
+     "broken": 6,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    }
+   ]
+  },
+  "B4": {
+   "gas_basin": "B4 (D61)",
+   "stored": {
+    "rmsd_vs_gas": 0.7549,
+    "height": 3.4027,
+    "n_contact": 0
+   },
+   "trajectory_rmsd": 0.7549,
+   "shape_rmsd_own_gas": 0.446,
+   "shape_rmsd_gas_B0": 0.0185,
+   "local_min_height": {
+    "i": 207,
+    "h": 3.4457
+   },
+   "surface_z_range": [
+    5.2015,
+    5.2756
+   ],
+   "closest_fe_support": {
+    "i": 207,
+    "j": 81,
+    "pair": "Fe-O",
+    "d": 3.4492,
+    "bond_cutoff": 2.616
+   },
+   "n_fe_within_bond_cutoff": 0,
+   "site_labels": {},
+   "fe_fe_bonded": {
+    "n": 54,
+    "min": 2.3196,
+    "max": 2.8145,
+    "mean": 2.5897
+   },
+   "connectivity_change_vs_own_gas": [
+    {
+     "tolerance": 1.1,
+     "formed": 2,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.15,
+     "formed": 2,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.2,
+     "formed": 2,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.25,
+     "formed": 2,
+     "broken": 3,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.3,
+     "formed": 0,
+     "broken": 5,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    }
+   ]
+  },
+  "B5": {
+   "gas_basin": "B5 (D16)",
+   "stored": {
+    "rmsd_vs_gas": 0.4684,
+    "height": 3.4126,
+    "n_contact": 0
+   },
+   "trajectory_rmsd": 0.4684,
+   "shape_rmsd_own_gas": 0.4598,
+   "shape_rmsd_gas_B0": 0.0123,
+   "local_min_height": {
+    "i": 194,
+    "h": 3.4589
+   },
+   "surface_z_range": [
+    5.2006,
+    5.2769
+   ],
+   "closest_fe_support": {
+    "i": 194,
+    "j": 119,
+    "pair": "Fe-O",
+    "d": 3.4757,
+    "bond_cutoff": 2.616
+   },
+   "n_fe_within_bond_cutoff": 0,
+   "site_labels": {},
+   "fe_fe_bonded": {
+    "n": 54,
+    "min": 2.3286,
+    "max": 2.8202,
+    "mean": 2.5896
+   },
+   "connectivity_change_vs_own_gas": [
+    {
+     "tolerance": 1.1,
+     "formed": 2,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.15,
+     "formed": 2,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.2,
+     "formed": 2,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.25,
+     "formed": 2,
+     "broken": 3,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.3,
+     "formed": 0,
+     "broken": 6,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    }
+   ]
+  },
+  "B6": {
+   "gas_basin": "B6 (D24)",
+   "stored": {
+    "rmsd_vs_gas": 0.4647,
+    "height": 3.4618,
+    "n_contact": 0
+   },
+   "trajectory_rmsd": 0.4647,
+   "shape_rmsd_own_gas": 0.4572,
+   "shape_rmsd_gas_B0": 0.0127,
+   "local_min_height": {
+    "i": 194,
+    "h": 3.5055
+   },
+   "surface_z_range": [
+    5.2009,
+    5.2732
+   ],
+   "closest_fe_support": {
+    "i": 194,
+    "j": 119,
+    "pair": "Fe-O",
+    "d": 3.5253,
+    "bond_cutoff": 2.616
+   },
+   "n_fe_within_bond_cutoff": 0,
+   "site_labels": {},
+   "fe_fe_bonded": {
+    "n": 54,
+    "min": 2.3289,
+    "max": 2.8173,
+    "mean": 2.5896
+   },
+   "connectivity_change_vs_own_gas": [
+    {
+     "tolerance": 1.1,
+     "formed": 2,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.15,
+     "formed": 2,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.2,
+     "formed": 2,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.25,
+     "formed": 2,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.3,
+     "formed": 0,
+     "broken": 6,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    }
+   ]
+  }
+ },
+ "graphene": {
+  "B0": {
+   "gas_basin": "B0 (D00)",
+   "stored": {
+    "rmsd_vs_gas": 0.3607,
+    "height": 0.8004,
+    "n_contact": 9
+   },
+   "trajectory_rmsd": 0.3607,
+   "shape_rmsd_own_gas": 0.3607,
+   "shape_rmsd_gas_B0": 0.3607,
+   "local_min_height": {
+    "i": 168,
+    "h": 1.9489
+   },
+   "surface_z_range": [
+    -0.0694,
+    1.3234
+   ],
+   "closest_fe_support": {
+    "i": 169,
+    "j": 90,
+    "pair": "Fe-C",
+    "d": 2.2142,
+    "bond_cutoff": 2.736
+   },
+   "n_fe_within_bond_cutoff": 5,
+   "site_labels": {
+    "irregular-3:C3": 3,
+    "irregular-6:C6": 2
+   },
+   "fe_fe_bonded": {
+    "n": 55,
+    "min": 2.1888,
+    "max": 3.5857,
+    "mean": 2.6044
+   },
+   "connectivity_change_vs_own_gas": [
+    {
+     "tolerance": 1.1,
+     "formed": 1,
+     "broken": 1,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.15,
+     "formed": 1,
+     "broken": 1,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.2,
+     "formed": 2,
+     "broken": 1,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.25,
+     "formed": 2,
+     "broken": 1,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.3,
+     "formed": 7,
+     "broken": 0,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    }
+   ]
+  },
+  "B1": {
+   "gas_basin": "B1 (D04)",
+   "stored": {
+    "rmsd_vs_gas": 0.457,
+    "height": 0.9986,
+    "n_contact": 7
+   },
+   "trajectory_rmsd": 0.457,
+   "shape_rmsd_own_gas": 0.2337,
+   "shape_rmsd_gas_B0": 0.3527,
+   "local_min_height": {
+    "i": 163,
+    "h": 1.954
+   },
+   "surface_z_range": [
+    0.2245,
+    1.4034
+   ],
+   "closest_fe_support": {
+    "i": 172,
+    "j": 90,
+    "pair": "Fe-C",
+    "d": 2.2149,
+    "bond_cutoff": 2.736
+   },
+   "n_fe_within_bond_cutoff": 5,
+   "site_labels": {
+    "irregular-6:C6": 2,
+    "irregular-2:C2": 1,
+    "irregular-3:C3": 1,
+    "irregular-4:C4": 1
+   },
+   "fe_fe_bonded": {
+    "n": 55,
+    "min": 2.1964,
+    "max": 3.5831,
+    "mean": 2.6024
+   },
+   "connectivity_change_vs_own_gas": [
+    {
+     "tolerance": 1.1,
+     "formed": 2,
+     "broken": 0,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.15,
+     "formed": 0,
+     "broken": 0,
+     "pair_types": []
+    },
+    {
+     "tolerance": 1.2,
+     "formed": 1,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.25,
+     "formed": 1,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.3,
+     "formed": 6,
+     "broken": 0,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    }
+   ]
+  },
+  "B2": {
+   "gas_basin": "B2 (D60)",
+   "stored": {
+    "rmsd_vs_gas": 0.6128,
+    "height": 0.8513,
+    "n_contact": 10
+   },
+   "trajectory_rmsd": 0.6128,
+   "shape_rmsd_own_gas": 0.4447,
+   "shape_rmsd_gas_B0": 0.4256,
+   "local_min_height": {
+    "i": 163,
+    "h": 1.9164
+   },
+   "surface_z_range": [
+    -0.009,
+    1.3019
+   ],
+   "closest_fe_support": {
+    "i": 163,
+    "j": 70,
+    "pair": "Fe-C",
+    "d": 2.1682,
+    "bond_cutoff": 2.736
+   },
+   "n_fe_within_bond_cutoff": 6,
+   "site_labels": {
+    "irregular-2:C2": 2,
+    "irregular-4:C4": 1,
+    "irregular-6:C6": 3
+   },
+   "fe_fe_bonded": {
+    "n": 56,
+    "min": 2.149,
+    "max": 3.4194,
+    "mean": 2.6145
+   },
+   "connectivity_change_vs_own_gas": [
+    {
+     "tolerance": 1.1,
+     "formed": 3,
+     "broken": 3,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.15,
+     "formed": 3,
+     "broken": 1,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.2,
+     "formed": 3,
+     "broken": 1,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.25,
+     "formed": 3,
+     "broken": 1,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.3,
+     "formed": 2,
+     "broken": 5,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    }
+   ]
+  },
+  "B3": {
+   "gas_basin": "B3 (D50)",
+   "stored": {
+    "rmsd_vs_gas": 0.6654,
+    "height": 0.8668,
+    "n_contact": 7
+   },
+   "trajectory_rmsd": 0.6654,
+   "shape_rmsd_own_gas": 0.4432,
+   "shape_rmsd_gas_B0": 0.3548,
+   "local_min_height": {
+    "i": 166,
+    "h": 1.9608
+   },
+   "surface_z_range": [
+    0.0248,
+    1.2999
+   ],
+   "closest_fe_support": {
+    "i": 163,
+    "j": 93,
+    "pair": "Fe-C",
+    "d": 2.2563,
+    "bond_cutoff": 2.736
+   },
+   "n_fe_within_bond_cutoff": 5,
+   "site_labels": {
+    "irregular-4:C4": 1,
+    "hollow-4:C4": 1,
+    "irregular-6:C6": 1,
+    "hollow-3:C3": 1,
+    "bridge:C2": 1
+   },
+   "fe_fe_bonded": {
+    "n": 55,
+    "min": 2.2124,
+    "max": 3.6079,
+    "mean": 2.6024
+   },
+   "connectivity_change_vs_own_gas": [
+    {
+     "tolerance": 1.1,
+     "formed": 1,
+     "broken": 1,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.15,
+     "formed": 1,
+     "broken": 1,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.2,
+     "formed": 2,
+     "broken": 1,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.25,
+     "formed": 3,
+     "broken": 1,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.3,
+     "formed": 6,
+     "broken": 5,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    }
+   ]
+  },
+  "B4": {
+   "gas_basin": "B4 (D61)",
+   "stored": {
+    "rmsd_vs_gas": 0.4361,
+    "height": 0.767,
+    "n_contact": 7
+   },
+   "trajectory_rmsd": 0.4361,
+   "shape_rmsd_own_gas": 0.4361,
+   "shape_rmsd_gas_B0": 0.4184,
+   "local_min_height": {
+    "i": 164,
+    "h": 1.96
+   },
+   "surface_z_range": [
+    -0.0943,
+    1.2627
+   ],
+   "closest_fe_support": {
+    "i": 164,
+    "j": 69,
+    "pair": "Fe-C",
+    "d": 2.2278,
+    "bond_cutoff": 2.736
+   },
+   "n_fe_within_bond_cutoff": 6,
+   "site_labels": {
+    "hollow-3:C3": 1,
+    "irregular-4:C4": 1,
+    "irregular-2:C2": 1,
+    "irregular-6:C6": 2,
+    "irregular-3:C3": 1
+   },
+   "fe_fe_bonded": {
+    "n": 56,
+    "min": 2.1558,
+    "max": 3.4588,
+    "mean": 2.6128
+   },
+   "connectivity_change_vs_own_gas": [
+    {
+     "tolerance": 1.1,
+     "formed": 2,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.15,
+     "formed": 3,
+     "broken": 1,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.2,
+     "formed": 3,
+     "broken": 1,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.25,
+     "formed": 4,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.3,
+     "formed": 5,
+     "broken": 4,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    }
+   ]
+  },
+  "B5": {
+   "gas_basin": "B5 (D16)",
+   "stored": {
+    "rmsd_vs_gas": 0.7038,
+    "height": 0.6233,
+    "n_contact": 9
+   },
+   "trajectory_rmsd": 0.7038,
+   "shape_rmsd_own_gas": 0.4111,
+   "shape_rmsd_gas_B0": 0.4038,
+   "local_min_height": {
+    "i": 169,
+    "h": 1.9307
+   },
+   "surface_z_range": [
+    -0.1543,
+    1.3443
+   ],
+   "closest_fe_support": {
+    "i": 169,
+    "j": 69,
+    "pair": "Fe-C",
+    "d": 2.249,
+    "bond_cutoff": 2.736
+   },
+   "n_fe_within_bond_cutoff": 6,
+   "site_labels": {
+    "irregular-6:C6": 1,
+    "irregular-4:C4": 1,
+    "hollow-4:C4": 1,
+    "irregular-3:C3": 2,
+    "irregular-2:C2": 1
+   },
+   "fe_fe_bonded": {
+    "n": 56,
+    "min": 2.1358,
+    "max": 3.4502,
+    "mean": 2.6151
+   },
+   "connectivity_change_vs_own_gas": [
+    {
+     "tolerance": 1.1,
+     "formed": 3,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.15,
+     "formed": 3,
+     "broken": 1,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.2,
+     "formed": 3,
+     "broken": 1,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.25,
+     "formed": 3,
+     "broken": 1,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.3,
+     "formed": 4,
+     "broken": 3,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    }
+   ]
+  },
+  "B6": {
+   "gas_basin": "B6 (D24)",
+   "stored": {
+    "rmsd_vs_gas": 0.9979,
+    "height": 0.7617,
+    "n_contact": 6
+   },
+   "trajectory_rmsd": 0.9979,
+   "shape_rmsd_own_gas": 0.5217,
+   "shape_rmsd_gas_B0": 0.2871,
+   "local_min_height": {
+    "i": 165,
+    "h": 1.9218
+   },
+   "surface_z_range": [
+    -0.3078,
+    1.0844
+   ],
+   "closest_fe_support": {
+    "i": 165,
+    "j": 90,
+    "pair": "Fe-C",
+    "d": 2.214,
+    "bond_cutoff": 2.736
+   },
+   "n_fe_within_bond_cutoff": 6,
+   "site_labels": {
+    "irregular-4:C4": 2,
+    "irregular-2:C2": 2,
+    "hollow-3:C3": 1,
+    "bridge:C2": 1
+   },
+   "fe_fe_bonded": {
+    "n": 58,
+    "min": 2.1455,
+    "max": 3.4949,
+    "mean": 2.6472
+   },
+   "connectivity_change_vs_own_gas": [
+    {
+     "tolerance": 1.1,
+     "formed": 4,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.15,
+     "formed": 6,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.2,
+     "formed": 6,
+     "broken": 2,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.25,
+     "formed": 6,
+     "broken": 1,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    },
+    {
+     "tolerance": 1.3,
+     "formed": 3,
+     "broken": 3,
+     "pair_types": [
+      "Fe-Fe"
+     ]
+    }
+   ]
+  }
+ }
+}

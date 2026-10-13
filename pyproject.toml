@@ -12,6 +12,8 @@ dependencies = []
 [project.optional-dependencies]
 # Geometric mapping for the optional, read-only local-spin label audit.
 audit = ["numpy>=1.23"]
+# Computed structural evidence (`cluster-mlip geometry-check`, geometry_checks.py).
+geometry = ["numpy>=1.23", "scipy>=1.9", "ase>=3.22"]
 # Needed only to *run* the scripts `cluster-mlip train` generates (and the
 # frozen `configs/*.sh` references), and for `cluster-mlip evaluate` /
 # `select-next-batch` (committee inference). `cluster-mlip train` itself only

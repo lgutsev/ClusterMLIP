@@ -1083,6 +1083,37 @@ cluster-mlip vasp-collect vasp_campaign -o vasp_labels
 `SubtractiveInteraction` and a per-multiplicity relaxation helper. The worked example is
 `examples/supported_fe16_tem` (section 5 of its README).
 
+## Structural evidence: `geometry-check`
+
+Structural claims (close contacts, coordination, adsorption site, adsorbate
+orientation, rearrangement, "relaxed into the same isomer") should come from
+computed distances, not from reading coordinate listings. `geometry-check`
+(needs `.[geometry]`: numpy, scipy, ASE) writes a JSON report with every cutoff
+it used:
+
+```bash
+# one structure: contacts, coordination, shape, sites, adsorbate
+cluster-mlip geometry-check supported.extxyz@4 --substrate 0:192 --site-elements O --metal Fe -o b4.json
+# isolated clusters: optimal atom mapping + proper superposition (no reflections)
+cluster-mlip geometry-check a.xyz --compare b.xyz --adsorbate 16:18 -o a_vs_b.json
+```
+
+Defaults: bonded `d <= 1.2 (r_i + r_j)` (Cordero radii, same as `stratify`),
+close contact `d < 0.6 (r_i + r_j)`, minimum image along periodic axes, groups
+unwrapped across cell edges. With `--substrate`, `--compare` assumes the same atom
+order and reports both trajectory RMSD (same order) and shape RMSD (best mapping).
+"Bond" here means the cutoff-defined connectivity graph. Comparisons include
+formed/broken counts across tolerances 1.10–1.30. Pass `--site-elements` on ionic
+supports (the anion, e.g. `O` on MgO); otherwise cations inside the covalent cutoff
+enter the site pattern. Site labels are ideal (`top`, `bridge`, `hollow-n`) only
+for ideal patterns. Otherwise they are reported as `irregular-n` with the reason
+(off-centre, atom-beneath, buckled). Isolated-cluster atom matching is a heuristic
+multi-start search (64 random rotations, seed 0, recorded in the output) with no
+error bound. Use `audit-spin-labels` (exhaustive `spin_audit.alignments`) for
+exact-identity claims. Geometry does not establish oxidation states, local spins,
+broken-symmetry roots, energy basins or barriers. Coverage, conventions and
+a worked Fe16/MgO/graphene comparison are in `docs/geometry-verification.md`.
+
 ## Model and data storage
 
 Keep code, small configs, manifests, and reports in Git. Keep raw warehouses,

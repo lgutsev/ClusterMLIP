@@ -441,6 +441,14 @@ def command_audit_spin_labels(args: argparse.Namespace) -> int:
     return run_audit(args)
 
 
+def command_geometry_check(args: argparse.Namespace) -> int:
+    try:
+        from .geometry_checks import run_cli
+    except ImportError as exc:
+        raise RuntimeError("geometry-check needs numpy, scipy and ase; install '.[geometry]'") from exc
+    return run_cli(args)
+
+
 def _label_stage_frames(members: list[LabeledFrame]) -> None:
     """Relabel the force frames of one job/spin stage one by one
     (routes.frame_label): the first is the stage's starting geometry, the last
@@ -1643,6 +1651,24 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--mapping-budget", type=int, default=100000, help="backtracking nodes per alignment search")
     p.add_argument("--max-pairs", type=int, default=5000000, help="candidate-pair work limit; exit 2 and report if exceeded")
     p.set_defaults(func=command_audit_spin_labels)
+    g = sub.add_parser(
+        "geometry-check",
+        help="computed contacts, coordination, sites, adsorbate geometry and mapped comparisons (needs ase)",
+    )
+    g.add_argument("structure", help="any ASE-readable file; 'path@index' selects a frame (default last)")
+    g.add_argument("--compare", help="second structure; isolated: optimal atom mapping + superposition, "
+                   "supported (--substrate given): same atom order, substrate frame, minimum image")
+    g.add_argument("--substrate", help="0-based substrate indices, e.g. '0:192'")
+    g.add_argument("--adsorbate", help="0-based adsorbate indices, e.g. '208:210'; the rest is cluster")
+    g.add_argument("--site-elements", help="surface elements that define adsorption sites, e.g. 'O' on MgO "
+                   "(default: all; metal-cation 'bonds' inflate site counts on oxides)")
+    g.add_argument("--metal", help="element whose bonded like-pair distances are summarized, e.g. Fe")
+    g.add_argument("--bond-tolerance", type=float, default=1.2, help="bonded if d <= tol*(r_i+r_j) (default 1.2)")
+    g.add_argument("--close-contact-scale", type=float, default=0.6,
+                   help="flag d < scale*(r_i+r_j) (default 0.6)")
+    g.add_argument("--fail-on-close-contact", action="store_true", help="exit 1 if any close contact is flagged")
+    g.add_argument("-o", "--output", help="JSON report path (default: print)")
+    g.set_defaults(func=command_geometry_check)
     return parser
 
 
