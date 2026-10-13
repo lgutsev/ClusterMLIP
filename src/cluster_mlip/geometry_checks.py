@@ -23,7 +23,16 @@ Conventions (all reported back in the output so the numbers can be re-derived):
   a cell boundary; groups wider than half a periodic cell length are refused.
 - Atom correspondence for isolated clusters: element-preserving Hungarian
   assignment alternated with proper (det=+1) Kabsch rotation, from several
-  starts; the lowest-RMSD mapping wins. Reflections are never used.
+  starts; the lowest-RMSD mapping wins. Reflections are never used. This is a
+  heuristic search: it has no error bound and does not prove the global
+  optimum. Its settings (starts, seed, iterations) are returned with every
+  result so a run can be reproduced. Exact-identity claims belong to the
+  exhaustive spin_audit.alignments.
+- "Bond" always means the cutoff-defined connectivity graph above, an
+  operational geometric criterion, not a chemical-bonding assignment.
+- Adsorption-site labels (top/bridge/hollow-n) are given only when the
+  contact pattern is close to ideal; anything else is reported as
+  irregular-n with the reason, never forced into an ideal label.
 - Supported systems are compared in the substrate frame: no rotation, the
   rigid lateral drift of the substrate is removed, displacements use the
   minimum image.
@@ -273,18 +282,26 @@ def _assign(x: np.ndarray, y: np.ndarray, sx: list[str], sy: list[str],
     return perm
 
 
-def match_atoms(reference: Atoms, moving: Atoms, max_iter: int = 50,
-                random_starts: int = 64) -> dict[str, Any]:
+MATCH_DEFAULTS = {"max_iter": 50, "random_starts": 64, "seed": 0}
+
+
+def match_atoms(reference: Atoms, moving: Atoms, max_iter: int = MATCH_DEFAULTS["max_iter"],
+                random_starts: int = MATCH_DEFAULTS["random_starts"],
+                seed: int = MATCH_DEFAULTS["seed"]) -> dict[str, Any]:
     """Atom correspondence + optimal proper superposition of two isolated clusters.
 
-    Starts: distance-fingerprint assignment, identity order, and the four
-    proper principal-axis frames. Each start alternates Kabsch and Hungarian
-    assignment until the mapping is stable. Returns perm (moving index for each
-    reference atom), rotation, RMSD, max and per-atom displacement.
+    Starts: distance-fingerprint assignment, identity order, the four proper
+    principal-axis frames and `random_starts` rotations drawn with `seed`.
+    Each start alternates Kabsch and Hungarian assignment until the mapping
+    repeats (at most `max_iter` rounds). Returns perm (moving index for each
+    reference atom), rotation, RMSD, max and per-atom displacement, and the
+    search settings.
 
-    Heuristic, not exhaustive: on near-spherical clusters different starts can
-    land within ~1e-3 A of each other. For exact-identity claims use the
-    exhaustive spin_audit.alignments instead.
+    Heuristic: the result is the best mapping among these starts, not a
+    proven global optimum, and there is no error bound. Agreement between
+    forward and reverse searches (observed within ~1e-3 A on near-spherical
+    Fe16) is a consistency check only. For exact-identity claims use the
+    exhaustive spin_audit.alignments.
     """
     sx, sy = reference.get_chemical_symbols(), moving.get_chemical_symbols()
     if sorted(sx) != sorted(sy):
@@ -318,7 +335,7 @@ def match_atoms(reference: Atoms, moving: Atoms, max_iter: int = 50,
     # Near-spherical clusters (Fe16) have nearly degenerate principal moments,
     # so the axis frames above are unstable; fixed-seed random rotations make
     # the search reproducible and keep it out of local optima.
-    for rot in Rotation.random(random_starts, random_state=0).as_matrix():
+    for rot in Rotation.random(random_starts, random_state=seed).as_matrix() if random_starts else []:
         starts.append(_assign(x, y @ rot, sx, sy))
 
     best: dict[str, Any] | None = None
@@ -339,6 +356,8 @@ def match_atoms(reference: Atoms, moving: Atoms, max_iter: int = 50,
     assert best is not None
     # Independent, mapping-free cross-check: sorted same-element-pair distances.
     best["fingerprint_rms"] = _fingerprint_rms(reference, moving)
+    best["search"] = {"method": "multi-start Hungarian+Kabsch (heuristic)", "n_starts": len(starts),
+                      "random_starts": random_starts, "seed": seed, "max_iter": max_iter}
     return best
 
 
@@ -402,25 +421,35 @@ def surface_layer(atoms: Atoms, substrate: Sequence[int], column_radius: float =
 def site_report(atoms: Atoms, group: Sequence[int], substrate: Sequence[int],
                 tolerance: float = DEFAULT_BONDING_TOLERANCE, column_radius: float = 1.0,
                 local_radius: float = 3.0, normal_axis: int = 2,
-                site_elements: Sequence[str] | None = None) -> dict[str, Any]:
+                site_elements: Sequence[str] | None = None,
+                lateral_tolerance: float = 0.5, height_spread_tolerance: float = 0.3) -> dict[str, Any]:
     """Adsorption-site assignment for each atom of `group` that touches the substrate.
 
-    Site from the number of bonded surface-layer atoms: 1 top, 2 bridge, 3
-    hollow-3, 4 hollow-4 (>4 reported as "n-fold"), suffixed with the site
-    atoms' composition (e.g. "top:O"). `site_elements` restricts which surface
-    elements define the site: on oxides pass the anion (MgO: ["O"]), because
-    the covalent-radius cutoff for metal-cation pairs (Fe-Mg: 3.5 A at 1.2)
-    otherwise counts cations under a metal atom as "bonded". All bonded
-    surface atoms are still listed. Height is local: above the
-    mean normal coordinate of surface atoms within `local_radius` Å laterally
-    (minimum image), falling back to the nearest surface atom.
+    Site atoms are the surface-layer atoms within the bond cutoff (of the
+    `site_elements`, if given). An ideal label needs an ideal pattern:
+    top (1 atom), bridge (2) or hollow-n (n >= 3) only if the adsorbing atom
+    sits within `lateral_tolerance` Å (laterally) of the site atom / pair
+    midpoint / polygon centroid, no site atom of a bridge/hollow lies within
+    `lateral_tolerance` Å directly below it, and the site atoms' heights spread
+    by at most `height_spread_tolerance` Å. Otherwise the site is "irregular-n"
+    with the reasons (off-centre, atom-beneath, buckled), as on reconstructed or strongly deformed
+    supports. Labels carry the site composition ("top:O", "hollow-6:C6").
+
+    `site_elements` is required whenever cations sit inside the bond cutoff
+    of the adsorbing atom, i.e. on ionic supports: on MgO pass ["O"], because
+    Fe-Mg is 3.5 A at tolerance 1.2 and an Fe above O would count its four Mg
+    neighbours. All bonded surface atoms are still listed.
+
+    Height is local: above the mean normal coordinate of surface atoms within
+    `local_radius` Å laterally (minimum image). On a buckled support this
+    differs from the height above the highest support atom by up to the
+    buckling amplitude; both should be quoted with their definitions.
     """
     d = distance_matrix(atoms)
     r = _radii(atoms)
     s = atoms.get_chemical_symbols()
     top = surface_layer(atoms, substrate, column_radius, normal_axis)
     z_top = atoms.positions[top, normal_axis]
-    names = {1: "top", 2: "bridge", 3: "hollow-3", 4: "hollow-4"}
     lateral_axes = [a for a in range(3) if a != normal_axis]
     contacts, heights = [], []
     for i in group:
@@ -438,11 +467,16 @@ def site_report(atoms: Atoms, group: Sequence[int], substrate: Sequence[int],
         }
         if bonded:
             vecs = find_mic(atoms.positions[bonded] - atoms.positions[i], atoms.cell, atoms.pbc)[0]
-            composition = "".join(f"{e}{n if n > 1 else ''}"
-                                  for e, n in sorted(Counter(s[j] for j in defining).items()))
+            if defining:
+                site_vecs = vecs[[bonded.index(j) for j in defining]]
+                label, geometry = _site_label(site_vecs, lateral_axes, normal_axis,
+                                              lateral_tolerance, height_spread_tolerance)
+                composition = "".join(f"{e}{n if n > 1 else ''}"
+                                      for e, n in sorted(Counter(s[j] for j in defining).items()))
+                entry.update(site=f"{label}:{composition}", site_geometry=geometry)
+            else:
+                entry["site"] = "no-site-element-contact"
             entry.update(
-                site=f"{names.get(len(defining), f'{len(defining)}-fold')}:{composition}" if defining
-                else "no-site-element-contact",
                 site_atoms=[{"j": int(j), "el": s[j], "d": round(float(d[i, j]), 4),
                              "lateral": round(float(np.linalg.norm(v[lateral_axes])), 4)}
                             for j, v in sorted(zip(bonded, vecs), key=lambda t: d[i, t[0]])])
@@ -453,7 +487,9 @@ def site_report(atoms: Atoms, group: Sequence[int], substrate: Sequence[int],
         "surface_layer": {"n": len(top), "elements": dict(Counter(s[j] for j in top)),
                           "z_range": [round(float(z_top.min()), 4), round(float(z_top.max()), 4)],
                           "column_radius": column_radius, "local_radius": local_radius,
-                          "site_elements": list(site_elements) if site_elements else "all"},
+                          "site_elements": list(site_elements) if site_elements else "all",
+                          "lateral_tolerance": lateral_tolerance,
+                          "height_spread_tolerance": height_spread_tolerance},
         "n_in_contact": len(contacts),
         "min_height": None if lowest is None else {"i": int(group[lowest]), "h": round(heights[lowest], 4)},
         "closest_contact": None if near is None else
@@ -462,6 +498,26 @@ def site_report(atoms: Atoms, group: Sequence[int], substrate: Sequence[int],
         "contacts": contacts,
         "site_counts": dict(Counter(c["site"] for c in contacts)),
     }
+
+
+def _site_label(vecs: np.ndarray, lateral_axes: list[int], normal_axis: int,
+                lateral_tolerance: float, height_spread_tolerance: float) -> tuple[str, dict[str, Any]]:
+    """Ideal label only for an ideal pattern; `vecs` are adsorbate->site-atom vectors."""
+    n = len(vecs)
+    offset = float(np.linalg.norm(vecs.mean(0)[lateral_axes]))  # to atom / midpoint / centroid
+    spread = float(np.ptp(vecs[:, normal_axis]))
+    geometry: dict[str, Any] = {"lateral_offset": round(offset, 4), "site_height_spread": round(spread, 4)}
+    reasons = []
+    if offset > lateral_tolerance:
+        reasons.append("off-centre")
+    if n > 1 and spread > height_spread_tolerance:
+        reasons.append("buckled")
+    if n > 1 and float(np.linalg.norm(vecs[:, lateral_axes], axis=1).min()) < lateral_tolerance:
+        reasons.append("atom-beneath")  # a bridge/hollow has no site atom directly below
+    if reasons:
+        geometry["irregular"] = reasons
+        return f"irregular-{n}", geometry
+    return {1: "top", 2: "bridge"}.get(n, f"hollow-{n}"), geometry
 
 
 def adsorbate_report(atoms: Atoms, adsorbate: Sequence[int], host: Sequence[int],
@@ -531,7 +587,25 @@ def cluster_internal_rmsds(reference: Atoms, moving: Atoms) -> dict[str, Any]:
     return {"cluster_trajectory_rmsd": round(trajectory, 4),
             "cluster_shape_rmsd": round(m["rmsd"], 4),
             "cluster_shape_max_displacement": round(m["max_displacement"], 4),
-            "cluster_atoms_exchanged": int(np.sum(m["perm"] != np.arange(len(a))))}
+            "cluster_atoms_exchanged": int(np.sum(m["perm"] != np.arange(len(a)))),
+            "cluster_matching": m["search"]}
+
+
+def bond_change_sensitivity(reference: Atoms, moving: Atoms, perm: Sequence[int],
+                            tolerances: Sequence[float] = (1.10, 1.15, 1.20, 1.25, 1.30),
+                            indices: Sequence[int] | None = None) -> list[dict[str, Any]]:
+    """Formed/broken counts in the cutoff-defined graph across bond tolerances.
+
+    A count that moves with the tolerance comes from distances near the
+    cutoff and should be quoted with that sensitivity, not as a fixed number.
+    """
+    out = []
+    for tol in tolerances:
+        ch = bond_changes(reference, moving, perm, tol, indices)
+        pair_types = sorted({p["pair"] for k in ch for p in ch[k]})
+        out.append({"tolerance": tol, "formed": len(ch["formed"]), "broken": len(ch["broken"]),
+                    "pair_types": pair_types})
+    return out
 
 
 def compare_isolated(reference: Atoms, moving: Atoms,
@@ -550,6 +624,8 @@ def compare_isolated(reference: Atoms, moving: Atoms,
         "largest_displacements": [{"i": int(i), "el": s[i], "moving_index": int(m["perm"][i]),
                                    "d": round(float(m["displacement"][i]), 4)} for i in order],
         "bond_changes": bond_changes(reference, moving, m["perm"], tolerance),
+        "bond_change_sensitivity": bond_change_sensitivity(reference, moving, m["perm"]),
+        "matching": m["search"],
     }
 
 

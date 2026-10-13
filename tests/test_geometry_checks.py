@@ -108,6 +108,18 @@ class IsolatedClusterTests(unittest.TestCase):
         shuffled = Atoms("Fe16", (cluster.positions @ rot.T + [3.0, -1.0, 8.0])[perm])
         self.assertAlmostEqual(forward, match_atoms(gas_b1, shuffled)["rmsd"], delta=1e-3)
 
+    def test_bond_change_sensitivity_reports_each_tolerance(self):
+        ref, vertex = fe13_no()
+        moved = ref.copy()
+        u = moved.positions[13] - moved.positions[vertex]
+        moved.positions[13:] += 0.92 * u / np.linalg.norm(u)  # Fe-N 1.70 -> 2.62 A
+        # Fe-N cutoff tol*(1.52+0.71): 2.565 A at 1.15, 2.676 A at 1.20
+        rows = compare_isolated(ref, moved)["bond_change_sensitivity"]
+        self.assertEqual([r["tolerance"] for r in rows], [1.10, 1.15, 1.20, 1.25, 1.30])
+        fe_n = {r["tolerance"]: r["broken"] for r in rows}
+        self.assertEqual((fe_n[1.15], fe_n[1.20]), (1, 0))
+        self.assertIn("Fe-N", rows[1]["pair_types"])
+
     def test_mirror_image_is_not_superposed(self):
         chiral = Atoms("FeNOC", [[0, 0, 0], [1.9, 0, 0], [0.3, 1.8, 0.2], [0.2, 0.4, 1.7]])
         mirror = chiral.copy()
@@ -152,11 +164,22 @@ class SupportedClusterTests(unittest.TestCase):
         self.assertEqual(sites(a, ns), sites(b, ns, order))
         counts, n, h, pair, d = sites(a, ns)
         self.assertEqual((counts, n, pair), ({"top:O": 1}, 1, "Fe-O"))
-        # without restricting to the anion, the four Mg beside the Fe at 2.9 A also count
-        part = Partition.from_specs(len(a), substrate=f"0:{ns}")
-        self.assertEqual(site_report(a, part.cluster, part.substrate)["site_counts"], {"5-fold:Mg4O": 1})
         self.assertAlmostEqual(d, 2.0, places=3)
         self.assertAlmostEqual(h, 2.0, places=3)
+        # without restricting to the anion, the four Mg beside the Fe at 2.9 A also count
+        part = Partition.from_specs(len(a), substrate=f"0:{ns}")
+        # ...and an atom-on-O-with-Mg-ring pattern must not be forced into an ideal "hollow-5"
+        self.assertEqual(site_report(a, part.cluster, part.substrate)["site_counts"], {"irregular-5:Mg4O": 1})
+
+    def test_off_centre_contact_is_irregular_not_forced(self):
+        a, ns = fe4_on_mgo()
+        part = Partition.from_specs(len(a), substrate=f"0:{ns}")
+        a.positions[part.cluster] += [0.8, 0.0, -0.1]  # Fe slides 0.8 A off the O
+        rep = site_report(a, part.cluster, part.substrate, site_elements=["O"])
+        (contact,) = rep["contacts"]
+        self.assertEqual(contact["site"], "irregular-1:O")
+        self.assertEqual(contact["site_geometry"]["irregular"], ["off-centre"])
+        self.assertAlmostEqual(contact["site_geometry"]["lateral_offset"], 0.8, places=3)
 
     def test_rigid_shift_across_boundary_is_zero_displacement(self):
         a, ns = fe4_on_mgo()

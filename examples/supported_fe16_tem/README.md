@@ -27,6 +27,7 @@ charge/spin MACE is not trained yet; this is a stand-in to exercise the pipeline
 | 7, 8, 9 | `s7_polar_spin.py <seeds> [polar-1-{s,m,l} \| model]`, `s8_polar_figs.py`, `s9_polar_breakdown.py` | MACE-POLAR-1 spin-ladder check and where it breaks (section 4); with a model path, the same ladder check for our own model |
 | 10 | `s10_vasp_candidates.py [--out DIR] [--md-every N] [--spin-neighbours]` | best landings + MD snapshots → `vasp_candidates.extxyz` for `cluster-mlip vasp-prepare` (section 5) |
 | 11 | `s11_delta_check.py <labels> [model options]` | compare an interaction term with the VASP ΔE_int labels, per support (section 5) |
+| 12 | `s12_geometry_check.py` | recompute cluster RMSD (same order and best mapping), local height, Fe–support contacts, site patterns and connectivity-cutoff sensitivity next to the stored s2 metrics → `out/geometry_check.json` (geometry only) |
 
 Requirements beyond the base install: `mace-torch>=0.3.16`, `torch-dftd`, `abtem>=1.0`,
 `graph_electrostatics` v0.4.0 (section 4 only),
@@ -60,14 +61,22 @@ model (MACE-POLAR-1 / MACE-OMOL, or our own) for the gas-phase term.
 | E_int (frozen supported geometry) | −5.6 … −7.0 eV | −0.60 … −0.62 eV |
 | cluster strain | **+1.1 … +1.9 eV** | +0.005 … −0.70 eV |
 | support strain | +0.45 … +0.65 eV (sheet buckles 1.2–1.5 Å) | 0 |
-| cluster RMSD vs gas minimum¹ | 0.36 … 1.0 Å | 0.01 … 0.75 Å |
-| closest Fe–support contact | 2.2 Å (Fe–C) | **3.4 Å (no Fe–O bond)** |
+| cluster RMSD vs gas minimum, same atom order (stored `rmsd_vs_gas`)¹ | 0.36 … 1.0 Å | 0.01 … 0.75 Å |
+| cluster RMSD vs gas minimum, best atom mapping (s12)¹ | 0.23 … 0.52 Å | 0.01 … 0.46 Å |
+| lowest Fe above the highest support atom (stored `height`)² | 0.62 … 1.00 Å | 3.33 … 3.46 Å |
+| lowest Fe above the local surface (s12)² | 1.92 … 1.96 Å | 3.37 … 3.51 Å |
+| closest Fe–support contact | 2.2 Å (Fe–C) | **3.4 Å; no Fe–O contact within the 2.62 Å bond cutoff** |
 
-¹ Same atom order (how far atoms moved). With the best atom mapping
-(`cluster-mlip geometry-check`, `docs/geometry-verification.md`), the shape change
-is 0.23 … 0.52 Å on graphene and 0.01 … 0.46 Å on MgO. The stored `height`
-is measured from the highest support atom; on the buckled sheet, the local
-Fe–sheet height is 1.9–2.0 Å.
+¹ The same-order RMSD measures how far atoms moved from the landed gas basin.
+The best-mapping RMSD measures how different the shapes are, using a heuristic
+multi-start atom matching (settings recorded in the output). They differ when atoms
+end in each other's equivalent positions.
+² The stored height is taken from the highest atom of any support. The local
+height is taken from the surface atoms within 3 Å laterally, and differs on the
+buckled sheet by up to the buckling amplitude.
+Both stored columns are kept unchanged in `results.json`.
+`s12_geometry_check.py` writes the recomputed values beside them in
+`out/geometry_check.json` (see `docs/geometry-verification.md`).
 
 On graphene the cluster strain alone (1–2 eV) is larger than the gas-phase gaps
 (0.24 and 0.71 eV), so the support can reorder the isomers: the gas-phase global
@@ -80,8 +89,9 @@ conclusion "not a perturbation" holds well outside that noise.
 3.4 Å above the surface with only D3 attraction (E_int ≈ −0.61 eV for every
 isomer), whereas DFT studies of Fe on MgO(100) typically find O-site binding at ~2.0–2.1 Å with real chemical
 bonding. The negative "strain" means every higher basin simply relaxed into B0
-once it was nudged (verified geometrically: all seven landed clusters are within
-0.019 Å shape RMSD of gas B0). Treat the MgO rows as evidence that the foundation model lacks
+once it was nudged. Geometrically, all seven relaxed structures are close to gas B0
+(shape RMSD 0.010–0.019 Å, against 0.29–0.46 Å to their own gas starts). Geometry
+alone does not establish a shared electronic state or energy basin. Treat the MgO rows as evidence that the foundation model lacks
 Fe/oxide interface chemistry — exactly the gap the ΔE_interaction term has to be
 trained to fill (VASP labels).
 
