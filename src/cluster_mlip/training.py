@@ -114,6 +114,7 @@ class TrainingPlan(TypedDict):
     seed_runs: list[SeedRun]
     locked_args: dict[str, str | int]
     warnings: list[str]
+    required_inputs: dict[str, dict[str, str]]
 
 
 @dataclass
@@ -162,6 +163,12 @@ class TrainingConfig:
     allow_mixed_method: bool = False
     force: bool = False
     extra_args: tuple[str, ...] = ()  # appended verbatim, for genuine one-offs
+    # Optional per-atom continuous input (e.g. signed Mulliken spin populations
+    # as supplied by the DFT, unclipped), read from atoms.arrays[local_moment_key].
+    # Every training frame must carry it; inference needs it too, so the model is
+    # a diagnostic that consumes DFT moments, not a spin predictor.
+    local_moment_key: str | None = None
+    local_moment_emb_dim: int = 32
 
 
 def _sha256(path: Path) -> str:
@@ -172,12 +179,19 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def scan_dataset(dataset_dir: Path) -> DatasetFacts:
+def _properties_columns(info: dict[str, str]) -> set[str]:
+    fields = info.get("Properties", "").replace('"', "").split(":")
+    return {fields[k] for k in range(0, len(fields) - 2, 3)}
+
+
+def scan_dataset(dataset_dir: Path, required_arrays: tuple[str, ...] = ()) -> DatasetFacts:
     """Read only the info lines of the split files -- cheap, no geometry parse.
 
     Collects the charge/multiplicity coverage (to size or validate the
     embedding), the distinct force-label routes (to enforce method
-    consistency), and asserts every frame is non-periodic.
+    consistency), and asserts every frame is non-periodic. Every frame must
+    carry each of ``required_arrays`` as a per-atom column; a model that needs
+    an input is never trained with it silently absent.
     """
     dataset_dir = dataset_dir.resolve()
     missing = [name for name in REQUIRED_SPLITS if not (dataset_dir / name).is_file()]
@@ -192,6 +206,7 @@ def scan_dataset(dataset_dir: Path) -> DatasetFacts:
     label_routes: set[str] = set()
     n_frames = 0
     unlabeled = 0
+    missing_arrays: dict[str, int] = {name: 0 for name in required_arrays}
 
     for name in ("all.extxyz", *REQUIRED_SPLITS):
         path = dataset_dir / name
@@ -215,6 +230,10 @@ def scan_dataset(dataset_dir: Path) -> DatasetFacts:
                     "workflow is for isolated (non-periodic) clusters only"
                 )
             n_frames += 1
+            columns = _properties_columns(info)
+            for name in required_arrays:
+                if name not in columns:
+                    missing_arrays[name] += 1
             charges.add(int(info.get("charge", 0)))
             multiplicities.add(int(info.get("multiplicity", info.get("spin", 1))))
             if "metadata" in info:
@@ -228,8 +247,14 @@ def scan_dataset(dataset_dir: Path) -> DatasetFacts:
                 # force-stage default. Prefer the specific one, or a dataset
                 # mixing pre- and post-relaunch routes looks uniform.
                 route = str(meta.get("first_route") or meta.get("link1_route") or "").strip()
+                level = str(meta.get("label_level") or "").strip()
                 if route:
                     label_routes.add(route)
+                elif level:
+                    # No route in the manifest, but collect read the level of
+                    # theory from the output itself (SCF Done / Standard basis
+                    # / archive entry) -- direct evidence of the method.
+                    label_routes.add(f"label_level:{level}")
                 else:
                     unlabeled += 1
             else:
@@ -238,6 +263,13 @@ def scan_dataset(dataset_dir: Path) -> DatasetFacts:
 
     if n_frames == 0:
         raise ValueError(f"{dataset_dir}: split files contain no frames")
+    absent = {name: count for name, count in missing_arrays.items() if count}
+    if absent:
+        detail = ", ".join(f"{name!r} absent in {count} of {n_frames}" for name, count in absent.items())
+        raise ValueError(
+            f"{dataset_dir}: required per-atom input missing ({detail}). Export it for every "
+            "frame (no zero-filling) or train without it."
+        )
     if unlabeled:
         raise ValueError(
             f"{dataset_dir}: {unlabeled} of {n_frames} frame(s) record no label route, "
@@ -285,6 +317,19 @@ def _embedding_specs(config: TrainingConfig) -> str:
                 "num_classes": config.charge_num_classes,
                 "offset": config.charge_offset,
             },
+            **(
+                {
+                    "local_moment": {
+                        "type": "continuous",
+                        "per": "atom",
+                        "key": config.local_moment_key,
+                        "in_dim": 1,
+                        "emb_dim": config.local_moment_emb_dim,
+                    }
+                }
+                if config.local_moment_key
+                else {}
+            ),
         },
         separators=(",", ":"),
     )
@@ -551,7 +596,15 @@ def _preflight_text(config: TrainingConfig, family: str) -> str:
 
 def write_training_campaign(config: TrainingConfig) -> TrainingPlan:
     """Scan the dataset, render one run script per seed, write the manifest."""
-    facts = scan_dataset(config.dataset_dir)
+    if config.local_moment_key and config.mode == "finetune" and             _foundation_family(config.foundation_model) in {"polar", "omol"}:
+        raise ValueError(
+            "local_moment_key needs custom --embedding_specs, which a POLAR/OMOL fine-tune "
+            "does not attach; the per-atom input would be silently ignored"
+        )
+    facts = scan_dataset(
+        config.dataset_dir,
+        required_arrays=(config.local_moment_key,) if config.local_moment_key else (),
+    )
 
     if len(facts.label_routes) > 1 and not config.allow_mixed_method:
         preview = "; ".join(sorted(facts.label_routes)[:3])
@@ -620,6 +673,16 @@ def write_training_campaign(config: TrainingConfig) -> TrainingPlan:
         "seed_runs": seed_runs,
         "locked_args": dict(LOCKED_ARGS),
         "warnings": warnings,
+        # What a calculator must supply at inference time, and the conventions.
+        "required_inputs": {
+            "info": {"total_spin": f"{TOTAL_SPIN_INFO_KEY} (Gaussian multiplicity 2S+1)",
+                     "total_charge": TOTAL_CHARGE_INFO_KEY},
+            "arrays": (
+                {"local_moment": f"{config.local_moment_key} (signed per-atom spin "
+                                 "population, alpha minus beta, as supplied; not clipped)"}
+                if config.local_moment_key else {}
+            ),
+        },
     }
     (output / "train_manifest.json").write_text(
         json.dumps(plan, indent=2, sort_keys=True) + "\n", encoding="utf-8"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import csv
 import json
 import re
 import shutil
@@ -13,6 +14,7 @@ from .analysis import write_analysis
 from .audit import run_private_audit
 from .batch_inventory import build_inventory
 from .batch_progress import write_batch_progress
+from .broken_symmetry import ALL_PATTERNS, PATTERNS, write_bs_jobs
 from .dataset import grouped_split, read_jobs_manifest, read_labeled_extxyz, write_labeled_extxyz
 from .doctor import MISSING_REQUIRED, format_report, run_checks
 from .evaluate import predict_with_mace, write_evaluation_report
@@ -716,6 +718,33 @@ def command_spin_extract(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_prepare_broken_symmetry(args: argparse.Namespace) -> int:
+    print(
+        "WARNING: prepare-broken-symmetry is an experimental pilot generator; inspect the inputs and "
+        "submit one smoke job before any batch.",
+        file=sys.stderr,
+    )
+    records = read_extxyz(Path(args.seeds))
+    by_id = {record.record_id: record for record in records}
+    missing = [rid for rid in args.record_ids if rid not in by_id]
+    if missing:
+        raise ValueError(f"record ids not found in {args.seeds}: {missing}")
+    selected = [by_id[rid] for rid in args.record_ids]
+    patterns = tuple(p.strip().upper() for p in args.patterns.split(",") if p.strip())
+    reference_spins: dict[str, dict[int, float]] = {}
+    if args.reference_spins:
+        with Path(args.reference_spins).open(encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                frame = row.get("frame_id") or row.get("parent_record_id", "")
+                if frame in by_id and row.get("mulliken_spin"):
+                    reference_spins.setdefault(frame, {})[int(row["atom_index"])] = float(row["mulliken_spin"])
+    count = write_bs_jobs(selected, Path(args.output), args.multiplicity, patterns, args.memory, args.nproc,
+                          reference_spins=reference_spins)
+    print(f"wrote {count} broken-symmetry inputs ({len(selected)} geometries x {len(patterns)} patterns) "
+          f"to {args.output}")
+    return 0
+
+
 def command_prepare_spins(args: argparse.Namespace) -> int:
     print(
         "WARNING: prepare-spins is experimental and has not been human-tested on a production "
@@ -878,6 +907,7 @@ def command_train(args: argparse.Namespace) -> int:
         allow_mixed_method=args.allow_mixed_method,
         force=args.force,
         extra_args=tuple(args.extra_arg or ()),
+        local_moment_key=args.local_moment_key,
     )
     try:
         plan = write_training_campaign(config)
@@ -1327,6 +1357,24 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_spins.add_argument("--memory", default="16GB")
     prepare_spins.add_argument("--nproc", type=int, default=16)
     prepare_spins.set_defaults(func=command_prepare_spins)
+    prepare_bs = sub.add_parser(
+        "prepare-broken-symmetry",
+        help="fixed-geometry broken-symmetry pilot: archived Link1 tandem (fragment guess > Stable=Opt > Force)",
+    )
+    prepare_bs.add_argument("seeds", help="extxyz holding the source geometries")
+    prepare_bs.add_argument("--record-id", dest="record_ids", action="append", required=True)
+    prepare_bs.add_argument("--multiplicity", type=int, required=True, help="fixed total multiplicity M")
+    prepare_bs.add_argument("--patterns", default=",".join(PATTERNS),
+                            help=f"from {','.join(ALL_PATTERNS)}: P0 all Fe alpha; P1 central Fe beta; P2/P3 two "
+                                 "surface Fe beta; P0Q/P1Q charge-separated (central -1, surface +1); "
+                                 "C0 default-guess control")
+    prepare_bs.add_argument("--reference-spins", default=None,
+                            help="local_spins.csv from collect: adds each site's reference Mulliken spin "
+                                 "to sites.csv so site identity can be checked before submission")
+    prepare_bs.add_argument("-o", "--output", required=True)
+    prepare_bs.add_argument("--memory", default="24GB")
+    prepare_bs.add_argument("--nproc", type=int, default=12)
+    prepare_bs.set_defaults(func=command_prepare_broken_symmetry)
 
     collect = sub.add_parser("collect", help="collect completed Gaussian force outputs into MACE extxyz")
     collect.add_argument("outputs", nargs="+", help="one or more campaign directories containing Gaussian outputs and manifests")
@@ -1490,6 +1538,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="proceed even if the dataset mixes force-label routes (unsound unless equivalent)",
     )
     train.add_argument("--force", action="store_true", help="overwrite a non-empty output directory")
+    train.add_argument(
+        "--local-moment-key", default=None, dest="local_moment_key",
+        help="per-atom array (e.g. signed Mulliken spins) fed as a continuous embedding; "
+             "every frame must carry it, and inference needs it too",
+    )
     train.add_argument(
         "--extra-arg", action="append", dest="extra_arg",
         help="append a raw flag to every mace_run_train command (repeatable)",
