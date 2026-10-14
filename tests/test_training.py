@@ -11,6 +11,7 @@ from pathlib import Path
 from cluster_mlip.dataset import write_labeled_extxyz
 from cluster_mlip.models import Atom, LabeledFrame, Record
 from cluster_mlip.io import parse_extxyz_info_line
+from cluster_mlip.periodic import Structure, write_structures
 from cluster_mlip.training import (
     BLIND_LABELS_EXIT_CODE,
     TrainingConfig,
@@ -46,6 +47,59 @@ def _dataset(tmp: Path, frames: list[LabeledFrame]) -> Path:
     write_labeled_extxyz(frames[:1], dataset / "valid.extxyz")
     write_labeled_extxyz(frames[:1], dataset / "test.extxyz")
     return dataset
+
+
+def _periodic(sid: str, *, multiplicity: int | None = 11, level: str = "VASP 6.6.1 | PBE | ENCUT=400") -> Structure:
+    info: dict = {"structure_id": sid, "job": sid, "charge": 0, "REF_energy": -50.0, "label_level": level}
+    if multiplicity is not None:
+        info.update(multiplicity=multiplicity, spin=multiplicity)
+    return Structure(
+        ["Fe", "O"], [(0.0, 0.0, 0.0), (1.6, 0.0, 0.0)], [(6.0, 0, 0), (0, 6.0, 0), (0, 0, 12.0)],
+        (True, True, True), info, {"REF_forces": [(0.1, 0.0, 0.0), (-0.1, 0.0, 0.0)]},
+    )
+
+
+def _periodic_dataset(tmp: Path, frames: list[Structure]) -> Path:
+    dataset = tmp / "dataset"
+    dataset.mkdir()
+    for name, chosen in (("train", frames), ("valid", frames[:1]), ("test", frames[:1])):
+        write_structures(chosen, dataset / f"{name}.extxyz")
+    return dataset
+
+
+class PeriodicDatasetTests(unittest.TestCase):
+    def test_periodic_dataset_is_accepted_and_uses_label_level(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            dataset = _periodic_dataset(tmp, [_periodic("a"), _periodic("b", multiplicity=1)])
+            facts = scan_dataset(dataset)
+            self.assertTrue(facts.periodic)
+            self.assertEqual(facts.multiplicities, {1, 11})
+            self.assertEqual(facts.label_routes, {"VASP 6.6.1 | PBE | ENCUT=400"})
+            plan = write_training_campaign(TrainingConfig(dataset, tmp / "run"))
+            self.assertTrue(plan["periodic"])
+            self.assertIn("--stress_weight=0", plan["seed_runs"][0]["argv"])
+
+    def test_undeclared_spin_is_refused(self):
+        with tempfile.TemporaryDirectory() as raw:
+            dataset = _periodic_dataset(Path(raw), [_periodic("a"), _periodic("b", multiplicity=None)])
+            with self.assertRaisesRegex(ValueError, "declare no multiplicity"):
+                scan_dataset(dataset)
+
+    def test_mixed_levels_are_refused(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            dataset = _periodic_dataset(tmp, [_periodic("a"), _periodic("b", level="VASP 6.6.1 | PBE | IVDW=12")])
+            with self.assertRaisesRegex(ValueError, "mixes 2 distinct"):
+                write_training_campaign(TrainingConfig(dataset, tmp / "run"))
+
+    def test_periodic_and_isolated_frames_do_not_mix(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            dataset = _dataset(tmp, [_frame("a"), _frame("b")])
+            write_structures([_periodic("p")], dataset / "valid.extxyz")
+            with self.assertRaisesRegex(ValueError, "frames are periodic"):
+                scan_dataset(dataset)
 
 
 class ScanDatasetTests(unittest.TestCase):
