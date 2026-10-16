@@ -6,10 +6,10 @@ KIT is the generated `fe16_bs_tandem_kit` (its `smoke/`, `afm_pilot/` and `afm_c
 inputs that passed `inspect_tandem_input` when written). The package uses the desk's Gaussian layout:
 inputs/frame_NNNN.gjf -> outputs/frame_NNNN.log, one `single` array task per frame.
 
-`--gaussian g09` (default) runs gaussian/g09-d01 on QB3, the code of the archived tandem: the user
+`--gaussian g09` (default) runs gaussian/g09-d01 on QB4, the code of the archived tandem: the user
 (2026-10-16) keeps these Fe systems on G09. `--gaussian g16` runs gaussian/g16-c01 on QB4 (packages 34
 and 36); package 34 showed G16 C.01 reproduces the archived G09 D.01 fragment SCFs to 1e-6 Ha, but G16
-is secondary for the Fe16 tandem. QB4 has no G09 module.
+is secondary for the Fe16 tandem.
 
 `spin_jobs.csv` and `sites.csv` travel with the package, with input/output renamed to the frames, so
 the analysis runs directly on the export:
@@ -40,10 +40,11 @@ NAMES = {"smoke": "clustermlip_fe16_bs_smoke", "pilot": "clustermlip_fe16_bs_afm
 # smoke: the kit's estimate. pilot: package 36 measured 1.8 h (6473 s) for one M = 49 tandem on 12
 # cores; low-Ms SCFs and Stable=Opt re-optimisations take longer, so ~6x that
 HOURS = {"smoke": 48, "pilot": 12}
-# Gaussian build -> where it runs. The mvapich2 load before G09 on QB3 comes from the kit's batch scripts.
+# Gaussian build -> where it runs. Both are QB4 modules (user's `module avail` on qbd1, 2026-10-16);
+# shared-memory Gaussian needs no MPI module, so none is loaded next to QB4's default intel-mpi.
 PROFILES = {
-    "g09": dict(cluster="QB3", host="qbc", module="gaussian/g09-d01", command="g09", node_mem="192 GB",
-                modules="module load mvapich2\nmodule load gaussian/g09-d01"),
+    "g09": dict(cluster="QB4", host="qbd", module="gaussian/g09-d01", command="g09", node_mem="256 GB",
+                modules="module load gaussian/g09-d01"),
     "g16": dict(cluster="QB4", host="qbd", module="gaussian/g16-c01", command="g16", node_mem="256 GB",
                 modules="module load gaussian/g16-c01"),
 }
@@ -78,7 +79,7 @@ start=$(date +%s)
 # desk 2026-10-08 (package 36): write .seconds even when {command} ends in an Error termination (a
 # Stable=Opt l508 abort is a result here, and the wall time is measured), then pass {command}'s status on
 status=0
-GAUSS_SCRDIR="$scratch" {command} <"$PKG/inputs/$frame.gjf" > "$PKG/outputs/$frame.log" || status=$?
+GAUSS_SCRDIR="$scratch" {command} < "$PKG/inputs/$frame.gjf" > "$PKG/outputs/$frame.log" || status=$?
 printf '%s\\n' "$(( $(date +%s) - start ))" > "$PKG/outputs/$frame.seconds"
 exit "$status"
 """
