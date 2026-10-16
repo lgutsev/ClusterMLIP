@@ -1,12 +1,15 @@
 """Write the Fe16 tandem smoke or pilot jobs as a LONI dispatch-desk package.
 
-    python make_loni_fe16_package.py KIT OUT_PARENT --stage smoke|pilot [--number 35]
+    python make_loni_fe16_package.py KIT OUT_PARENT --stage smoke|pilot [--number 35] [--gaussian g09|g16]
 
 KIT is the generated `fe16_bs_tandem_kit` (its `smoke/`, `afm_pilot/` and `afm_control/` folders hold
 inputs that passed `inspect_tandem_input` when written). The package uses the desk's Gaussian layout:
-inputs/frame_NNNN.gjf -> outputs/frame_NNNN.log, one `single` array task per frame, gaussian/g16-c01
-on QB4. Package 34 showed G16 C.01 reproduces the archived G09 D.01 tandem (fragment SCFs, link-1 guess
-and first link-1 SCF to 1e-6 Ha), so no G09 is needed.
+inputs/frame_NNNN.gjf -> outputs/frame_NNNN.log, one `single` array task per frame.
+
+`--gaussian g09` (default) runs gaussian/g09-d01 on QB3, the code of the archived tandem: the user
+(2026-10-16) keeps these Fe systems on G09. `--gaussian g16` runs gaussian/g16-c01 on QB4 (packages 34
+and 36); package 34 showed G16 C.01 reproduces the archived G09 D.01 fragment SCFs to 1e-6 Ha, but G16
+is secondary for the Fe16 tandem. QB4 has no G09 module.
 
 `spin_jobs.csv` and `sites.csv` travel with the package, with input/output renamed to the frames, so
 the analysis runs directly on the export:
@@ -37,6 +40,13 @@ NAMES = {"smoke": "clustermlip_fe16_bs_smoke", "pilot": "clustermlip_fe16_bs_afm
 # smoke: the kit's estimate. pilot: package 36 measured 1.8 h (6473 s) for one M = 49 tandem on 12
 # cores; low-Ms SCFs and Stable=Opt re-optimisations take longer, so ~6x that
 HOURS = {"smoke": 48, "pilot": 12}
+# Gaussian build -> where it runs. The mvapich2 load before G09 on QB3 comes from the kit's batch scripts.
+PROFILES = {
+    "g09": dict(cluster="QB3", host="qbc", module="gaussian/g09-d01", command="g09", node_mem="192 GB",
+                modules="module load mvapich2\nmodule load gaussian/g09-d01"),
+    "g16": dict(cluster="QB4", host="qbd", module="gaussian/g16-c01", command="g16", node_mem="256 GB",
+                modules="module load gaussian/g16-c01"),
+}
 
 SLURM = """#!/bin/bash
 #SBATCH --job-name=fe16-bs-{stage}
@@ -51,24 +61,24 @@ SLURM = """#!/bin/bash
 # Written by ClusterMLIP experiments/fe16_bs_pilot/make_loni_fe16_package.py. One array task per frame:
 # a Gaussian tandem (fragment guess > Stable=Opt > Force; the C0 control has no fragment link) run in
 # work/frame_NNNN, where its checkpoint stays; the log goes to outputs/frame_NNNN.log.
-# inputs/frames.csv names each frame. Memory comes from each input's %mem ({mem}); QB4 has no --mem.
+# inputs/frames.csv names each frame. Memory comes from each input's %mem ({mem}); no --mem, as on QB4.
 # LONI's module function reads unset variables: -u only after it (as package 24).
 set -eo pipefail
 cd "${{SLURM_SUBMIT_DIR:?submit from the package directory}}"
 PKG=$PWD
 frame=$(printf 'frame_%04d' "$SLURM_ARRAY_TASK_ID")
 mkdir -p outputs "work/$frame"
-module load gaussian/g16-c01
+{modules}
 set -u
-scratch="${{TMPDIR:-/tmp}}/g16_${{SLURM_JOB_ID}}_${{frame}}"
+scratch="${{TMPDIR:-/tmp}}/{command}_${{SLURM_JOB_ID}}_${{frame}}"
 mkdir -p "$scratch"
 trap 'rm -rf "$scratch"' EXIT
 cd "work/$frame"
 start=$(date +%s)
-# desk 2026-10-08 (package 36): write .seconds even when g16 ends in an Error termination (a Stable=Opt
-# l508 abort is a result here, and the wall time is measured), then pass g16's status on
+# desk 2026-10-08 (package 36): write .seconds even when {command} ends in an Error termination (a
+# Stable=Opt l508 abort is a result here, and the wall time is measured), then pass {command}'s status on
 status=0
-GAUSS_SCRDIR="$scratch" g16 < "$PKG/inputs/$frame.gjf" > "$PKG/outputs/$frame.log" || status=$?
+GAUSS_SCRDIR="$scratch" {command} <"$PKG/inputs/$frame.gjf" > "$PKG/outputs/$frame.log" || status=$?
 printf '%s\\n' "$(( $(date +%s) - start ))" > "$PKG/outputs/$frame.seconds"
 exit "$status"
 """
@@ -97,10 +107,11 @@ every link: IOP(5/13=1,5/36=1,8/11=1)
 |---|---|---|---|---|
 {rows}
 
-Package 34 validated this tandem on QB4: G16 C.01 reproduced two archived 2019 G09 D.01 jobs (fragment
-SCFs, link-1 guess ⟨S²⟩ and first link-1 SCF to 1e-6 Ha), and an exact repeat gave the same energy.
+This runs on `{module}`. The archived tandem is G09 D.01; package 34 (QB4) showed G16 C.01 reproduces
+two archived 2019 G09 jobs (fragment SCFs, link-1 guess ⟨S²⟩ and first link-1 SCF to 1e-6 Ha), but G09
+stays the reference code for these Fe systems.
 
-## Run (QB4)
+## Run ({cluster}, submit from {host})
 
 ```bash
 bash submit_smokes.sh --dry-run {number}
@@ -108,8 +119,8 @@ bash submit_smokes.sh {number}
 ```
 
 Uses `run_gaussian.slurm` and the existing Gaussian handler (`inputs/frame_*.gjf` →
-`outputs/frame_*.log`). `gaussian/g16-c01`, `single`, {cpus} cores and {mem} per task (QB4 CPU nodes
-have 256 GB), {hours} h cap. {n} task(s), at most {sus} SUs. {time_note} Checkpoints stay in `work/` on LONI and are not exported.
+`outputs/frame_*.log`). `{module}`, `single`, {cpus} cores and {mem} per task ({cluster} CPU nodes
+have {node_mem}), {hours} h cap. {n} task(s), at most {sus} SUs. {time_note} Checkpoints stay in `work/` on LONI and are not exported.
 `outputs/frame_NNNN.seconds` records the wall time of each Gaussian run.
 
 ## Pass criteria (desk)
@@ -131,7 +142,7 @@ NOTES = {
         question="At a fixed Fe16 geometry with q = 0 and M = 49, does UBPW91/6-311++G* have more than one "
                  "stable SCF solution, with different site-resolved spins and different forces?",
         stage_note="This is the **smoke** (kit step 2): one Fe16 job, to measure the wall time and check that "
-                   "a 16-fragment tandem completes and gives a Hirshfeld table on QB4 before the 15-job pilot.",
+                   "a 16-fragment tandem completes and gives a Hirshfeld table before the 15-job pilot.",
         time_note="The cap is the kit's estimate for one Fe16 tandem, not a measurement; if it hits the cap, "
                   "report the time and the last SCF cycle reached rather than resubmitting.",
         control_note="one log",
@@ -174,6 +185,7 @@ def main() -> None:
     kit, parent = Path(args[0]), Path(args[1])
     stage = args[args.index("--stage") + 1]
     number = args[args.index("--number") + 1] if "--number" in args else "35"
+    profile = PROFILES[args[args.index("--gaussian") + 1] if "--gaussian" in args else "g09"]
     name = NAMES[stage]
     out = parent / f"{number}_{name}"
     if out.exists() and any(out.iterdir()):
@@ -234,10 +246,11 @@ def main() -> None:
         unique = list({tuple(s.items()): s for s in sites}.values())
         write_csv(out / "sites.csv", unique, list(unique[0]))
     hours = HOURS[stage]
-    write_text_lf(out / "run_gaussian.slurm", SLURM.format(stage=stage, last=n - 1, cpus=ncpu, hours=hours, mem=mem))
+    write_text_lf(out / "run_gaussian.slurm", SLURM.format(stage=stage, last=n - 1, cpus=ncpu, hours=hours, mem=mem,
+                                                             **profile))
     write_text_lf(out / "README.md", README.format(
         number=number, name=name, stage=stage, branch=branch, commit=commit, kit_folders=", ".join(STAGES[stage]),
-        rows="\n".join(table), cpus=ncpu, mem=mem, hours=hours, n=n, sus=n * ncpu * hours, **NOTES[stage]))
+        rows="\n".join(table), cpus=ncpu, mem=mem, hours=hours, n=n, sus=n * ncpu * hours, **profile, **NOTES[stage]))
     write_text_lf(out / "export.list", "outputs/*\n")
     write_text_lf(out / ".gitignore", "outputs/\nwork/\nlogs/*\n!logs/README.txt\n")
     write_text_lf(out / "logs" / "README.txt", "Slurm logs land here.\n")
@@ -245,15 +258,16 @@ def main() -> None:
     manifest = {
         "package": f"{number}_{name}", "owner": "ClusterMLIP",
         "generator": "experiments/fe16_bs_pilot/make_loni_fe16_package.py", "commit": commit, "branch": branch,
-        "kit": str(kit), "kit_folders": STAGES[stage], "cluster": "LONI QB4", "partition": "single",
-        "gaussian": "gaussian/g16-c01", "cpus_per_task": ncpu, "memory_per_task": mem, "time_hours": hours,
+        "kit": str(kit), "kit_folders": STAGES[stage], "cluster": f"LONI {profile['cluster']}", "partition": "single",
+        "gaussian": profile["module"], "cpus_per_task": ncpu, "memory_per_task": mem, "time_hours": hours,
         "array": [f"frame_{i:04d}" for i in range(n)],
         "outputs": ["outputs/frame_NNNN.log", "outputs/frame_NNNN.seconds"],
         "files_sha256": {p.relative_to(out).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in files},
         "submitted": False,
     }
     write_text_lf(out / "package.json", json.dumps(manifest, indent=1, ensure_ascii=False) + "\n")
-    print(f"wrote {out} ({len(files) + 1} files, {n} frames, {ncpu} cores, {mem}, commit {commit})")
+    print(f"wrote {out} ({len(files) + 1} files, {n} frames, {ncpu} cores, {mem}, {profile['module']} on "
+          f"{profile['cluster']}, commit {commit})")
 
 
 if __name__ == "__main__":
