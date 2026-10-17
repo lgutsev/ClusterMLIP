@@ -284,6 +284,7 @@ def _filename_state(source: str) -> tuple[int, int, bool]:
 
 
 def extract_warehouse_record(text: str, source: str) -> list[Record]:
+    """Build a record from a native warehouse coordinate file (charge/multiplicity from the filename)."""
     atoms = _native_coordinate_lines(text)
     if not atoms:
         return []
@@ -318,6 +319,7 @@ def extract_warehouse_record(text: str, source: str) -> list[Record]:
 
 
 def extract_formatted_checkpoint(text: str, source: str) -> list[Record]:
+    """Build a record from a formatted checkpoint (.fchk); IRC direction/point come from the filename."""
     def scalar(label: str, kind: str = "I") -> str | None:
         match = re.search(rf"^{re.escape(label)}\s+{kind}\s+(.+?)\s*$", text, re.M)
         return match.group(1).strip() if match else None
@@ -378,6 +380,7 @@ def extract_formatted_checkpoint(text: str, source: str) -> list[Record]:
 
 
 def extract_gaussian_input(text: str, source: str) -> list[Record]:
+    """Build a seed record from a Gaussian input file (.com/.gjf)."""
     cm = _CM_RE.search(text)
     if cm:
         charge, multiplicity = int(cm.group(1)), int(cm.group(2))
@@ -554,6 +557,7 @@ def parse_force_frames(text: str, source: Path, seed: Record | None = None) -> l
 
 
 def parse_final_force_frame(text: str, source: Path, seed: Record | None = None) -> LabeledFrame | None:
+    """Return the last force frame only if it is the final force table in the file, else None."""
     frames = parse_force_frames(text, source, seed)
     headers = list(_FORCE_HEADER_RE.finditer(text))
     if not frames or frames[-1].record.metadata["force_frame_index"] != len(headers) - 1:
@@ -562,4 +566,5 @@ def parse_final_force_frame(text: str, source: Path, seed: Record | None = None)
 
 
 def rms_force(frame: LabeledFrame) -> float:
+    """Root-mean-square force component of a frame, in eV/Angstrom."""
     return math.sqrt(sum(x*x + y*y + z*z for x, y, z in frame.forces_ev_ang) / (3 * len(frame.forces_ev_ang)))
