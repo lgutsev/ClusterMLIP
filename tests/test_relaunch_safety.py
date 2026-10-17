@@ -11,7 +11,6 @@ import csv
 import hashlib
 import json
 import re
-import shutil
 import tempfile
 import unittest
 from pathlib import Path
