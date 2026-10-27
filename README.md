@@ -1043,6 +1043,12 @@ certification -- thresholds are first-pass defaults (see
 error distributions, and a check reports "n/a" rather than a number when
 nothing in the dataset matches its class.
 
+`by_element.csv` (and a report section) gives force MAE/RMSE per element next
+to the RMSE of predicting zero force for that element's atoms. A model can
+lower the overall force error while the minority element that carries the
+chemistry (Fe or N on a support) is worse than predicting nothing; this table
+shows that.
+
 Needs the training extra (`pip install -e '.[train]'`).
 
 ## 7. Active learning: pick what to label next
@@ -1061,6 +1067,24 @@ writes the `top-k` most-disagreed-upon structures to `next_batch.extxyz` (plus
 dataset constrains the least, and so are the best next candidates for the
 next (expensive) DFT labeling round rather than labeling the warehouse in
 arbitrary order. Needs the training extra.
+
+Check that the disagreement actually finds errors before relying on it:
+
+```bash
+cluster-mlip calibrate-committee dataset/test.extxyz   --models checkpoints/seed1.model checkpoints/seed2.model -o committee_calibration
+```
+
+runs the committee over labeled frames it did not train on and compares each
+frame's worst-atom disagreement with the worst-atom error of the committee mean.
+It reports the Spearman correlation, the share of the top `--top-fraction` worst
+frames that the same fraction of most-disagreed frames would have caught
+(chance = `--top-fraction`), and "confident failures": frames with top errors
+but disagreement at or below the median. Results are in `calibration.json`, plus
+`calibration.csv` per frame. A committee trained on the same data can share a
+mistake. Break the per-frame table down by how novel each frame is (memorized
+twin, a seen geometry at a new multiplicity, an unseen geometry), because the
+overall correlation can come almost entirely from separating memorized frames
+from new ones. Low disagreement is not evidence of accuracy.
 
 ## 8. Supported clusters: VASP interaction labels
 

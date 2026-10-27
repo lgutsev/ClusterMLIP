@@ -24,11 +24,20 @@ class GroupError(TypedDict):
     force_rmse_ev_ang: float
 
 
+class ElementForceError(TypedDict):
+    element: str
+    n_atoms: int
+    force_mae_ev_ang: float
+    force_rmse_ev_ang: float
+    zero_force_rmse_ev_ang: float
+
+
 class EvaluationSummary(TypedDict):
     n_frames: int
     overall: GroupError
     by_charge_multiplicity: list[GroupError]
     by_stratum: dict[str, list[GroupError]]
+    by_element: list[ElementForceError]
 
 
 def _group_key(frame: LabeledFrame) -> str:
@@ -70,6 +79,38 @@ def _group_errors(
                 "force_rmse_ev_ang": math.sqrt(sum(e * e for e in force_abs_err) / len(force_abs_err)),
             }
         )
+    return rows
+
+
+def element_force_errors(pairs: list[tuple[LabeledFrame, Prediction]]) -> list[ElementForceError]:
+    """Force errors per element, each beside the error of predicting zero force
+    for that element's atoms.
+
+    A frame-level force RMSE can look good while the minority element that
+    carries the chemistry is worse than predicting nothing at all (the
+    periodic fine-tune review: lower total RMSE, but Fe and N above their
+    zero-force baselines). Reporting the two side by side makes that visible.
+    """
+    errors: dict[str, list[float]] = {}
+    references: dict[str, list[float]] = {}
+    for frame, (_energy, pred_forces) in pairs:
+        if len(pred_forces) != len(frame.forces_ev_ang):
+            raise ValueError(
+                f"prediction/reference force-array length mismatch for {frame.record.record_id}"
+            )
+        for atom, ref, pred in zip(frame.record.atoms, frame.forces_ev_ang, pred_forces):
+            errors.setdefault(atom.symbol, []).extend(abs(r - p) for r, p in zip(ref, pred))
+            references.setdefault(atom.symbol, []).extend(ref)
+    rows: list[ElementForceError] = []
+    for symbol in sorted(errors):
+        err, ref = errors[symbol], references[symbol]
+        rows.append({
+            "element": symbol,
+            "n_atoms": len(err) // 3,
+            "force_mae_ev_ang": statistics.mean(err),
+            "force_rmse_ev_ang": math.sqrt(sum(e * e for e in err) / len(err)),
+            "zero_force_rmse_ev_ang": math.sqrt(sum(v * v for v in ref) / len(ref)),
+        })
     return rows
 
 
@@ -116,6 +157,7 @@ def summarize_evaluation(
         "overall": overall,
         "by_charge_multiplicity": by_group,
         "by_stratum": by_stratum,
+        "by_element": element_force_errors(pairs),
     }
 
 
@@ -158,6 +200,10 @@ def write_evaluation_report(
             writer = csv.DictWriter(handle, fieldnames=columns)
             writer.writeheader()
             writer.writerows(rows)
+    with (output / "by_element.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(ElementForceError.__annotations__))
+        writer.writeheader()
+        writer.writerows(summary["by_element"])
 
     overall = summary["overall"]
     lines = [
@@ -172,6 +218,16 @@ def write_evaluation_report(
         "## By charge/multiplicity",
         "",
         *_error_table(summary["by_charge_multiplicity"]),
+        "",
+        "## Forces by element",
+        "",
+        "| Element | Atoms | Force MAE (eV/Ang) | Force RMSE (eV/Ang) | Zero-force RMSE (eV/Ang) |",
+        "|---|---:|---:|---:|---:|",
+        *(
+            f"| {row['element']} | {row['n_atoms']} | {row['force_mae_ev_ang']:.4f} | "
+            f"{row['force_rmse_ev_ang']:.4f} | {row['zero_force_rmse_ev_ang']:.4f} |"
+            for row in summary["by_element"]
+        ),
     ]
     for field in stratify_by:
         rows = summary["by_stratum"].get(field, [])

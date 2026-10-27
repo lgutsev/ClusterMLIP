@@ -8,7 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from .active_learning import predict_committee_forces, write_next_batch
+from .active_learning import predict_committee_forces, write_committee_calibration, write_next_batch
 from .analysis import write_analysis
 from .audit import run_private_audit
 from .batch_inventory import build_inventory
@@ -905,6 +905,34 @@ def command_train(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_calibrate_committee(args: argparse.Namespace) -> int:
+    if len(args.models) < 2:
+        print("error: --models needs at least two checkpoints to form a committee", file=sys.stderr)
+        return 1
+    frames = read_labeled_extxyz(Path(args.labeled))
+    if not frames:
+        print("No labeled frames found; nothing to calibrate against.", file=sys.stderr)
+        return 1
+    try:
+        committee_forces = predict_committee_forces(
+            [Path(model) for model in args.models], [frame.record for frame in frames], device=args.device
+        )
+    except MaceUnavailable as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    summary = write_committee_calibration(frames, committee_forces, Path(args.output), args.top_fraction)
+    rho = summary["spearman_rho"]
+    print(
+        f"Calibrated a {summary['n_models']}-model committee on {summary['n_frames']} labeled frames: "
+        f"Spearman rho {'n/a' if rho is None else f'{rho:.3f}'}, "
+        f"top-{summary['n_top']} error recall {summary['top_error_recall']:.2f} "
+        f"(chance {summary['top_fraction']:.2f}), "
+        f"{len(summary['confident_failures'])} confident failure(s)"
+    )
+    print(f"Calibration: {Path(args.output).resolve() / 'calibration.json'}")
+    return 0
+
+
 def command_select_next_batch(args: argparse.Namespace) -> int:
     if len(args.models) < 2:
         print("error: --models needs at least two checkpoints to form a committee", file=sys.stderr)
@@ -1509,6 +1537,24 @@ def build_parser() -> argparse.ArgumentParser:
     select_next_batch.add_argument("--top-k", type=int, default=50)
     select_next_batch.add_argument("--device", default="cpu")
     select_next_batch.set_defaults(func=command_select_next_batch)
+
+    calibrate_committee = sub.add_parser(
+        "calibrate-committee",
+        help="check whether committee force disagreement ranks held-out DFT force errors",
+    )
+    calibrate_committee.add_argument(
+        "labeled", help="labeled extxyz the committee did not train on, e.g. dataset/test.extxyz"
+    )
+    calibrate_committee.add_argument(
+        "--models", nargs="+", required=True, help="the committee's two or more MACE checkpoints"
+    )
+    calibrate_committee.add_argument("-o", "--output", default="committee_calibration")
+    calibrate_committee.add_argument(
+        "--top-fraction", type=float, default=0.1, dest="top_fraction",
+        help="share of frames counted as the worst-error / most-disagreed set (default 0.1)",
+    )
+    calibrate_committee.add_argument("--device", default="cpu")
+    calibrate_committee.set_defaults(func=command_calibrate_committee)
 
     inventory = sub.add_parser(
         "inventory",
