@@ -1,0 +1,799 @@
+{
+  "geometries": [
+    {
+      "geometry_id": "g061f901134",
+      "parent_record_id": "1b1a3a006db289cda18d",
+      "states": [
+        "g061f901134:M53",
+        "g061f901134:M51"
+      ],
+      "reference_state": "g061f901134:M51",
+      "gaussian_rel_ev": [
+        0.03166860993951559,
+        0.0
+      ],
+      "magpt_rel_ev": [
+        1.3367702960968018,
+        0.0
+      ],
+      "ordering": {
+        "n_states": 2,
+        "n_pairs": 1,
+        "concordant_pairs": 1,
+        "discordant_pairs": 0,
+        "tied_pairs": 0,
+        "kendall_tau_a": 1.0,
+        "spearman_rho": NaN
+      },
+      "pairs": [
+        {
+          "state_a": "g061f901134:M53",
+          "state_b": "g061f901134:M51",
+          "delta_moment_mu_b": -1.9999990000000025,
+          "rms_local_moment_diff": 0.1334568013359099,
+          "max_local_moment_diff": 0.21588300000000027,
+          "n_sign_changes_strong_sites": 0,
+          "gaussian_dE_ev": -0.03166860993951559,
+          "magpt_dE_ev": -1.3367702960968018,
+          "sign_agrees": true,
+          "magpt_dE_box_spread_ev": 4.291534423828125e-05,
+          "magpt_dE_repeat_diff_ev": 0.0,
+          "magpt_dE_axis_x_ev": -2.135554790496826,
+          "magpt_dE_by_scale_ev": {
+            "scale0.8": 0.19227886199951172,
+            "scale0.9": -0.7856040000915527,
+            "box30": -1.3367702960968018,
+            "scale1.1": -5.734000384807587,
+            "scale1.2": -8.604028582572937
+          },
+          "sign_stable_scale_0.9_1.1": true,
+          "sign_stable_scale_0.8_1.2": false,
+          "magpt_dE_time_reversed_ev": -0.9380970001220703,
+          "magpt_dE_zero_moments_ev": 0.0,
+          "gaussian_dF_rms_ev_ang": 0.11263588674810036,
+          "magpt_dF_rms_ev_ang": 0.6307495132809567,
+          "dF_cosine": 0.23835757669817234
+        }
+      ],
+      "time_reversal_max_abs_diff_ev": 0.24366581439971924,
+      "magnetic_energy_vs_zero_moments_ev": [
+        5.199039459228516,
+        3.862269163131714
+      ]
+    },
+    {
+      "geometry_id": "g26467a4104",
+      "parent_record_id": "a09438f828c931e233b3",
+      "states": [
+        "g26467a4104:M51",
+        "g26467a4104:M49"
+      ],
+      "reference_state": "g26467a4104:M51",
+      "gaussian_rel_ev": [
+        0.0,
+        0.359677379950881
+      ],
+      "magpt_rel_ev": [
+        0.0,
+        -1.080177664756775
+      ],
+      "ordering": {
+        "n_states": 2,
+        "n_pairs": 1,
+        "concordant_pairs": 0,
+        "discordant_pairs": 1,
+        "tied_pairs": 0,
+        "kendall_tau_a": -1.0,
+        "spearman_rho": NaN
+      },
+      "pairs": [
+        {
+          "state_a": "g26467a4104:M51",
+          "state_b": "g26467a4104:M49",
+          "delta_moment_mu_b": -1.9999970000000076,
+          "rms_local_moment_diff": 0.1481469892832369,
+          "max_local_moment_diff": 0.296265,
+          "n_sign_changes_strong_sites": 0,
+          "gaussian_dE_ev": 0.359677379950881,
+          "magpt_dE_ev": -1.080177664756775,
+          "sign_agrees": false,
+          "magpt_dE_box_spread_ev": 1.704692840576172e-05,
+          "magpt_dE_repeat_diff_ev": 0.0,
+          "magpt_dE_axis_x_ev": -1.4612153768539429,
+          "magpt_dE_by_scale_ev": {
+            "scale0.8": 0.26771706342697144,
+            "scale0.9": -0.5284298658370972,
+            "box30": -1.080177664756775,
+            "scale1.1": -2.656550645828247,
+            "scale1.2": -5.352773070335388
+          },
+          "sign_stable_scale_0.9_1.1": true,
+          "sign_stable_scale_0.8_1.2": false,
+          "magpt_dE_time_reversed_ev": -1.0786362886428833,
+          "magpt_dE_zero_moments_ev": 0.0,
+          "gaussian_dF_rms_ev_ang": 0.1551727616274853,
+          "magpt_dF_rms_ev_ang": 0.3238319501589633,
+          "dF_cosine": 0.14661346167532993
+        }
+      ],
+      "time_reversal_max_abs_diff_ev": 0.0032701492309570312,
+      "magnetic_energy_vs_zero_moments_ev": [
+        4.389538407325745,
+        3.3093607425689697
+      ]
+    },
+    {
+      "geometry_id": "g2a498b6f7b",
+      "parent_record_id": "2ade8fdc8e7122295c79",
+      "states": [
+        "g2a498b6f7b:M51",
+        "g2a498b6f7b:M49"
+      ],
+      "reference_state": "g2a498b6f7b:M51",
+      "gaussian_rel_ev": [
+        0.0,
+        0.04737501998897642
+      ],
+      "magpt_rel_ev": [
+        0.0,
+        -0.9882819056510925
+      ],
+      "ordering": {
+        "n_states": 2,
+        "n_pairs": 1,
+        "concordant_pairs": 0,
+        "discordant_pairs": 1,
+        "tied_pairs": 0,
+        "kendall_tau_a": -1.0,
+        "spearman_rho": NaN
+      },
+      "pairs": [
+        {
+          "state_a": "g2a498b6f7b:M51",
+          "state_b": "g2a498b6f7b:M49",
+          "delta_moment_mu_b": -2.00000399999999,
+          "rms_local_moment_diff": 0.1569496545221588,
+          "max_local_moment_diff": 0.35535700000000014,
+          "n_sign_changes_strong_sites": 0,
+          "gaussian_dE_ev": 0.04737501998897642,
+          "magpt_dE_ev": -0.9882819056510925,
+          "sign_agrees": false,
+          "magpt_dE_box_spread_ev": 1.2695789337158203e-05,
+          "magpt_dE_repeat_diff_ev": 0.0,
+          "magpt_dE_axis_x_ev": -0.8741583824157715,
+          "magpt_dE_by_scale_ev": {
+            "scale0.8": 0.24505388736724854,
+            "scale0.9": -0.11283278465270996,
+            "box30": -0.9882819056510925,
+            "scale1.1": -1.992545247077942,
+            "scale1.2": 3.4386234283447266
+          },
+          "sign_stable_scale_0.9_1.1": true,
+          "sign_stable_scale_0.8_1.2": false,
+          "magpt_dE_time_reversed_ev": -1.001863956451416,
+          "magpt_dE_zero_moments_ev": 0.0,
+          "gaussian_dF_rms_ev_ang": 0.14982055858102963,
+          "magpt_dF_rms_ev_ang": 0.14599244045010729,
+          "dF_cosine": 0.37595348975994725
+        }
+      ],
+      "time_reversal_max_abs_diff_ev": 0.08952414989471436,
+      "magnetic_energy_vs_zero_moments_ev": [
+        -0.395447313785553,
+        -1.3837292194366455
+      ]
+    },
+    {
+      "geometry_id": "g3f954e0e00",
+      "parent_record_id": "e54a588d7a6564beb9e7",
+      "states": [
+        "g3f954e0e00:M51",
+        "g3f954e0e00:M49"
+      ],
+      "reference_state": "g3f954e0e00:M51",
+      "gaussian_rel_ev": [
+        0.0,
+        0.15713487996254116
+      ],
+      "magpt_rel_ev": [
+        0.0,
+        -1.0215449333190918
+      ],
+      "ordering": {
+        "n_states": 2,
+        "n_pairs": 1,
+        "concordant_pairs": 0,
+        "discordant_pairs": 1,
+        "tied_pairs": 0,
+        "kendall_tau_a": -1.0,
+        "spearman_rho": NaN
+      },
+      "pairs": [
+        {
+          "state_a": "g3f954e0e00:M51",
+          "state_b": "g3f954e0e00:M49",
+          "delta_moment_mu_b": -2.0,
+          "rms_local_moment_diff": 0.13904947970506756,
+          "max_local_moment_diff": 0.215641,
+          "n_sign_changes_strong_sites": 0,
+          "gaussian_dE_ev": 0.15713487996254116,
+          "magpt_dE_ev": -1.0215449333190918,
+          "sign_agrees": false,
+          "magpt_dE_box_spread_ev": 1.7702579498291016e-05,
+          "magpt_dE_repeat_diff_ev": 0.0,
+          "magpt_dE_axis_x_ev": -1.067911684513092,
+          "magpt_dE_by_scale_ev": {
+            "scale0.8": 0.21115052700042725,
+            "scale0.9": -0.09173959493637085,
+            "box30": -1.0215449333190918,
+            "scale1.1": -1.6489536762237549,
+            "scale1.2": 3.022567629814148
+          },
+          "sign_stable_scale_0.9_1.1": true,
+          "sign_stable_scale_0.8_1.2": false,
+          "magpt_dE_time_reversed_ev": -0.9764246940612793,
+          "magpt_dE_zero_moments_ev": 0.0,
+          "gaussian_dF_rms_ev_ang": 0.11864961405840545,
+          "magpt_dF_rms_ev_ang": 0.13155614460307427,
+          "dF_cosine": 0.42920451091086187
+        }
+      ],
+      "time_reversal_max_abs_diff_ev": 0.19086915254592896,
+      "magnetic_energy_vs_zero_moments_ev": [
+        0.18846368789672852,
+        -0.8330812454223633
+      ]
+    },
+    {
+      "geometry_id": "g53a761a4af",
+      "parent_record_id": "2ade8fdc8e7122295c79",
+      "states": [
+        "g53a761a4af:M53",
+        "g53a761a4af:M51"
+      ],
+      "reference_state": "g53a761a4af:M51",
+      "gaussian_rel_ev": [
+        0.3379735799971968,
+        0.0
+      ],
+      "magpt_rel_ev": [
+        1.4758924841880798,
+        0.0
+      ],
+      "ordering": {
+        "n_states": 2,
+        "n_pairs": 1,
+        "concordant_pairs": 1,
+        "discordant_pairs": 0,
+        "tied_pairs": 0,
+        "kendall_tau_a": 1.0,
+        "spearman_rho": NaN
+      },
+      "pairs": [
+        {
+          "state_a": "g53a761a4af:M53",
+          "state_b": "g53a761a4af:M51",
+          "delta_moment_mu_b": -2.000001999999995,
+          "rms_local_moment_diff": 0.1777755217560196,
+          "max_local_moment_diff": 0.41930900000000015,
+          "n_sign_changes_strong_sites": 0,
+          "gaussian_dE_ev": -0.3379735799971968,
+          "magpt_dE_ev": -1.4758924841880798,
+          "sign_agrees": true,
+          "magpt_dE_box_spread_ev": 2.4080276489257812e-05,
+          "magpt_dE_repeat_diff_ev": 0.0,
+          "magpt_dE_axis_x_ev": -1.5728375315666199,
+          "magpt_dE_by_scale_ev": {
+            "scale0.8": 0.1790822148323059,
+            "scale0.9": -0.4273381233215332,
+            "box30": -1.4758924841880798,
+            "scale1.1": 0.3407996892929077,
+            "scale1.2": -2.3802794218063354
+          },
+          "sign_stable_scale_0.9_1.1": false,
+          "sign_stable_scale_0.8_1.2": false,
+          "magpt_dE_time_reversed_ev": -1.5730654001235962,
+          "magpt_dE_zero_moments_ev": 0.0,
+          "gaussian_dF_rms_ev_ang": 0.14274019533981705,
+          "magpt_dF_rms_ev_ang": 0.11220299543264785,
+          "dF_cosine": 0.4297645932679421
+        }
+      ],
+      "time_reversal_max_abs_diff_ev": 0.09436661005020142,
+      "magnetic_energy_vs_zero_moments_ev": [
+        1.3978491425514221,
+        -0.07804334163665771
+      ]
+    },
+    {
+      "geometry_id": "g54c06f700b",
+      "parent_record_id": "c665f623f9c2a3269ab0",
+      "states": [
+        "g54c06f700b:M53",
+        "g54c06f700b:M51"
+      ],
+      "reference_state": "g54c06f700b:M53",
+      "gaussian_rel_ev": [
+        0.0,
+        0.0344169600866735
+      ],
+      "magpt_rel_ev": [
+        0.0,
+        -1.4840936660766602
+      ],
+      "ordering": {
+        "n_states": 2,
+        "n_pairs": 1,
+        "concordant_pairs": 0,
+        "discordant_pairs": 1,
+        "tied_pairs": 0,
+        "kendall_tau_a": -1.0,
+        "spearman_rho": NaN
+      },
+      "pairs": [
+        {
+          "state_a": "g54c06f700b:M53",
+          "state_b": "g54c06f700b:M51",
+          "delta_moment_mu_b": -1.9999990000000025,
+          "rms_local_moment_diff": 0.1327332045243861,
+          "max_local_moment_diff": 0.18929200000000002,
+          "n_sign_changes_strong_sites": 0,
+          "gaussian_dE_ev": 0.0344169600866735,
+          "magpt_dE_ev": -1.4840936660766602,
+          "sign_agrees": false,
+          "magpt_dE_box_spread_ev": 2.574920654296875e-05,
+          "magpt_dE_repeat_diff_ev": 0.0,
+          "magpt_dE_axis_x_ev": -1.8624322414398193,
+          "magpt_dE_by_scale_ev": {
+            "scale0.8": 0.13575148582458496,
+            "scale0.9": -0.6937159299850464,
+            "box30": -1.4840936660766602,
+            "scale1.1": -5.284201145172119,
+            "scale1.2": -7.7122145891189575
+          },
+          "sign_stable_scale_0.9_1.1": true,
+          "sign_stable_scale_0.8_1.2": false,
+          "magpt_dE_time_reversed_ev": -1.295639157295227,
+          "magpt_dE_zero_moments_ev": 0.0,
+          "gaussian_dF_rms_ev_ang": 0.15730729521882325,
+          "magpt_dF_rms_ev_ang": 0.4497982211355688,
+          "dF_cosine": -0.018725637791123483
+        }
+      ],
+      "time_reversal_max_abs_diff_ev": 0.612247109413147,
+      "magnetic_energy_vs_zero_moments_ev": [
+        5.850515604019165,
+        4.366421937942505
+      ]
+    },
+    {
+      "geometry_id": "g5cddeb1413",
+      "parent_record_id": "1b1a3a006db289cda18d",
+      "states": [
+        "g5cddeb1413:M51",
+        "g5cddeb1413:M49"
+      ],
+      "reference_state": "g5cddeb1413:M51",
+      "gaussian_rel_ev": [
+        0.0,
+        0.5906993300886825
+      ],
+      "magpt_rel_ev": [
+        0.0,
+        -1.2908477783203125
+      ],
+      "ordering": {
+        "n_states": 2,
+        "n_pairs": 1,
+        "concordant_pairs": 0,
+        "discordant_pairs": 1,
+        "tied_pairs": 0,
+        "kendall_tau_a": -1.0,
+        "spearman_rho": NaN
+      },
+      "pairs": [
+        {
+          "state_a": "g5cddeb1413:M51",
+          "state_b": "g5cddeb1413:M49",
+          "delta_moment_mu_b": -2.0000029999999924,
+          "rms_local_moment_diff": 0.14890292190404622,
+          "max_local_moment_diff": 0.347229,
+          "n_sign_changes_strong_sites": 0,
+          "gaussian_dE_ev": 0.5906993300886825,
+          "magpt_dE_ev": -1.2908477783203125,
+          "sign_agrees": false,
+          "magpt_dE_box_spread_ev": 3.9577484130859375e-05,
+          "magpt_dE_repeat_diff_ev": 0.0,
+          "magpt_dE_axis_x_ev": -1.9229182004928589,
+          "magpt_dE_by_scale_ev": {
+            "scale0.8": 0.32657188177108765,
+            "scale0.9": -0.7540273666381836,
+            "box30": -1.2908477783203125,
+            "scale1.1": -2.531674861907959,
+            "scale1.2": -10.862958192825317
+          },
+          "sign_stable_scale_0.9_1.1": true,
+          "sign_stable_scale_0.8_1.2": false,
+          "magpt_dE_time_reversed_ev": -1.4114547967910767,
+          "magpt_dE_zero_moments_ev": 0.0,
+          "gaussian_dF_rms_ev_ang": 0.1535184557515626,
+          "magpt_dF_rms_ev_ang": 0.6244731896616473,
+          "dF_cosine": -0.003291208746590572
+        }
+      ],
+      "time_reversal_max_abs_diff_ev": 0.2109142541885376,
+      "magnetic_energy_vs_zero_moments_ev": [
+        4.06705904006958,
+        2.7762112617492676
+      ]
+    },
+    {
+      "geometry_id": "ga10ab876ea",
+      "parent_record_id": "51d23dc44aa8e59cb506",
+      "states": [
+        "ga10ab876ea:M53",
+        "ga10ab876ea:M51"
+      ],
+      "reference_state": "ga10ab876ea:M51",
+      "gaussian_rel_ev": [
+        0.039053780026733875,
+        0.0
+      ],
+      "magpt_rel_ev": [
+        1.8476091623306274,
+        0.0
+      ],
+      "ordering": {
+        "n_states": 2,
+        "n_pairs": 1,
+        "concordant_pairs": 1,
+        "discordant_pairs": 0,
+        "tied_pairs": 0,
+        "kendall_tau_a": 1.0,
+        "spearman_rho": NaN
+      },
+      "pairs": [
+        {
+          "state_a": "ga10ab876ea:M53",
+          "state_b": "ga10ab876ea:M51",
+          "delta_moment_mu_b": -2.0,
+          "rms_local_moment_diff": 0.1468851059616836,
+          "max_local_moment_diff": 0.28247800000000023,
+          "n_sign_changes_strong_sites": 0,
+          "gaussian_dE_ev": -0.039053780026733875,
+          "magpt_dE_ev": -1.8476091623306274,
+          "sign_agrees": true,
+          "magpt_dE_box_spread_ev": 4.2438507080078125e-05,
+          "magpt_dE_repeat_diff_ev": 0.0,
+          "magpt_dE_axis_x_ev": -2.225016236305237,
+          "magpt_dE_by_scale_ev": {
+            "scale0.8": 0.19090712070465088,
+            "scale0.9": -0.780085563659668,
+            "box30": -1.8476091623306274,
+            "scale1.1": -4.50656259059906,
+            "scale1.2": -6.873560965061188
+          },
+          "sign_stable_scale_0.9_1.1": true,
+          "sign_stable_scale_0.8_1.2": false,
+          "magpt_dE_time_reversed_ev": -1.8513330221176147,
+          "magpt_dE_zero_moments_ev": 0.0,
+          "gaussian_dF_rms_ev_ang": 0.1481918037445525,
+          "magpt_dF_rms_ev_ang": 0.7990943436927744,
+          "dF_cosine": 0.3341070514323265
+        }
+      ],
+      "time_reversal_max_abs_diff_ev": 0.0047348737716674805,
+      "magnetic_energy_vs_zero_moments_ev": [
+        6.081015706062317,
+        4.2334065437316895
+      ]
+    },
+    {
+      "geometry_id": "gb872dd28e1",
+      "parent_record_id": "c665f623f9c2a3269ab0",
+      "states": [
+        "gb872dd28e1:M51",
+        "gb872dd28e1:M49"
+      ],
+      "reference_state": "gb872dd28e1:M51",
+      "gaussian_rel_ev": [
+        0.0,
+        0.5712976099457592
+      ],
+      "magpt_rel_ev": [
+        0.0,
+        -1.4763422012329102
+      ],
+      "ordering": {
+        "n_states": 2,
+        "n_pairs": 1,
+        "concordant_pairs": 0,
+        "discordant_pairs": 1,
+        "tied_pairs": 0,
+        "kendall_tau_a": -1.0,
+        "spearman_rho": NaN
+      },
+      "pairs": [
+        {
+          "state_a": "gb872dd28e1:M51",
+          "state_b": "gb872dd28e1:M49",
+          "delta_moment_mu_b": -2.0,
+          "rms_local_moment_diff": 0.14016324958731163,
+          "max_local_moment_diff": 0.26023700000000005,
+          "n_sign_changes_strong_sites": 0,
+          "gaussian_dE_ev": 0.5712976099457592,
+          "magpt_dE_ev": -1.4763422012329102,
+          "sign_agrees": false,
+          "magpt_dE_box_spread_ev": 4.267692565917969e-05,
+          "magpt_dE_repeat_diff_ev": 0.0,
+          "magpt_dE_axis_x_ev": -1.7475541830062866,
+          "magpt_dE_by_scale_ev": {
+            "scale0.8": 0.39378321170806885,
+            "scale0.9": -0.5197446346282959,
+            "box30": -1.4763422012329102,
+            "scale1.1": -1.337310552597046,
+            "scale1.2": -13.279563248157501
+          },
+          "sign_stable_scale_0.9_1.1": true,
+          "sign_stable_scale_0.8_1.2": false,
+          "magpt_dE_time_reversed_ev": -1.5306448936462402,
+          "magpt_dE_zero_moments_ev": 0.0,
+          "gaussian_dF_rms_ev_ang": 0.17819245119923977,
+          "magpt_dF_rms_ev_ang": 0.29395619030293035,
+          "dF_cosine": -0.21624700394573032
+        }
+      ],
+      "time_reversal_max_abs_diff_ev": 0.5440462827682495,
+      "magnetic_energy_vs_zero_moments_ev": [
+        4.4188902378082275,
+        2.9425480365753174
+      ]
+    },
+    {
+      "geometry_id": "gcda6a627a2",
+      "parent_record_id": "a09438f828c931e233b3",
+      "states": [
+        "gcda6a627a2:M53",
+        "gcda6a627a2:M51"
+      ],
+      "reference_state": "gcda6a627a2:M51",
+      "gaussian_rel_ev": [
+        0.1705881799571216,
+        0.0
+      ],
+      "magpt_rel_ev": [
+        1.5552653074264526,
+        0.0
+      ],
+      "ordering": {
+        "n_states": 2,
+        "n_pairs": 1,
+        "concordant_pairs": 1,
+        "discordant_pairs": 0,
+        "tied_pairs": 0,
+        "kendall_tau_a": 1.0,
+        "spearman_rho": NaN
+      },
+      "pairs": [
+        {
+          "state_a": "gcda6a627a2:M53",
+          "state_b": "gcda6a627a2:M51",
+          "delta_moment_mu_b": -1.9999990000000025,
+          "rms_local_moment_diff": 0.1446960069833908,
+          "max_local_moment_diff": 0.271204,
+          "n_sign_changes_strong_sites": 0,
+          "gaussian_dE_ev": -0.1705881799571216,
+          "magpt_dE_ev": -1.5552653074264526,
+          "sign_agrees": true,
+          "magpt_dE_box_spread_ev": 5.8531761169433594e-05,
+          "magpt_dE_repeat_diff_ev": 0.0,
+          "magpt_dE_axis_x_ev": -2.2770496606826782,
+          "magpt_dE_by_scale_ev": {
+            "scale0.8": 0.16513115167617798,
+            "scale0.9": -0.30157411098480225,
+            "box30": -1.5552653074264526,
+            "scale1.1": -5.160120487213135,
+            "scale1.2": -8.000015377998352
+          },
+          "sign_stable_scale_0.9_1.1": true,
+          "sign_stable_scale_0.8_1.2": false,
+          "magpt_dE_time_reversed_ev": -1.5608631372451782,
+          "magpt_dE_zero_moments_ev": 0.0,
+          "gaussian_dF_rms_ev_ang": 0.1344610348172936,
+          "magpt_dF_rms_ev_ang": 0.6346588205188816,
+          "dF_cosine": 0.37235521211818556
+        }
+      ],
+      "time_reversal_max_abs_diff_ev": 0.0047948360443115234,
+      "magnetic_energy_vs_zero_moments_ev": [
+        5.796018838882446,
+        4.240753531455994
+      ]
+    },
+    {
+      "geometry_id": "ge72593da8a",
+      "parent_record_id": "e9811ebc0a52f6246160",
+      "states": [
+        "ge72593da8a:M53",
+        "ge72593da8a:M51"
+      ],
+      "reference_state": "ge72593da8a:M51",
+      "gaussian_rel_ev": [
+        0.2209564499789849,
+        0.0
+      ],
+      "magpt_rel_ev": [
+        1.5573521256446838,
+        0.0
+      ],
+      "ordering": {
+        "n_states": 2,
+        "n_pairs": 1,
+        "concordant_pairs": 1,
+        "discordant_pairs": 0,
+        "tied_pairs": 0,
+        "kendall_tau_a": 1.0,
+        "spearman_rho": NaN
+      },
+      "pairs": [
+        {
+          "state_a": "ge72593da8a:M53",
+          "state_b": "ge72593da8a:M51",
+          "delta_moment_mu_b": -2.0,
+          "rms_local_moment_diff": 0.14885234739289468,
+          "max_local_moment_diff": 0.300497,
+          "n_sign_changes_strong_sites": 0,
+          "gaussian_dE_ev": -0.2209564499789849,
+          "magpt_dE_ev": -1.5573521256446838,
+          "sign_agrees": true,
+          "magpt_dE_box_spread_ev": 2.9027462005615234e-05,
+          "magpt_dE_repeat_diff_ev": 0.0,
+          "magpt_dE_axis_x_ev": -1.5028663873672485,
+          "magpt_dE_by_scale_ev": {
+            "scale0.8": 0.18093019723892212,
+            "scale0.9": -0.31103044748306274,
+            "box30": -1.5573521256446838,
+            "scale1.1": -0.3283018469810486,
+            "scale1.2": -2.5149813294410706
+          },
+          "sign_stable_scale_0.9_1.1": true,
+          "sign_stable_scale_0.8_1.2": false,
+          "magpt_dE_time_reversed_ev": -1.403208315372467,
+          "magpt_dE_zero_moments_ev": 0.0,
+          "gaussian_dF_rms_ev_ang": 0.10836386074458164,
+          "magpt_dF_rms_ev_ang": 0.1838228413206075,
+          "dF_cosine": 0.2477569812002771
+        }
+      ],
+      "time_reversal_max_abs_diff_ev": 0.40786105394363403,
+      "magnetic_energy_vs_zero_moments_ev": [
+        1.2339488863945007,
+        -0.3234032392501831
+      ]
+    }
+  ],
+  "verdict": {
+    "n_geometries": 11,
+    "n_states": 22,
+    "n_state_pairs": 11,
+    "resolution_ev": 0.001,
+    "max_box_or_repeat_noise_ev": 5.8531761169433594e-05,
+    "pairs_distinguished": 11,
+    "pairs_sign_agree": 5,
+    "sign_agreement_binomial_p": 0.7255859375,
+    "pooled_spearman_dE": 0.5636363636363637,
+    "pooled_pearson_dE": 0.35829485225160546,
+    "pairs_sign_stable_scale_0.9_1.1": 10,
+    "pairs_sign_stable_scale_0.8_1.2": 0,
+    "max_box_spread_ev": 5.8531761169433594e-05,
+    "max_time_reversal_diff_ev": 0.612247109413147,
+    "q1_distinguishes_patterns": true,
+    "q2_reproduces_ordering": false,
+    "geometries_with_full_sign_agreement": 5,
+    "q3_stable_box_and_magnitude": false,
+    "q4_larger_pilot_justified": false,
+    "gate_rule": "Q1: every pair |dE_MagPT| > max(1 meV, 10 x box/repeat noise). Q2: dE sign agrees with Gaussian in >= 2 whole geometries AND one-sided binomial p < 0.05 over all pairs. Q3: dE sign unchanged for moment scales 0.9-1.1 for every pair AND box spread < resolution. Q4: Q1 and Q2 and Q3."
+  },
+  "provenance": {
+    "model_repository": "https://github.com/MagTheoryLab/MagPT",
+    "model_repository_commit": "dd27a5d389227f1f60caf3e65e6bc5f904d7ac6d",
+    "checkpoint_file": "MagPT_399168.pth",
+    "checkpoint_sha256": "3eeb45355c741ac1a5609dfd06fecd04d6c6ce5c80edbb6a45eda9a1ab23956e",
+    "checkpoint_training_set": "released 399,168-frame subset (not the full 912,492-frame MagPT)",
+    "deepmd_repository": "https://github.com/MagTheoryLab/deepmd-kit (branch spin_virial_master_port)",
+    "deepmd_commit": "4e72376de5072ad9bd54f3076003f54c6687c0d4",
+    "deepmd_version": "3.1.0.dev0+magpt.4e72376",
+    "torch_version": "2.8.0+cpu",
+    "torch_threads": 1,
+    "numpy_version": "2.2.6",
+    "ase_version": "3.25.0",
+    "python": "3.12.11",
+    "platform": "Windows-11-10.0.26100-SP0",
+    "device": "cpu",
+    "type_map": [
+      "Al",
+      "Sc",
+      "Ti",
+      "V",
+      "Cr",
+      "Mn",
+      "Fe",
+      "Co",
+      "Ni",
+      "Cu",
+      "Zn",
+      "Ga",
+      "Ge",
+      "Y",
+      "Zr",
+      "Nb",
+      "Mo",
+      "Tc",
+      "Ru",
+      "Rh",
+      "Pd",
+      "Ag",
+      "Cd",
+      "In",
+      "Sn",
+      "Sb",
+      "Ba",
+      "Hf",
+      "Ta",
+      "W",
+      "Re",
+      "Os",
+      "Ir",
+      "Pt",
+      "Au",
+      "Hg",
+      "Pb",
+      "Bi",
+      "H",
+      "Li",
+      "Be",
+      "B",
+      "C",
+      "N",
+      "O",
+      "F",
+      "Na",
+      "Mg",
+      "Si",
+      "P",
+      "S",
+      "Cl",
+      "K",
+      "Ca",
+      "As",
+      "Se",
+      "Br",
+      "Rb",
+      "Sr",
+      "Te",
+      "I",
+      "Xe",
+      "Cs",
+      "Tl"
+    ],
+    "rcut_ang": 6.0,
+    "moment_input": "collinear m_i = (0, 0, s_i) mu_B, s_i = Gaussian Mulliken spin population (n_alpha - n_beta)",
+    "dataset": "D:/MLIP_Work_Folder/Cluster_MLIP/fe16_v1/02_fe16_dataset/all.extxyz",
+    "dataset_sha256": "ad7b96396ade0daf4354f94e3835ac5896c91b780b71398a1da19637c7689116",
+    "boxes_ang": [
+      20.0,
+      25.0,
+      30.0
+    ],
+    "primary_box_ang": 30.0,
+    "moment_scales": [
+      0.8,
+      0.9,
+      1.0,
+      1.1,
+      1.2
+    ],
+    "nopbc_supported": true,
+    "nopbc_error": ""
+  }
+}
