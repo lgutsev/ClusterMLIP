@@ -173,3 +173,24 @@ What could change this conclusion (not done here; it would be a new pilot): the 
 (packages 36/41), which are smaller and closer to an orbital-projected definition, at same-geometry flip patterns.
 Even then, the time-reversal and axis violations on Fe16 mean the released 399k checkpoint is outside its domain for
 open Fe clusters.
+
+## Comparison with ClusterMLIP's spin-conditioned MACE (2026-10-29)
+
+`compare_spin_mace.py` runs the same 11 pairs through the 800-epoch Fe16 MACE models from the 2026-10-05 local-spin
+test: B (geometry + total charge + multiplicity) and C (B + per-atom signed Mulliken spin), 2 seeds each. Outputs are
+in `report/spin_mace/`. The published magnetic MACE (mMACE, Ho et al., arXiv:2604.08143, code on the
+`CheukHinHoJerry/mace` `magnetic*` branches) has no released pretrained checkpoint, so it could not be run zero-shot.
+
+This is an in-distribution reference, not a zero-shot contest: 14 of the 22 states are in B/C's training set, and the
+other 8 are in their held-out set but are mostly twins of training structures.
+
+| model | sign agrees | Spearman ΔE | ΔE MAE (meV) | ΔF cosine (median) |
+|---|---:|---:|---:|---:|
+| MagPT (zero-shot) | 5/11 | 0.56 | 1461 | 0.25 |
+| B s1 / s2 | 10/11, 10/11 | 0.96 | 55, 51 | 1.000, 0.999 |
+| C s1 / s2 | 9/11, 10/11 | 0.96 | 53, 37 | 0.999 |
+
+- The Gaussian ordering is learnable. B, without per-atom spins, does as well as C (consistent with the 2026-10-05 result).
+- The pair all four models miss is g54c06f700b (Gaussian +34 meV; models −67 to −99 meV).
+- C is also fragile when its moment inputs leave the training range. ±10% moment scaling moves its ΔE by up to
+  93–108 meV (sign stable 0.8–1.2 in 7/11 pairs), and m → −m at fixed M changes its energies by 6–12 eV (MagPT: ≤ 0.61 eV).
