@@ -75,8 +75,11 @@ forces in eV/Å, already converted from Hartree and Hartree/Bohr by collect). 15
 per-atom spin table.
 
 - **Only Mulliken populations exist.** No Hirshfeld table is in any collected Fe16 log. The `Pop=Hirshfeld` jobs
-  are the broken-symmetry smoke and pilot (packages 36/41), and their results have not come back. The loader
-  (`load_states_from_extxyz(spin_array=...)`) can take a Hirshfeld array once those logs are collected.
+  were the broken-symmetry fragment-guess runs. The smoke run (package 36, 2026-10-09) returned one M=49 state that
+  collapsed to ferromagnetic. The AFM pilot (staged as 41, run as package 61, 2026-10-19) failed: the first
+  full-cluster SCF hit the cycle cap unconverged in 13/13 jobs, so there are no usable broken-symmetry labels. The
+  loader (`load_states_from_extxyz(spin_array=...)`) can take a Hirshfeld array if such logs are ever collected.
+  (Corrected 2026-10-29; the first version of this README wrongly said these results had not come back.)
 - **Same-geometry states come only from verified Link1 M → M−2 hand-offs.** The final frame of the M stage and
   the first frame of the M−2 stage have identical coordinates (≤ 2e-5 Å), and each is a converged SCF with forces.
   No geometry has more than two states, and there are no same-M alternative solutions (the 2026-10-05 pair audit
@@ -90,8 +93,10 @@ per-atom spin table.
 **Limitation for Q1, which matters for interpretation:** within each pair, *no strong site changes sign*. The M−2
 state redistributes 2 μB over all sites (RMS local change 0.13–0.18 μB, max 0.19–0.42 μB). These are genuinely
 different SCF states (different S, ΔE up to 0.6 eV, force differences of 0.11–0.18 eV/Å RMS), but they are **not
-different sign patterns**. Distinct sign patterns at one geometry only appear with the BS pilot. Until then, this
-diagnostic tests longitudinal (magnitude) sensitivity, not flip-pattern discrimination.
+different sign patterns**. Fresh broken-symmetry preparation (fragment guess) has not produced usable Fe16 states
+(packages 36 and 61), so this diagnostic tests longitudinal (magnitude) sensitivity, not flip-pattern
+discrimination. Flip-down ladders and the legacy Fe_n series (`experiments/fen_spin_ordering/`) are the practical
+sources of antiparallel states.
 
 ## Conversion: Gaussian populations → MagPT moments
 
@@ -169,10 +174,10 @@ DeltaSpin's projection, a 16-atom open cluster vs bulk training data, and uncons
 4. **Larger pilot justified?** **No.** The automatic gate gives Q1 ✓, Q2 ✗, Q3 ✗, so Q4 ✗. Record the limitation
    and close the pilot without changing the Fe16 Gaussian workflow.
 
-What could change this conclusion (not done here; it would be a new pilot): the BS-pilot Hirshfeld moments
-(packages 36/41), which are smaller and closer to an orbital-projected definition, at same-geometry flip patterns.
-Even then, the time-reversal and axis violations on Fe16 mean the released 399k checkpoint is outside its domain for
-open Fe clusters.
+What could change this conclusion: moments closer to an orbital-projected definition (e.g. Hirshfeld) at
+same-geometry flip patterns. The fragment-guess route to such states has failed so far (packages 36 and 61), so the
+broader test was moved to the legacy Fe_n series, `experiments/fen_spin_ordering/`. Even then, the time-reversal
+and axis violations on Fe16 mean the released 399k checkpoint is outside its domain for open Fe clusters.
 
 ## Comparison with ClusterMLIP's spin-conditioned MACE (2026-10-29)
 
