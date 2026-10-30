@@ -160,3 +160,33 @@ These 695 clean states (24 sizes, 3 charges, up to 50 multiplicities per size, 2
 spin-label set for ClusterMLIP's own spin-aware MACE: total M plus per-atom moments, with energies. They have no
 forces, since all are stationary points, and the Mulliken moments carry the artifact flag. The set is extracted but
 not merged into any training data.
+
+## Our spin MACE on the same states (2026-10-30)
+
+`run_spin_mace_ordering.py` runs the four 800-epoch models from the 2026-10-05 local-spin test (B: geometry + charge +
+multiplicity; C: B + per-atom Mulliken spin; two seeds each) on all 695 clean states. `analyze_spin_mace.py` scores
+them with the same metrics (`report/spin_mace_states.csv`, `report/spin_mace_ordering_summary.json`). The models were
+trained on 60 neutral Fe16 frames at M = 47–53 (BPW91/6-311++G(d)); only 4 of the 695 states fall in that range, so
+this is a transfer test.
+
+| Predictor | Groups: median Spearman | Groups: pairs ordered right | Adjacent pairs: sign agrees (of 134) | Adjacent: says higher M lower |
+|---|---:|---:|---:|---:|
+| Gaussian | | | | 64% |
+| MagPT, Mulliken moments | +0.43 | 62% | 65% | 35% |
+| MagPT, zero moments | +0.46 | 63% | 49% | 25% |
+| B s1 / s2 | +0.13 / +0.20 | 50% / 53% | 51% / 51% | 52% / 55% |
+| C s1 / s2 | +0.02 / −0.09 | 54% / 45% | 45% / 47% | 51% / 49% |
+
+Adjacent pairs here are ΔM = 2, |ΔE| ≥ 0.05 eV, one pair per (n, q, M_low), the selection behind the 134 above.
+
+- **The Fe16-trained models do not transfer.** They are at chance on other sizes and charges; what they learned is
+  Fe16-specific.
+- **MagPT's adjacent-pair signal comes from the moments.** Its zero-moment control falls to 49% on the same pairs.
+- **C is stable but has no skill here.** Its adjacent sign survives ×0.9 to ×1.1 in 125/134 and 124/134 pairs (median
+  ΔE change 0.14 and 0.07 eV, against 1.5 eV for MagPT).
+- **Neutral Fe16 (5 states, 10 pairs) is too small to read.** B orders 10/10 and 8/10, C 2/10 and 3/10, MagPT 6/10.
+  Two of the five geometries are training frames, and M = 55 is outside the training range (B s1 puts it 3.9 eV
+  too high).
+
+A spin MACE that orders Fe_n states would need training data across sizes; these 695 states are a candidate source,
+not yet merged anywhere.
