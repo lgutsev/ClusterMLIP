@@ -1,8 +1,9 @@
 # G09 basis-set check on the package-62 force gap
 
-Status 2026-10-19: designed and staged as proposal **65** in
-`D:\MLIP_Work_Folder\Cluster_MLIP\loni_package\65_clustermlip_gaussian_basis_check`. Nothing has been
-submitted or sent to the desk; that waits for the user's OK.
+Status 2026-10-31: the desk took it in as **package 75** (desk commit 70852d9). It was staged as proposal 65 in
+`D:\MLIP_Work_Folder\Cluster_MLIP\loni_package\65_clustermlip_gaussian_basis_check`, and the files are
+unchanged; `package.json` keeps the staged name. Launch (`bash submit.sh`) is with the user. Results will come
+back as `hpc_smoke_tests\75_clustermlip_gaussian_basis_check`.
 
 ## Question
 
