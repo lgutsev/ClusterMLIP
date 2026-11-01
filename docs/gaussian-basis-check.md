@@ -146,3 +146,66 @@ python experiments/gaussian_vasp_calibration/analyze_basis_check.py \
 
 The plumbing was checked on mock logs made from package-62 links: the control is exact, alpha is 0, and the
 Fe2 fit recovers a synthetic Morse r_e to 1e-4 A.
+
+## Results (package 75, received 2026-11-01)
+
+The results are in `hpc_smoke_tests\75_clustermlip_gaussian_basis_check`. The report is in
+`D:\MLIP_Work_Folder\Cluster_MLIP\basis_check_75` (`report.md`, `report.json`, `links.csv`).
+
+All 15 tasks finished with every expected Normal termination:
+
+- every link's SCF converged, including bc07's UBPW91 link, which was unconverged in package 62;
+- no larger-basis link changed state (the Hirshfeld pattern held and ⟨S²⟩ moved by less than 0.1);
+- the control replays package 62 exactly (dE = 0.000 meV, max dF ≤ 0.01 meV/A).
+
+The longest wall times were 2.6 h (Fe16) and 2.9 h (Fe16N2).
+
+**Verdict: `ladder_not_converged`.** The TZVPP→QZVPP step moves forces by 0.51 (Fe2), 0.29 (Fe8) and 0.32
+(Fe10) of the gap. The rule therefore gives no final split, but the direction is clear.
+
+| pure-Fe minimum | Fe RMSE vs VASP: 6-311++G* / TZVPP / QZVPP (meV/A) | alpha TZVPP / QZVPP | QZVPP shift from 6-311++G* (meV/A) |
+|---|---|---|---:|
+| Fe2 M7 | 204 / 166 / 63 | 0.19 / **0.69** | 141 |
+| Fe8 M25 | 233 / 248 / 181 | −0.05 / 0.23 | 58 |
+| Fe10 M29 | 215 / 249 / 180 | −0.16 / 0.16 | 36 |
+| Fe16 M51 | 192 / 191 / – | 0.01 / – | – |
+
+- **def2-TZVPP is no better than 6-311++G*.** Its alpha is about 0 for Fe8, Fe10 and Fe16.
+- **def2-QZVPP moves every pure-Fe cluster toward VASP.** It closes 69% of the Fe2 gap and 16–23% of the Fe8
+  and Fe10 gaps. The radial forces also turn more inward: Fe8 goes from −63 to −115 meV/A, against −295 for
+  VASP.
+- **So the 6-311++G* labels carry basis error.** The forces move by at least 36–141 meV/A RMS, and the
+  ladder is still moving. Whether all of the gap is Gaussian basis error is not decided yet. For Fe8 and
+  Fe10, 75–80% remains at QZVPP.
+- **Fe2 bond length:**
+
+  | | r_e (A) |
+  |---|---:|
+  | 6-311++G* | 2.0076 |
+  | def2-TZVPP | 2.0051 |
+  | def2-QZVPP | 1.9988 |
+  | VASP (harmonic estimate) | 1.9957 |
+
+  The ω_e is about 400 cm⁻¹ at every basis. At QZVPP the Gaussian value is within 0.003 A of VASP. Every
+  value is inside the experimental 2.02 ± 0.02 A, so experiment cannot pick between them.
+- **Relative energies change little.**
+
+  | quantity | 6-311++G* | def2-TZVPP | def2-QZVPP | VASP |
+  |---|---:|---:|---:|---:|
+  | Fe8 M23−M25 (meV) | 738 | 738 | 739 | 669 |
+  | Fe8 M27−M25 (meV) | 1099 | 1087 | 1075 | 1065 |
+  | Fe2N2O2 off-eq − min (meV) | 979 | 979 | 959 | 956 |
+
+  The 70 meV gap in the Fe8 M23 spin gap is not a basis effect.
+- **Fe2N2O2 behaves differently.** Its Fe forces move toward VASP (Fe RMSE 309 → 165 meV/A), but its N forces
+  move away (681 → 1263 meV/A). That makes alpha negative. Package 62's VASP N/O forces are the least
+  converged in that set: at ENCUT 520 they were short, and ENCUT 650 moved them by 58 meV/A. So this is left
+  open; it is not counted for or against the basis.
+
+**Next, to finish the attribution:**
+
+1. Extend the Gaussian ladder past def2-QZVPP on Fe2 and Fe8, through Gen. Options are a decontracted
+   def2-QZVPP for Fe, or a larger all-electron set from the Basis Set Exchange.
+2. Run a real VASP Fe2 bond scan at Fe_pv and Fe_sv to replace the one-point harmonic estimate.
+
+If BPW91 labels need relabelling, def2-TZVPP is not enough. It has to be QZVPP or better.
