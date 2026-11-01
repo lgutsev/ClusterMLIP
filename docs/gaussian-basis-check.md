@@ -209,3 +209,155 @@ The longest wall times were 2.6 h (Fe16) and 2.9 h (Fe16N2).
 2. Run a real VASP Fe2 bond scan at Fe_pv and Fe_sv to replace the one-point harmonic estimate.
 
 If BPW91 labels need relabelling, def2-TZVPP is not enough. It has to be QZVPP or better.
+
+## Beyond def2-QZVPP: finishing the attribution (proposed package 80)
+
+Status 2026-11-01: staged only, as
+`D:\MLIP_Work_Folder\Cluster_MLIP\loni_package\80_clustermlip_gaussian_basis_attribution`, with
+`HANDOFF_80_TO_DISPATCH.md` beside it. It has not been sent to the desk or submitted; that waits for the
+user's OK. The number 80 is a proposal (79 was the highest number in `hpc_smoke_tests`).
+
+Generator: `make_basis_check_package.py --ladder beyond-qz`. Analysis: `analyze_basis_check.py`, the same
+script, which adds an "Attribution" section when these links or the VASP scan are present.
+
+### Why another package
+
+Package 75 left two open questions:
+
+- Where is the Gaussian basis limit? The TZ→QZ step was still 0.3–0.5 of the gap.
+- Where is VASP's own Fe2 r_e? The 1.996 A value was a one-point harmonic estimate.
+
+There is also a third candidate that neither code's basis explains. VASP PAW potentials are
+scalar-relativistic, while G09's default Hamiltonian is non-relativistic. For a 3d metal, scalar relativity
+contracts 4s and shortens bonds, which is the same sign as the gap. Its size for Fe2 could be of order
+0.005–0.01 A, comparable to what QZVPP left. So the package measures it too, with DKH2 at a fixed decontracted
+basis. Otherwise a relativistic difference would be booked as "basis" or "PAW".
+
+### Gaussian part (11 tasks, G09 D.01, QB4 `single`, 12 cores, 24 GB, 12 h)
+
+Every link is a Force single point with:
+
+- `SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc) NoSymm Int=UltraFine Pop=Hirshfeld`;
+- `IOP(5/13=1,5/36=1,8/11=1)`.
+
+Links 1–2 replay package 62 (UBPW91, then UPW91PW91/6-311++G*; link 2 is the control). Every larger link reads
+link 2's orbitals through `%OldChk`. The Gen sets are Fe-only and stated as `Gen 5D 7F`; every system here is
+pure Fe. The sets are taken verbatim from the Basis Set Exchange v0.12 API (gaussian94 format) and kept in
+`experiments/gaussian_vasp_calibration/basis/`, with each file's SHA-256 pinned in the generator.
+
+| basis | functions per Fe | role |
+|---|---:|---|
+| def2-QZVPP (built-in) | 100 | anchor; must reproduce package 75's links (`--previous`) |
+| def2-QZVPP(gen) | 100 | the BSE copy through Gen; must equal the built-in to 0.1 meV and 0.1 meV/A (transcription and 5D/7F control) |
+| unc-def2-QZVPP | 170 | fully decontracted; primitives within 5% merged (s 72.78/72.18, p 4.39/4.54) to avoid near-linear dependence. Tests contraction error |
+| pcseg-3 | 92 | Jensen's DFT-optimised QZ family, with an h shell. A second family |
+| pcseg-4(-i) | 135 | pcseg-4 without its i shell |
+| pcseg-4 | 148 | Jensen's 5Z, built to approach the DFT basis limit (Fe2 only) |
+| unc-def2-QZVPP+DKH2 | 170 | the same decontracted set with `Int=(UltraFine,DKH2)`: scalar relativity |
+
+**Tasks:**
+
+- **bq00–bq06:** Fe2 M7 at s000 and its 6 scan points (the same bond lengths as package 75). Each task carries
+  every rung. The two links that might fail on G09 D.01 come last: DKH2 gradients, then the i-function
+  gradients of full pcseg-4. A failed link ends a G09 job, so a failure there loses nothing else.
+- **bq07–bq10:** Fe8 M25 (s024), one task per large basis so each stays inside the 12 h cap:
+  def2-QZVPP + pcseg-3; unc-def2-QZVPP; pcseg-4(-i); unc-def2-QZVPP+DKH2.
+
+**Cost:**
+
+- Fe2 tasks take minutes.
+- Fe8: the QZVPP link took 34 min of wall time in package 75. unc-def2-QZVPP has 1360 functions and should
+  take about 3 h, as should DKH2; pcseg-4(-i) about 2–3 h.
+
+### VASP part (23 jobs, `vasp6/6.6.1-cpu`, `vasp_gam`, QB4 `workq`, 64 cores, 1 h)
+
+The jobs come from package 62's `prod_pw91` inputs. INCAR and KPOINTS are byte-identical: the same 14.01 ×
+14.14 × 14.28 A box, PW91 (GGA=91), NUPDOWN=6, MAGMOM 2*3, ENCUT 520, EDIFF 1e-6 and PREC=Accurate. Only these
+change:
+
+- POSCAR: the same 7 Fe2 bond lengths as the Gaussian tasks;
+- POTCAR.spec;
+- ENCUT, in one variant.
+
+| variant | Fe POTCAR | ENCUT | jobs |
+|---|---|---|---|
+| `pw91_pv` | Fe_pv | 520 | Fe2 × 7. Its r0 point replays package 62 (control: < 1 meV, < 1 meV/A) |
+| `pw91_sv` | Fe_sv | 520 | Fe2 × 7, plus Fe8 s024 |
+| `pw91_sv_encut650` | Fe_sv | 650 | Fe2 × 7, plus Fe8 s024; checks that Fe_sv is converged at 520 |
+
+The 7-point scans replace the one-point harmonic r_e estimate with a fitted r_e, k and ω_e at Fe_pv and at
+Fe_sv. Fe_sv treats Fe 3s3p as valence (Fe_pv only 3p). It is the standard test for a PAW frozen-core or
+augmentation error. `$POTCARS/Fe_sv/POTCAR` must exist on QB4; the runner stops with exit code 2 if it does not.
+
+**Expected cost:** about 250 SU in all. Worst case about 3060 SU: 11 × 12 cores × 12 h for Gaussian, plus
+23 × 64 cores × 1 h for VASP.
+
+### Decision rule: Gaussian basis or VASP PAW
+
+Every quantity is a share of the package-62 gap, which runs from G09 PW91/6-311++G* to VASP PW91 Fe_pv.
+
+- **On the Fe2 bond length**, the gap is r_e(6-311++G*) − r_e(VASP Fe_pv), both from 7-point scans.
+- **On the Fe8 (and Fe2) forces**, a share is a projection onto the gap vector F_V − F_B0.
+
+| symbol | meaning |
+|---|---|
+| G_lim | the largest usable Gaussian rung: pcseg-4 for Fe2, pcseg-4(-i) for Fe8 |
+| **basis** | the share that B0 → G_lim moves toward VASP (alpha of G_lim) |
+| **relativity** | the share of the DKH2 shift at fixed unc-def2-QZVPP |
+| **vasp_paw** | how far Fe_pv → Fe_sv moves VASP back toward G09. Uses the ENCUT-650 run when it is usable |
+| **residual** | \|(G_lim + DKH2 shift) − VASP Fe_sv\| / \|gap\|: what remains after both sides are fixed |
+| **family_diff** | \|unc-def2-QZVPP − pcseg-4(-i)\| / gap. Two independent families must agree for G_lim to count as the limit |
+| **last_step** | \|pcseg-3 → pcseg-4(-i)\| / gap |
+
+The rule is applied in this order, separately to the Fe2 r_e and to the Fe8 forces:
+
+| outcome | condition | meaning |
+|---|---|---|
+| `control_failed` / `gen_control_failed` / `vasp_control_failed` | a replay or the Gen transcription is off | Stop; nothing else is read. |
+| `gaussian_ladder_not_converged` | family_diff or last_step > 0.10 | Even pcseg-4 is not the limit. Go to a fully uncontracted pcseg-4 or an even-tempered set. |
+| `vasp_sv_not_converged` | Fe_sv 520 → 650 moves more than 0.05 of the gap | Rerun Fe_sv at a higher ENCUT before reading vasp_paw. |
+| `unexplained_residual` | residual > 0.20 | Neither basis, relativity nor the PAW semicore explains the gap. Next: an all-electron referee (FHI-aims or similar) and the PAW augmentation spheres (Fe_sv_GW, harder potentials). |
+| `gaussian_basis` | basis ≥ 0.20 (and residual ≤ 0.20) | 6-311++G* basis error. **If it is the only named component, the gap is the Gaussian basis.** The labels need relabelling or a delta at QZ quality or better. |
+| `relativity` | relativity ≥ 0.20 | Part of the gap is scalar relativity, which is physics, not a numerical error of either code. G09 labels are non-relativistic; decide whether training should keep them that way (consistent across the dataset) or add DKH2. |
+| `vasp_paw` | vasp_paw ≥ 0.20 | Fe_pv's frozen 3s is a real part of the gap. VASP data for Fe needs Fe_sv. |
+| combined, e.g. `gaussian_basis+relativity` | several shares ≥ 0.20 | Each named piece is real. The shares say how much of the gap each one carries. |
+| `within_noise` | every share < 0.20 and residual ≤ 0.20 | Should not occur with a gap this large. Check the inputs. |
+
+The overall outcome holds only if Fe2 (r_e) and Fe8 (forces) agree. Otherwise it is `state_dependent`, and
+both rows are reported.
+
+**What would assign the gap to the Gaussian basis:**
+
+- family_diff and last_step ≤ 0.10;
+- basis ≥ 0.8, with relativity and vasp_paw < 0.2, and residual ≤ 0.2;
+- on Fe2: r_e(pcseg-4) ≈ r_e(unc-def2-QZVPP) ≈ the fitted VASP Fe_pv r_e ≈ the Fe_sv r_e, to about 0.002 A.
+
+**What would assign it to the VASP PAW:**
+
+- the converged Gaussian limit stays near 6-311++G* (basis < 0.2);
+- Fe_sv moves VASP most of the way back (vasp_paw ≥ 0.5);
+- residual ≤ 0.2.
+
+Package 75 already makes the pure-PAW reading unlikely: def2-QZVPP alone gives Fe2 alpha 0.69. The likely
+results are `gaussian_basis` alone, or `gaussian_basis+relativity`. The second would mean that part of the
+"basis gap" is the non-relativistic Hamiltonian, which no basis can remove.
+
+The plumbing was checked on mock results built from the package-75 logs and synthetic VASP forces:
+
+- the Gen control is exact (NBasis 200 = 200);
+- the def2-QZVPP links match package 75;
+- the VASP r0 control replays package 62 exactly;
+- the scan fits recover the synthetic r_e to 1e-4 A.
+
+The package-75 report is unchanged when the extended analyzer is rerun on it.
+
+### Run the analysis
+
+```bash
+python experiments/gaussian_vasp_calibration/analyze_basis_check.py \
+    --cluster-mlip-src .claude/worktrees/periodic-vasp-ingest/src \
+    --calibration D:/MLIP_Work_Folder/hpc_smoke_tests/62_clustermlip_gaussian_vasp_calibration \
+    --previous D:/MLIP_Work_Folder/hpc_smoke_tests/75_clustermlip_gaussian_basis_check \
+    D:/MLIP_Work_Folder/hpc_smoke_tests/<desk number>_clustermlip_gaussian_basis_attribution \
+    -o D:/MLIP_Work_Folder/Cluster_MLIP/basis_attribution_<desk number>
+```
