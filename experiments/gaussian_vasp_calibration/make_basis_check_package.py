@@ -100,6 +100,12 @@ FE8_STATE = "s024_Fe8_m25_minimum"
 FE8_BEYOND = (("def2-QZVPP", "pcseg-3"), ("unc-def2-QZVPP",), ("pcseg-4(-i)",), ("unc-def2-QZVPP" + DKH,))
 # VASP Fe2 M7 scan: (variant, Fe POTCAR, ENCUT or None = package 62's 520). Fe_sv variants also run Fe8 s024.
 VASP_SCAN = (("pw91_pv", "Fe_pv", None), ("pw91_sv", "Fe_sv", None), ("pw91_sv_encut650", "Fe_sv", 650))
+# The desk's fix (package 83): up to 8 array tasks loading the VASP container module at once can corrupt its
+# wrapper (package 77 died with "Exec format error"), so each task waits (index % 8) x 20 s first. Same bytes as
+# the desk's run_vasp.slurm.
+VASP_STAGGER_AT = "module purge\nmodule load vasp6/6.6.1-cpu\n"
+VASP_STAGGER = ("# desk fix: stagger the container module loads (8 tasks at once; 77 died with Exec format error that way)\n"
+                "sleep $(( ${SLURM_ARRAY_TASK_ID:-0} % 8 * 20 ))\n")
 
 
 def parse_gbs(path: Path) -> list[tuple[str, list[tuple[str, str]]]]:
@@ -461,9 +467,11 @@ def main(argv: list[str] | None = None) -> int:
             w = csv.DictWriter(fh, fieldnames=list(jobs[0]), lineterminator="\n")
             w.writeheader()
             w.writerows(jobs)
+        assert VASP_STAGGER_AT in mcp.RUN_VASP, "package 62's runner changed; re-place the module-load stagger"
         write_lf(out / "run_vasp.slurm", mcp.RUN_VASP.replace("gv-calib-vasp", "basis-attrib-vasp")
                  .replace("#SBATCH --time=12:00:00", "#SBATCH --time=01:00:00")
-                 .replace("make_calibration_package.py", "make_basis_check_package.py (package 62's runner)"))
+                 .replace("make_calibration_package.py", "make_basis_check_package.py (package 62's runner)")
+                 .replace(VASP_STAGGER_AT, VASP_STAGGER + VASP_STAGGER_AT))
         write_lf(out / "submit.sh", SUBMIT_BEYOND.format(last_g=len(rows) - 1, n_g=len(rows), last_v=len(jobs) - 1))
         write_lf(out / "export.list", "gaussian/outputs/*\nvasp/outputs/*\n")
         what = {"def2-QZVPP": "built-in; reproduces package 75 (anchor)",

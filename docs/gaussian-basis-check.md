@@ -210,12 +210,19 @@ The longest wall times were 2.6 h (Fe16) and 2.9 h (Fe16N2).
 
 If BPW91 labels need relabelling, def2-TZVPP is not enough. It has to be QZVPP or better.
 
-## Beyond def2-QZVPP: finishing the attribution (proposed package 80)
+## Beyond def2-QZVPP: finishing the attribution (package 83)
 
-Status 2026-11-01: staged only, as
+Status 2026-11-01: the desk took it in as **package 83** (`83_clustermlip_gaussian_basis_attribution`; 80–82
+were taken). It was staged as proposal 80 in
 `D:\MLIP_Work_Folder\Cluster_MLIP\loni_package\80_clustermlip_gaussian_basis_attribution`, with
-`HANDOFF_80_TO_DISPATCH.md` beside it. It has not been sent to the desk or submitted; that waits for the
-user's OK. The number 80 is a proposal (79 was the highest number in `hpc_smoke_tests`).
+`HANDOFF_80_TO_DISPATCH.md` beside it; that staged copy keeps the name 80.
+
+The desk made one change. `run_vasp.slurm` now sleeps (task % 8) × 20 s before `module load vasp6/6.6.1-cpu`,
+because 8 tasks loading the container module at once can corrupt its wrapper (package 77 died with "Exec format
+error"). The generator now writes that stagger too, so its output is byte-identical to the desk's runner.
+
+Launch is with the user, Fe_sv POTCAR check first. Results will come back as
+`hpc_smoke_tests\83_clustermlip_gaussian_basis_attribution`.
 
 Generator: `make_basis_check_package.py --ladder beyond-qz`. Analysis: `analyze_basis_check.py`, the same
 script, which adds an "Attribution" section when these links or the VASP scan are present.
@@ -358,6 +365,6 @@ python experiments/gaussian_vasp_calibration/analyze_basis_check.py \
     --cluster-mlip-src .claude/worktrees/periodic-vasp-ingest/src \
     --calibration D:/MLIP_Work_Folder/hpc_smoke_tests/62_clustermlip_gaussian_vasp_calibration \
     --previous D:/MLIP_Work_Folder/hpc_smoke_tests/75_clustermlip_gaussian_basis_check \
-    D:/MLIP_Work_Folder/hpc_smoke_tests/<desk number>_clustermlip_gaussian_basis_attribution \
-    -o D:/MLIP_Work_Folder/Cluster_MLIP/basis_attribution_<desk number>
+    D:/MLIP_Work_Folder/hpc_smoke_tests/83_clustermlip_gaussian_basis_attribution \
+    -o D:/MLIP_Work_Folder/Cluster_MLIP/basis_attribution_83
 ```
