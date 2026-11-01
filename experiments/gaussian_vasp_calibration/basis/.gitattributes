@@ -1,0 +1,2 @@
+# pinned SHA-256 in make_basis_check_package.py: keep these byte-exact on every checkout
+*.gbs -text
