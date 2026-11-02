@@ -372,8 +372,10 @@ python experiments/gaussian_vasp_calibration/analyze_basis_check.py \
 ## Package 83 results and the revision (proposed package 88)
 
 **Package 83 came back partial (2026-11-02).** The outputs are in `hpc_smoke_tests\83_clustermlip_gaussian_basis_attribution`.
-The export carried outputs only, so the analysed copy is
+The first copy there held outputs only, so the report was first built from
 `D:\MLIP_Work_Folder\Cluster_MLIP\basis_attribution_83\results_merged`: the desk's inputs plus these outputs.
+The desk has since unstuck the `hpc_smoke_tests` clone (22ba819), so the inputs now sit beside the results;
+analysing that directory directly gives an identical report.
 The report is in `basis_attribution_83` (`report.md`, `report.json`, `links.csv`).
 
 What finished:
@@ -472,7 +474,7 @@ python experiments/gaussian_vasp_calibration/analyze_basis_check.py \
     --cluster-mlip-src .claude/worktrees/periodic-vasp-ingest/src \
     --calibration D:/MLIP_Work_Folder/hpc_smoke_tests/62_clustermlip_gaussian_vasp_calibration \
     --previous D:/MLIP_Work_Folder/hpc_smoke_tests/75_clustermlip_gaussian_basis_check \
-    D:/MLIP_Work_Folder/Cluster_MLIP/basis_attribution_83/results_merged \
-    <package-88 results with inputs> \
+    D:/MLIP_Work_Folder/hpc_smoke_tests/83_clustermlip_gaussian_basis_attribution \
+    D:/MLIP_Work_Folder/hpc_smoke_tests/88_clustermlip_gaussian_basis_attribution_r2 \
     -o D:/MLIP_Work_Folder/Cluster_MLIP/basis_attribution_88
 ```
