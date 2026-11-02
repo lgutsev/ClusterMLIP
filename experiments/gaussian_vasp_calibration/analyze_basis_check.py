@@ -56,12 +56,18 @@ REL_PAIRS = (("s023_Fe8_m23_minimum", "s024_Fe8_m25_minimum", "Fe8 spin gap M23-
 ALPHA_BASIS, ALPHA_NOT = 0.5, 0.2
 LADDER_STEP_MAX = 0.25
 # --- beyond def2-QZVPP (make_basis_check_package.py --ladder beyond-qz) ----------------------------
-LADDER_STEPS = (("def2-TZVPP", "def2-QZVPP"), ("def2-QZVPP", "unc-def2-QZVPP"), ("pcseg-3", "pcseg-4(-i)"),
+LADDER_STEPS = (("def2-TZVPP", "def2-QZVPP"), ("def2-QZVPP", "pcseg-4(-i)"), ("def2-QZVPP", "cc-pVQZ"), ("pcseg-3", "pcseg-4(-i)"),
                 ("pcseg-4(-i)", "pcseg-4"), ("unc-def2-QZVPP", "pcseg-4(-i)"))
 GEN_CONTROL = ("def2-QZVPP", "def2-QZVPP(gen)")  # the same basis built in and through Gen: must agree
 G_LIMIT = ("pcseg-4", "pcseg-4(-i)")  # the Gaussian basis-limit stand-in, largest usable first
-FAMILIES = ("unc-def2-QZVPP", "pcseg-4(-i)")  # two independent families; they must agree for the limit to count
-DKH = ("unc-def2-QZVPP", "unc-def2-QZVPP+DKH2")  # scalar relativity at a fixed basis
+# Two independent families that must agree for the limit to count. Package 83's unc-def2-QZVPP failed G09's
+# quadrature check, so the revision (r2) compares def2-QZVPP with pcseg-4(-i); cc-pVQZ is reported as a third.
+FAMILIES = ("def2-QZVPP", "pcseg-4(-i)")
+# Scalar relativity: the cc-pVQZ / cc-pVQZ-DK pair. G09 D.01 has no DKH2 gradients, so the DKH2 link is a single
+# point and relativity is read from energies: the Fe2 re from an E(r) fit, the Fe8 radial force from a breathing
+# stretch (scales 0.99/1.00/1.01). Both links of the pair are fitted the same way.
+DKH = ("cc-pVQZ", "cc-pVQZ-DK+DKH2")
+SP_SUFFIX = "+DKH2"  # energy-only links
 ATTRIB_STATES = (FE2_STATE, FE8_STATE)
 VASP_PV, VASP_SV = "pw91_pv", ("pw91_sv_encut650", "pw91_sv")  # Fe_sv: the ENCUT-650 run if usable
 CONV_MAX = 0.10  # family disagreement or last ladder step, as a share of the package-62 gap
@@ -129,11 +135,6 @@ def fit_re(points: list[tuple[float, float, float]]) -> dict | None:
             "n_points": len(points), "fit_resid_max_ev_a": resid}
 
 
-def _vasp_forces(res: Path, variant: str, point: str, vasp_ingest):
-    v = ac.read_vasp(res, variant, point, vasp_ingest)
-    return v["forces"] if v and "forces" in v and v["scf_converged"] else None
-
-
 def _plus(fa, fb, sign=1.0):
     return [[p + sign * q for p, q in zip(a, b)] for a, b in zip(fa, fb)]
 
@@ -163,9 +164,60 @@ def force_shares(fs: dict, f_sv) -> dict | None:
     return out
 
 
-def re_shares(g_fit: dict, v_fit: dict) -> dict | None:
-    """The same shares on the Fe2 bond length: gap = re(6-311++G*) - re(VASP Fe_pv), both from scans."""
+def fit_re_energy(points: list[tuple[float, float]]) -> dict | None:
+    """points (r, E in eV): cubic fit of E(r) about the mean r; re = the minimum, k = the curvature there."""
+    if len(points) < 5:
+        return None
+    r0 = sum(p[0] for p in points) / len(points)
+    c = ac.lstsq([[1.0, p[0] - r0, (p[0] - r0) ** 2, (p[0] - r0) ** 3] for p in points], [p[1] for p in points])
+    x = 0.0
+    for _ in range(50):  # Newton on dE/dr = c1 + 2 c2 x + 3 c3 x^2
+        x -= (c[1] + 2 * c[2] * x + 3 * c[3] * x * x) / (2 * c[2] + 6 * c[3] * x)
+    k = 2 * c[2] + 6 * c[3] * x
+    resid = max(abs(p[1] - sum(ci * (p[0] - r0) ** i for i, ci in enumerate(c))) for p in points)
+    return {"re_a": r0 + x, "k_ev_a2": k, "we_cm1": AMU_EV_A2_TO_CM1 * math.sqrt(k / (FE_MASS / 2)) if k > 0 else None,
+            "n_points": len(points), "fit_resid_max_ev": resid}
+
+
+def breathing_derivative(forces, positions) -> float:
+    """dE/ds (eV) for positions c + s (r - c) at s = 1, from the forces: -sum F.(r - c)."""
+    c = [sum(p[k] for p in positions) / len(positions) for k in range(3)]
+    return -sum(f[k] * (p[k] - c[k]) for f, p in zip(forces, positions) for k in range(3))
+
+
+def breathing_shares(fs: dict, f_sv, f_sv_other, rel_dEds: float | None) -> dict | None:
+    """Shares on the Fe8 breathing coordinate: gap = dE/ds(VASP Fe_pv) - dE/ds(6-311++G*). Relativity enters as
+    d(E_DKH2 - E_NR)/ds from the breathing stretch, so this is the Fe8 measure that includes it."""
+    b, pos = fs["bases"], fs["positions"]
+    lim = next((x for x in G_LIMIT if x in b), None)
+    if not (b.get(B0) and fs["vasp"] and lim):
+        return None
+    D = {k: breathing_derivative(f, pos) for k, f in b.items()}
+    d_b0, d_v = D[B0], breathing_derivative(fs["vasp"], pos)
+    gap = d_v - d_b0
+    out = {"g_limit": lim, "gap_ev": gap, "basis": (D[lim] - d_b0) / gap}
+    if all(x in D for x in FAMILIES):
+        out["family_diff"] = abs(D[FAMILIES[1]] - D[FAMILIES[0]]) / abs(gap)
+    if "pcseg-3" in D and "pcseg-4(-i)" in D:
+        out["last_step"] = abs(D["pcseg-4(-i)"] - D["pcseg-3"]) / abs(gap)
+    best = D[lim]
+    if rel_dEds is not None:
+        out["relativity"] = rel_dEds / gap
+        best += rel_dEds
+    if f_sv:
+        d_sv = breathing_derivative(f_sv, pos)
+        out["vasp_paw"] = (d_sv - d_v) / (d_b0 - d_v)
+        out["residual"] = abs(best - d_sv) / abs(gap)
+        if f_sv_other:
+            out["sv_encut_shift"] = abs(breathing_derivative(f_sv_other, pos) - d_sv) / abs(gap)
+    return out
+
+
+def re_shares(g_fit: dict, v_fit: dict, e_fit: dict | None = None) -> dict | None:
+    """The same shares on the Fe2 bond length: gap = re(6-311++G*) - re(VASP Fe_pv), both from scans. The
+    relativity shift comes from e_fit (E(r) fits; the DKH2 links are energy-only)."""
     re_g = {k: f["re_a"] for k, f in g_fit.items() if f}
+    e_fit = e_fit or {}
     re_v = {k: f["re_a"] for k, f in v_fit.items() if f}
     lim = next((x for x in G_LIMIT if x in re_g), None)
     if B0 not in re_g or VASP_PV not in re_v or not lim:
@@ -177,9 +229,10 @@ def re_shares(g_fit: dict, v_fit: dict) -> dict | None:
     if "pcseg-3" in re_g and "pcseg-4(-i)" in re_g:
         out["last_step"] = abs(re_g["pcseg-4(-i)"] - re_g["pcseg-3"]) / abs(gap)
     best = re_g[lim]
-    if all(x in re_g for x in DKH):
-        out["relativity"] = (re_g[DKH[0]] - re_g[DKH[1]]) / gap
-        best += re_g[DKH[1]] - re_g[DKH[0]]
+    if all(e_fit.get(x) for x in DKH):
+        shift = e_fit[DKH[1]]["re_a"] - e_fit[DKH[0]]["re_a"]
+        out["relativity"], out["relativity_shift_a"] = -shift / gap, shift
+        best += shift
     sv = next((x for x in VASP_SV if x in re_v), None)
     if sv:
         out["vasp_sv_variant"] = sv
@@ -229,7 +282,8 @@ def anchor_vs_previous(previous: str, per_task: dict, args) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("results", help="the basis-check package results directory")
+    ap.add_argument("results", nargs="+", help="basis-check package results directories (inputs + outputs); several "
+                    "are merged, e.g. package 83 and its revision")
     ap.add_argument("--calibration", required=True, help="package-62 results directory")
     ap.add_argument("-o", "--output", required=True)
     ap.add_argument("--cluster-mlip-src", required=True, help="src/ of a checkout that has cluster_mlip/vasp_ingest.py")
@@ -241,11 +295,12 @@ def main(argv: list[str] | None = None) -> int:
     sys.path.insert(0, str(Path(args.cluster_mlip_src).resolve()))
     from cluster_mlip import vasp_ingest  # noqa: E402  (branch-only module)
 
-    res, cal, out = Path(args.results), Path(args.calibration), Path(args.output)
+    dirs, cal, out = [Path(r) for r in args.results], Path(args.calibration), Path(args.output)
     out.mkdir(parents=True, exist_ok=True)
-    tasks = list(csv.DictReader((res / "tasks.csv").open(encoding="utf-8")))
+    tasks = [{**t, "_res": res} for res in dirs for t in csv.DictReader((res / "tasks.csv").open(encoding="utf-8"))]
     flat, per_task, missing = [], {}, []
     for t in tasks:
+        res = t["_res"]
         log = res / "gaussian" / "outputs" / f"{t['task']}.log"
         symbols, positions = read_geometry(res / "gaussian" / "inputs" / f"{t['task']}.gjf")
         labels = t["links"].split(";")
@@ -266,7 +321,7 @@ def main(argv: list[str] | None = None) -> int:
             if label.startswith("PW91/") and label != f"PW91/{B0}" and base:
                 same = link["pattern"] == base["pattern"] and abs((link["s2"] or 0) - (base["s2"] or 0)) <= args.s2_tol
             link["same_state"] = same
-            link["usable"] = link["scf_converged"] and same and bool(link["forces"])
+            link["usable"] = link["scf_converged"] and same and (bool(link["forces"]) or label.endswith(SP_SUFFIX))
             flat.append({"task": t["task"], "state_id": t["state_id"], "link": label, "energy_ev": f"{link['energy_ev']:.6f}",
                          "scf_converged": link["scf_converged"], "scf_flags": link["scf_flags"], "cycles": link["cycles"],
                          "conv": link["conv"], "s2": link["s2"], "fe_pattern": link["pattern"], "nbasis": link["nbasis"],
@@ -311,7 +366,7 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             e = {"usable": link["usable"], "energy_ev": link["energy_ev"], "nbasis": link["nbasis"],
                  "pattern_matches_vasp": link["pattern"] == v_pattern}
-            if link["usable"] and b0 and b0["usable"] and v["scf_converged"]:
+            if link["usable"] and link["forces"] and b0 and b0["usable"] and v["scf_converged"]:
                 e.update({"force_rmse_vs_vasp_mev_a": {el: diff_rms(link["forces"], v["forces"], syms, el)
                                                        for el in sorted(set(syms))},
                           "radial_mev_a": radial(link["forces"], d["positions"]),
@@ -350,15 +405,25 @@ def main(argv: list[str] | None = None) -> int:
         rel[what] = entry
 
     # --- Fe2 scan -----------------------------------------------------------------------------------
-    fe2 = {}
+    fe2, fe2_e, breath = {}, {}, {}
     for d in per_task.values():
-        if d["row"]["formula"] != "Fe2":
-            continue
         for label, link in d["links"].items():
-            if label.startswith("PW91/") and link["usable"]:
-                r, g = bond_derivative(link["forces"], d["positions"])
-                fe2.setdefault(label.split("/", 1)[1], []).append((r, g, link["energy_ev"]))
+            if not (label.startswith("PW91/") and link["usable"]):
+                continue
+            basis = label.split("/", 1)[1]
+            if d["row"]["formula"] == "Fe2":
+                r = math.dist(*d["positions"])
+                fe2_e.setdefault(basis, {})[round(r, 5)] = link["energy_ev"]  # one energy per bond length
+                if link["forces"]:
+                    fe2.setdefault(basis, []).append((*bond_derivative(link["forces"], d["positions"]), link["energy_ev"]))
+            elif d["row"].get("breathing_scale"):
+                breath.setdefault(basis, {})[float(d["row"]["breathing_scale"])] = link["energy_ev"]
     fe2_fit = {basis: fit_re(sorted(p)) for basis, p in fe2.items()}
+    fe2_efit = {basis: fit_re_energy(sorted(p.items())) for basis, p in fe2_e.items()}
+    rel_dEds = None  # Fe8: d(E_DKH2 - E_NR)/ds by central difference over the breathing stretch
+    if all(x in breath and {0.99, 1.01} <= set(breath[x]) for x in DKH):
+        d_rel = {sc: breath[DKH[1]][sc] - breath[DKH[0]][sc] for sc in (0.99, 1.01)}
+        rel_dEds = (d_rel[1.01] - d_rel[0.99]) / 0.02
     v_fe2 = ac.read_vasp(cal, "prod_pw91", "s000_Fe2_m7_minimum", vasp_ingest)
     fe2_vasp = None
     if v_fe2 and "forces" in v_fe2 and "s000_Fe2_m7_minimum" in states:
@@ -399,8 +464,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # --- beyond def2-QZVPP: VASP Fe2 scan and attribution -----------------------------------------
     vasp_jobs, vasp_points, vasp_fe8, vasp_control = {}, {}, {}, None
-    jobs_csv = res / "vasp" / "jobs.csv"
-    for j in (csv.DictReader(jobs_csv.open(encoding="utf-8")) if jobs_csv.is_file() else []):
+    jobs = [(res, j) for res in dirs if (res / "vasp" / "jobs.csv").is_file()
+            for j in csv.DictReader((res / "vasp" / "jobs.csv").open(encoding="utf-8"))]
+    for res, j in jobs:
         v = ac.read_vasp(res, j["variant"], j["point"], vasp_ingest)
         usable = bool(v and "forces" in v and v["scf_converged"])
         vasp_jobs[j["job"]] = {"present": v is not None, "error": (v or {}).get("error"), "usable": usable,
@@ -413,30 +479,38 @@ def main(argv: list[str] | None = None) -> int:
         _, _, pos = mbc.read_poscar(res / "vasp" / "inputs" / j["variant"] / j["point"] / "POSCAR")
         r, g = bond_derivative(v["forces"], pos)
         vasp_points.setdefault(j["variant"], []).append((r, g, v["energy_ev"]))
+        if j["point"] == FE2_STATE:
+            vasp_fe8.setdefault(FE2_STATE, {})[j["variant"]] = v["forces"]
         if j["variant"] == VASP_PV and j["point"] == FE2_STATE:  # replays package 62's prod_pw91 Fe2
             v62 = ac.read_vasp(cal, "prod_pw91", FE2_STATE, vasp_ingest)
             vasp_control = {"dE_mev": 1000 * (v["energy_ev"] - v62["energy_ev"]),
                             "max_dF_mev_a": max(1000 * math.dist(a, b) for a, b in zip(v["forces"], v62["forces"]))}
             vasp_control["ok"] = abs(vasp_control["dE_mev"]) < 1 and vasp_control["max_dF_mev_a"] < 1
     vasp_fit = {variant: fit_re(sorted(p)) for variant, p in vasp_points.items()}
-    fe2_shares = re_shares(fe2_fit, vasp_fit)
+    fe2_shares = re_shares(fe2_fit, vasp_fit, fe2_efit)
     force_attr = {}
     for sid in ATTRIB_STATES:
         if sid not in forces:
             continue
-        sv = vasp_fe8.get(sid, {}) if sid != FE2_STATE else {}
-        if sid == FE2_STATE:  # the scan's r0 point is package 62's geometry
-            sv = {x: f for x in VASP_SV for f in [_vasp_forces(res, x, FE2_STATE, vasp_ingest)] if f}
+        sv = vasp_fe8.get(sid, {})  # the Fe2 scan's r0 point is package 62's geometry
         f_sv = next((sv[x] for x in VASP_SV if x in sv), None)
         sh = force_shares(forces[sid], f_sv)
         if sh and all(x in sv for x in VASP_SV):
             sh["sv_encut_shift"] = diff_rms(sv[VASP_SV[0]], sv[VASP_SV[1]], forces[sid]["symbols"]) / sh["gap_mev_a"]
         force_attr[sid] = sh
+    breath_attr = None
+    if FE8_STATE in forces:
+        sv = vasp_fe8.get(FE8_STATE, {})
+        f_sv = next((sv[x] for x in VASP_SV if x in sv), None)
+        other = next((sv[x] for x in VASP_SV if x in sv and sv[x] is not f_sv), None)
+        breath_attr = breathing_shares(forces[FE8_STATE], f_sv, other, rel_dEds)
     attribution = None
     if any(b in st["bases"] for st in states.values() for b in G_LIMIT) or vasp_jobs:
-        per = {"Fe2 r_e": fe2_shares, **{f"{sid} forces": sh for sid, sh in force_attr.items()}}
+        per = {"Fe2 r_e": fe2_shares, "Fe8 breathing": breath_attr,
+               **{f"{sid} forces": sh for sid, sh in force_attr.items()}}
         outcomes = {k: decide_attribution(sh) for k, sh in per.items()}
-        deciding = [outcomes[k] for k in ("Fe2 r_e", f"{FE8_STATE} forces") if k in outcomes]
+        # Fe2 re and the Fe8 breathing coordinate are the measures that can carry relativity (energy-only DKH2)
+        deciding = [outcomes[k] for k in ("Fe2 r_e", "Fe8 breathing") if k in outcomes]
         overall = deciding[0] if deciding and len(set(deciding)) == 1 else "state_dependent" if deciding else "no_data"
         if vasp_control and not vasp_control["ok"]:
             overall = "vasp_control_failed"
@@ -446,6 +520,9 @@ def main(argv: list[str] | None = None) -> int:
             overall = "control_failed"
         attribution = {"overall": overall, "outcomes": outcomes, "shares": per, "vasp_control": vasp_control,
                        "vasp_jobs": vasp_jobs, "vasp_scan_fit": vasp_fit, "gen_control": gen_control,
+                       "fe2_energy_fit": fe2_efit, "fe8_breathing_energies_ev": {k: {f"{sc:.2f}": e for sc, e in v.items()}
+                                                                                 for k, v in breath.items()},
+                       "fe8_relativity_dEds_ev": rel_dEds,
                        "anchor_vs_previous": anchor_vs_previous(args.previous, per_task, args) if args.previous else None}
 
     seconds = {k: d["seconds"] for k, d in per_task.items()}
@@ -453,7 +530,7 @@ def main(argv: list[str] | None = None) -> int:
                     if d["n_normal"] != d["n_links_expected"]}
     unconverged = [f"{r['task']} {r['link']} ({r['scf_flags']})" for r in flat if not r["scf_converged"]]
     state_changed = [f"{r['task']} {r['link']}" for r in flat if not r["same_state"]]
-    report = {"results": str(res), "calibration": str(cal), "missing_logs": missing, "terminations_short": terminations,
+    report = {"results": [str(d) for d in dirs], "calibration": str(cal), "missing_logs": missing, "terminations_short": terminations,
               "scf_unconverged_links": unconverged, "state_changed_links": state_changed, "control": control,
               "states": states, "relative_energies": rel, "fe2_scan_fit": fe2_fit, "fe2_vasp_estimate": fe2_vasp,
               "fe2_experiment": FE2_EXP, "alpha_pure_fe": alphas, "alpha_median": med, "ladder_steps": steps,
@@ -481,16 +558,18 @@ def render_attribution(a: dict | None) -> list[str]:
         return []
     L = [f"## Attribution beyond def2-QZVPP: **{a['overall']}**", "",
          "Shares of the package-62 gap (6-311++G* -> VASP Fe_pv), each projected on that gap. basis = the Gaussian "
-         "limit stand-in; relativity = DKH2 at fixed basis; vasp_paw = how far Fe_sv moves VASP back toward G09; "
-         "residual = |G limit (+DKH2) - VASP Fe_sv| / |gap|; family_diff = |unc-def2-QZVPP - pcseg-4(-i)|; "
-         "last_step = |pcseg-3 -> pcseg-4(-i)|.", "",
+         "limit stand-in; relativity = cc-pVQZ-DK+DKH2 minus cc-pVQZ (energy-only, so only on Fe2 r_e and the Fe8 "
+         "breathing coordinate); vasp_paw = how far Fe_sv moves VASP back toward G09 (negative = further away); "
+         "residual = |G limit (+DKH2) - VASP Fe_sv| / |gap|; family_diff = |def2-QZVPP - pcseg-4(-i)|; "
+         "last_step = |pcseg-3 -> pcseg-4(-i)|. The overall outcome needs Fe2 r_e and Fe8 breathing to agree.", "",
          "| measure | outcome | G limit | gap | basis | relativity | vasp_paw | residual | family_diff | last_step | Fe_sv ENCUT shift |",
          "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for k, sh in a["shares"].items():
         if not sh:
             L.append(f"| {k} | {a['outcomes'][k]} | | | | | | | | | |")
             continue
-        gap = f"{sh['gap_a']:.4f} A" if "gap_a" in sh else f"{sh['gap_mev_a']:.0f} meV/A"
+        gap = (f"{sh['gap_a']:.4f} A" if "gap_a" in sh else f"{sh['gap_ev']:.3f} eV (dE/ds)" if "gap_ev" in sh
+               else f"{sh['gap_mev_a']:.0f} meV/A")
         L.append(f"| {k} | {a['outcomes'][k]} | {sh['g_limit']} | {gap} | " + " | ".join(
             _f(sh.get(x), "{:.2f}") for x in ("basis", "relativity", "vasp_paw", "residual", "family_diff",
                                               "last_step", "sv_encut_shift")) + " |")
@@ -499,6 +578,14 @@ def render_attribution(a: dict | None) -> list[str]:
     for v, fit in a["vasp_scan_fit"].items():
         if fit:
             L.append(f"| {v} | {fit['re_a']:.4f} | {fit['k_ev_a2']:.2f} | {_f(fit['we_cm1'])} | {fit['n_points']} |")
+    L += ["", "Fe2 M7 from E(r) fits (cubic; the DKH2 links are energy-only):", "",
+          "| basis | re (A) | k (eV/A^2) | points |", "|---|---:|---:|---:|"]
+    for b, fit in (a.get("fe2_energy_fit") or {}).items():
+        if fit:
+            L.append(f"| {b} | {fit['re_a']:.4f} | {fit['k_ev_a2']:.2f} | {fit['n_points']} |")
+    if a.get("fe8_relativity_dEds_ev") is not None:
+        L += ["", f"Fe8 breathing: d(E_DKH2 - E_NR)/ds = {a['fe8_relativity_dEds_ev']:.4f} eV "
+                  "(cc-pVQZ-DK+DKH2 minus cc-pVQZ, scales 0.99 and 1.01)."]
     vc = a["vasp_control"]
     L += ["", f"- VASP control (pw91_pv r0 vs package 62 prod_pw91): "
               + (f"dE {vc['dE_mev']:.3f} meV, max dF {vc['max_dF_mev_a']:.2f} meV/A, ok {vc['ok']}" if vc else "missing"),
@@ -513,7 +600,7 @@ def render_attribution(a: dict | None) -> list[str]:
 
 def render(r: dict) -> str:
     L = ["# G09 basis-set check on the package-62 force gap", "",
-         f"Results: `{r['results']}`; package 62: `{r['calibration']}`.", "",
+         f"Results: {', '.join(f'`{d}`' for d in r['results'])}; package 62: `{r['calibration']}`.", "",
          f"**Verdict: {r['verdict']['outcome']}** — {r['verdict']['why']}.", "",
          *render_attribution(r.get("attribution")),
          "## Screens", "",

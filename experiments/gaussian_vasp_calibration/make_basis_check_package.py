@@ -84,13 +84,20 @@ GEN_SETS = {
     "pcseg-3": ("Fe_pcseg-3.gbs", None),
     "pcseg-4(-i)": ("Fe_pcseg-4.gbs", "drop_i"),
     "pcseg-4": ("Fe_pcseg-4.gbs", None),
+    # the r2 revision's relativity pair: same 8s7p5d3f2g1h shells, one contracted for the non-relativistic
+    # Hamiltonian and one recontracted for Douglas-Kroll; no lone tight primitive (package 83's quadrature failure)
+    "cc-pVQZ": ("Fe_cc-pVQZ.gbs", None),
+    "cc-pVQZ-DK": ("Fe_cc-pVQZ-DK.gbs", None),
 }
 BASIS_SHA256 = {
     "Fe_def2-QZVPP.gbs": "17c879366d6ea69fc07989ee82c23c525442decd0fdb3064264236a465855823",
     "Fe_pcseg-3.gbs": "169ffae03de8253f9d3fa6dd4a73fdb704324c4b51cb94e8c8e9d5a08b047a11",
     "Fe_pcseg-4.gbs": "29b72ad21fd65c13323b413afe97b6b735bcbbe03b40c88f341ffb719ec43e0e",
+    "Fe_cc-pVQZ.gbs": "f1a595e6f9ce9f11e30d83a91c790c2aec4a9074373d3c4759a05813eef3cfce",
+    "Fe_cc-pVQZ-DK.gbs": "22f075b89ec0459fc616e4e25637a6cbe67a29ab24aa5ce14db093c54a1ebc74",
 }
-DKH = "+DKH2"  # label suffix: that Gen set with Int=(UltraFine,DKH2)
+DKH = "+DKH2"  # label suffix: that Gen set with Int=(UltraFine,DKH2), as a single point (G09 D.01 has no
+# analytic DKH gradients: package 83 stopped in l1 with "No analytic first derivatives for this method")
 UNC_MERGE = 1.05  # decontracting: drop a primitive within this exponent ratio of one already kept (s 72.8/72.2, p 4.39/4.54)
 L_OF = {"S": 0, "P": 1, "D": 2, "F": 3, "G": 4, "H": 5, "I": 6}
 # Fe2: one task per geometry, every rung; links that may fail on G09 D.01 (DKH2 gradients, i functions) go last,
@@ -98,6 +105,13 @@ L_OF = {"S": 0, "P": 1, "D": 2, "F": 3, "G": 4, "H": 5, "I": 6}
 FE2_BEYOND = ("def2-QZVPP", "def2-QZVPP(gen)", "unc-def2-QZVPP", "pcseg-3", "pcseg-4(-i)", "unc-def2-QZVPP" + DKH, "pcseg-4")
 FE8_STATE = "s024_Fe8_m25_minimum"
 FE8_BEYOND = (("def2-QZVPP", "pcseg-3"), ("unc-def2-QZVPP",), ("pcseg-4(-i)",), ("unc-def2-QZVPP" + DKH,))
+# --ladder beyond-qz-r2, the revision after package 83 (docs/gaussian-basis-check.md, "Package 83 results"):
+# ONE large-basis link per task, so no failure blocks another basis. unc-def2-QZVPP is dropped (its lone
+# 4.3e6 s primitive fails G09's per-function quadrature check under Int=UltraFine). Relativity comes from
+# DKH2 single-point energies: the Fe2 scan (re) and an Fe8 breathing stretch about the centroid.
+FE2_R2 = ("pcseg-3", "pcseg-4(-i)", "pcseg-4", "cc-pVQZ", "cc-pVQZ-DK" + DKH)
+FE8_R2 = ("cc-pVQZ", "cc-pVQZ-DK" + DKH)
+BREATHING = (0.99, 1.00, 1.01)  # Fe8 s024 positions scaled about their centroid
 # VASP Fe2 M7 scan: (variant, Fe POTCAR, ENCUT or None = package 62's 520). Fe_sv variants also run Fe8 s024.
 VASP_SCAN = (("pw91_pv", "Fe_pv", None), ("pw91_sv", "Fe_sv", None), ("pw91_sv_encut650", "Fe_sv", 650))
 # The desk's fix (package 83): up to 8 array tasks loading the VASP container module at once can corrupt its
@@ -204,7 +218,7 @@ def gjf(task: str, title: str, M: int, symbols: list[str], positions: list[tuple
         else:  # Fe-only Gen set after the geometry; 5D 7F stated (G09's def2 built-ins are pure too)
             tag, route, basis = re.sub(r"[^a-z0-9]+", "", label.lower()), f"UPW91PW91/Gen 5D 7F {TAIL}", gen_block(label) + "\n"
             if label.endswith(DKH):
-                route = route.replace("Int=UltraFine", "Int=(UltraFine,DKH2)")
+                route = route.replace("Int=UltraFine", "Int=(UltraFine,DKH2)").replace(" Force", "")
         blocks.append(f"%oldchk={task}.chk\n%chk={task}_{tag}.chk\n{head}#p {route} Guess=Read\n\n"
                       f"{title} PW91 {label}\n\n0 {M}\n{coords}\n{basis}")
     return "--Link1--\n".join(blocks)
@@ -350,6 +364,53 @@ last link and SCF cycle reached; do not resubmit with a longer limit without ask
 """
 
 
+README_R2 = """# {title}: revision of package 83, relativity and the Fe2 basis limit (ClusterMLIP)
+
+Package 83 (G09 basis ladder past def2-QZVPP + VASP Fe2 scan) came back partial: its decontracted
+def2-QZVPP links failed G09's quadrature check, which blocked every later link on Fe2, and G09 D.01 has no
+DKH2 gradients. Its finished links already show the Gaussian basis is converged for Fe8 (def2-QZVPP, pcseg-3
+and pcseg-4(-i) agree) and explains only ~20% of the Fe8 force gap, and that VASP Fe_sv moves further away
+from G09, not closer. This revision measures the remaining candidate, scalar relativity, and finishes the
+Fe2 basis ladder. Plan: ClusterMLIP `docs/gaussian-basis-check.md`, "Package 83 results and the revision".
+
+| part | tasks | where | per task |
+|---|---|---|---|
+| Gaussian | {n_tasks} (`tasks.csv`, `gaussian/inputs/<task>.gjf`) | QB4 `single`, `{module}` (`{command}`) | 12 cores, 24 GB, 12 h |
+
+Each task has ONE large-basis link, so a failure cannot block another basis. Every link carries
+`SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc) NoSymm Int=UltraFine` and IOP(5/13=1,5/36=1,8/11=1):
+
+1. UBPW91/6-311++G* (replays package 62's first link);
+2. UPW91PW91/6-311++G*, Guess=Read (replays package 62's PW91 link);
+3. UPW91PW91 with the task's basis (Fe-only Gen from the Basis Set Exchange), reading link 2's orbitals
+   (`%OldChk`).
+
+| basis | functions per Fe | role |
+|---|---:|---|
+{basis_rows}
+
+- {n_fe8} Fe8 M25 tasks (first in the array; about 1 h each): cc-pVQZ and cc-pVQZ-DK+DKH2 at the package-62
+  geometry scaled by 0.99, 1.00 and 1.01 about its centroid.
+- {n_fe2} Fe2 M7 tasks (minutes each): every basis above at the 7 bond lengths of package 83.
+
+The DKH2 links use `Int=(UltraFine,DKH2)` and are single points (no Force): G09 D.01 has no analytic DKH2
+gradients.
+
+## Run
+
+From the package directory: `bash submit.sh` (at most 20 tasks at once).
+
+## Done
+
+- every `gaussian/outputs/<task>.log` has 3 `Normal termination` lines and a `.seconds` file;
+- `export.list` is `gaussian/outputs/*`.
+
+Results, not failures: an unconverged SCF, and an Error termination of a `pcseg-4` link (i functions).
+Report which. If a task hits 12 h, report its time and the last link and SCF cycle reached; do not resubmit
+with a longer limit without asking.
+"""
+
+
 def read_poscar(path: Path) -> tuple[list[str], int, list[tuple]]:
     """(lines, index of the first coordinate line, Cartesian positions) of a package-62 POSCAR."""
     lines = path.read_text(encoding="utf-8").splitlines()
@@ -404,6 +465,30 @@ def beyond_qz_tasks(pkg62: dict) -> list[tuple]:
     return out
 
 
+def breathed(state: dict, scale: float) -> list[tuple]:
+    c = [sum(p[k] for p in state["positions"]) / len(state["positions"]) for k in range(3)]
+    return [tuple(c[k] + scale * (p[k] - c[k]) for k in range(3)) for p in state["positions"]]
+
+
+def r2_tasks(pkg62: dict) -> list[tuple]:
+    """(task, state_id, state, stretch, positions, larger labels, why, breathing scale) for --ladder beyond-qz-r2.
+    Fe8 first: those are the long tasks."""
+    fe2, fe8 = pkg62[FE2_STATE], pkg62[FE8_STATE]
+    out = []
+    for sc in BREATHING:
+        for label in FE8_R2:
+            tag = re.sub(r"[^a-z0-9]+", "", label.lower())
+            out.append((f"br{len(out):02d}_{FE8_STATE}_b{sc:.2f}_{tag}".replace(".", "p"), FE8_STATE, fe8, 0.0,
+                        breathed(fe8, sc), (label,), "Fe8 breathing: relativity (DKH2 - NR) on the radial force", sc))
+    geoms = [(FE2_STATE, 0.0, fe2["positions"])] + [
+        (f"Fe2_m7_scan{d:+.2f}".replace("+", "p").replace("-", "m"), d, stretched(fe2, d)) for d in FE2_SCAN]
+    for label in FE2_R2:
+        tag = re.sub(r"[^a-z0-9]+", "", label.lower())
+        for name, d, pos in geoms:
+            out.append((f"br{len(out):02d}_{name}_{tag}", FE2_STATE, fe2, d, pos, (label,), "Fe2 re per basis", None))
+    return out
+
+
 def write_lf(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="\n") as fh:
@@ -414,8 +499,9 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--calibration", required=True, help="package-62 results directory (states.csv, gaussian/inputs)")
     ap.add_argument("-o", "--output", required=True)
-    ap.add_argument("--ladder", choices=("qz", "beyond-qz"), default="qz",
-                    help="qz: package 75 (def2-TZVPP/QZVPP on 9 states); beyond-qz: Gen sets past def2-QZVPP + VASP Fe2 scan")
+    ap.add_argument("--ladder", choices=("qz", "beyond-qz", "beyond-qz-r2"), default="qz",
+                    help="qz: package 75 (def2-TZVPP/QZVPP on 9 states); beyond-qz: Gen sets past def2-QZVPP + VASP Fe2 "
+                         "scan (package 83); beyond-qz-r2: the package-83 revision (one basis per task, DKH2 single points)")
     ap.add_argument("--qz-max-fe", type=int, default=10, help="largest Fe count that also gets def2-QZVPP")
     ap.add_argument("--desk-number", type=int, help="the number the dispatch desk assigned; unset = a proposal")
     args = ap.parse_args(argv)
@@ -427,16 +513,21 @@ def main(argv: list[str] | None = None) -> int:
     pkg62 = read_pkg62(cal)
     rows = []
 
-    def add(task, state_id, s, delta, positions, larger, why):
+    def add(task, state_id, s, delta, positions, larger, why, breathing=None):
         write_lf(out / "gaussian" / "inputs" / f"{task}.gjf", gjf(task, task, s["M"], s["symbols"], positions, larger))
-        rows.append({"task": task, "state_id": state_id, "pkg62_frame": s["frame"] if delta == 0 else "",
+        on_pkg62 = delta == 0 and breathing in (None, 1.0)  # link 2 then replays package 62 exactly (the control)
+        rows.append({"task": task, "state_id": state_id, "pkg62_frame": s["frame"] if on_pkg62 else "",
                      "formula": s["formula"], "n_fe": s["n_fe"], "multiplicity": s["M"],
                      "fe2_stretch_a": f"{delta:+.3f}" if s["formula"] == "Fe2" else "",
+                     **({"breathing_scale": f"{breathing:.2f}" if breathing else ""} if r2 else {}),
                      "links": ";".join(["BPW91/" + B0[0], "PW91/" + B0[0]] + ["PW91/" + b for b in larger]),
                      "n_links": 2 + len(larger), "why": why})
 
-    beyond = args.ladder == "beyond-qz"
-    if beyond:
+    beyond, r2 = args.ladder == "beyond-qz", args.ladder == "beyond-qz-r2"
+    if r2:
+        for task, sid, s, d, positions, larger, why, sc in r2_tasks(pkg62):
+            add(task, sid, s, d, positions, list(larger), why, sc)
+    elif beyond:
         for task, sid, s, d, positions, larger, why in beyond_qz_tasks(pkg62):
             add(task, sid, s, d, positions, list(larger), why)
     else:
@@ -453,7 +544,7 @@ def main(argv: list[str] | None = None) -> int:
         w.writeheader()
         w.writerows(rows)
     write_lf(out / "run_gaussian.slurm", RUN_GAUSSIAN.replace("@MODULE@", MODULE).replace("@COMMAND@", COMMAND)
-             .replace("@JOB@", "g09-basis-attrib" if beyond else "g09-basis-check"))
+             .replace("@JOB@", "g09-basis-attrib" if beyond or r2 else "g09-basis-check"))
     write_lf(out / "logs" / "README.txt", "Slurm logs land here.\n")
     desk = args.desk_number
     title = f"Package {desk}" if desk is not None else f"Package {out.name.split('_')[0]} (proposed)"
@@ -485,6 +576,18 @@ def main(argv: list[str] | None = None) -> int:
         write_lf(out / "README.md", README_BEYOND.format(
             title=title, n_tasks=len(rows), module=MODULE, command=COMMAND, n_v=len(jobs),
             basis_rows="\n".join(f"| {b} | {functions_per_fe(b.removesuffix(DKH))} | {what[b]} |" for b in labels)))
+    elif r2:
+        write_lf(out / "submit.sh", SUBMIT.format(last=len(rows) - 1, n=20))
+        write_lf(out / "export.list", "gaussian/outputs/*\n")
+        what = {"pcseg-3": "Jensen's DFT-optimised QZ, with an h shell",
+                "pcseg-4(-i)": "pcseg-4 without its i shell (ran on Fe8 in package 83)",
+                "pcseg-4": "Jensen's 5Z, with the i shell (G09 i-function gradients untested; its own task)",
+                "cc-pVQZ": "non-relativistic partner of the DKH2 link; Force",
+                "cc-pVQZ-DK" + DKH: "Douglas-Kroll recontracted cc-pVQZ with Int=(UltraFine,DKH2); single point"}
+        write_lf(out / "README.md", README_R2.format(
+            title=title, n_tasks=len(rows), module=MODULE, command=COMMAND,
+            n_fe8=len(BREATHING) * len(FE8_R2), n_fe2=len(rows) - len(BREATHING) * len(FE8_R2),
+            basis_rows="\n".join(f"| {b} | {functions_per_fe(b.removesuffix(DKH))} | {what[b]} |" for b in FE2_R2)))
     else:
         write_lf(out / "submit.sh", SUBMIT.format(last=len(rows) - 1, n=len(rows)))
         write_lf(out / "export.list", "gaussian/outputs/*\n")
@@ -512,6 +615,13 @@ def main(argv: list[str] | None = None) -> int:
                     "vasp": {"module": "vasp6/6.6.1-cpu", "partition": "workq", "cores": 64, "time_hours": 1,
                              "tasks": len(jobs), "variants": [v for v, _, _ in VASP_SCAN],
                              "source": "62_clustermlip_gaussian_vasp_calibration vasp/inputs/prod_pw91"}}
+    elif r2:
+        package |= {"bases": [B0[0]] + list(FE2_R2), "breathing_scales": list(BREATHING),
+                    "functions_per_fe": {b: functions_per_fe(b.removesuffix(DKH)) for b in FE2_R2},
+                    "gen_sources": {f: {"sha256": BASIS_SHA256[f], "bse_version": "0.12",
+                                        "from": "https://www.basissetexchange.org/api/basis/<name>/format/gaussian94/?elements=26"}
+                                    for f in sorted({GEN_SETS[b.removesuffix(DKH)][0] for b in FE2_R2})},
+                    "revises": "83_clustermlip_gaussian_basis_attribution"}
     else:
         package |= {"bases": [B0[0]] + [b for b, _ in LARGER], "qz_max_fe": args.qz_max_fe}
     write_lf(out / "package.json", json.dumps(package, indent=1) + "\n")

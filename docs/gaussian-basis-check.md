@@ -368,3 +368,111 @@ python experiments/gaussian_vasp_calibration/analyze_basis_check.py \
     D:/MLIP_Work_Folder/hpc_smoke_tests/83_clustermlip_gaussian_basis_attribution \
     -o D:/MLIP_Work_Folder/Cluster_MLIP/basis_attribution_83
 ```
+
+## Package 83 results and the revision (proposed package 88)
+
+**Package 83 came back partial (2026-11-02).** The outputs are in `hpc_smoke_tests\83_clustermlip_gaussian_basis_attribution`.
+The export carried outputs only, so the analysed copy is
+`D:\MLIP_Work_Folder\Cluster_MLIP\basis_attribution_83\results_merged`: the desk's inputs plus these outputs.
+The report is in `basis_attribution_83` (`report.md`, `report.json`, `links.csv`).
+
+What finished:
+
+- all 23 VASP jobs;
+- Fe8 def2-QZVPP + pcseg-3 (bq07) and pcseg-4(-i) (bq09);
+- on Fe2, links 1–4 of every task (the replay, def2-QZVPP, and the Gen def2-QZVPP control).
+
+What failed, and why:
+
+- **unc-def2-QZVPP** (every Fe2 task, and bq08) stopped in l502 with "Inaccurate quadrature in CalDSu". Shell
+  1, the lone 4.3e6 s primitive, integrates with an error of 0.44 against a tolerance of 0.012 under UltraFine.
+  Inside a contraction (built-in def2-QZVPP) the same primitive is harmless. On Fe2 this blocked links 6–9.
+- **DKH2 with Force** (bq10) stopped in l1 with "No analytic first derivatives for this method". G09 D.01 has
+  no DKH2 gradients.
+
+The controls held:
+
+- link 2 replays package 62 exactly;
+- the Gen def2-QZVPP equals the built-in one (dE 0.0000 meV, NBasis 200 = 200);
+- def2-QZVPP equals package 75 (0.000 meV, 0.00 meV/A);
+- the VASP Fe_pv r0 point replays package 62 exactly.
+
+**Findings from the finished part:**
+
+1. **For Fe8 the Gaussian basis is converged, and it explains only about 20% of the gap.**
+
+   | Fe8 M25 | alpha | radial force (meV/A) | Fe RMSE vs VASP (meV/A) |
+   |---|---:|---:|---:|
+   | 6-311++G* | 0 | −63 | 233 |
+   | def2-QZVPP | 0.23 | −115 | 181 |
+   | pcseg-3 | 0.21 | −110 | 186 |
+   | pcseg-4(-i) | 0.20 | −108 | 188 |
+   | VASP Fe_pv | 1 | −295 | – |
+
+   def2-QZVPP and pcseg-4(-i) (two families) differ by 0.05 of the gap, and pcseg-3 → pcseg-4(-i) by 0.02. On
+   the breathing coordinate the numbers are 0.03 and 0.01, with a basis share of 0.19. Package 75's large TZ→QZ
+   step was def2-TZVPP being poor, not QZ being unconverged.
+2. **The VASP Fe2 scan confirms the old estimate.** Fe_pv gives r_e = 1.9961 A, against the one-point
+   estimate of 1.9957, with ω_e ≈ 424 cm⁻¹.
+3. **Fe_sv moves VASP further from G09, not toward it.** Fe2 r_e is 1.9882 at ENCUT 520 and 1.9878 at 650.
+   Fe8 vasp_paw is −0.18, on the forces and on breathing alike. Fe_sv's 520 → 650 shift is 0.03 of the gap on
+   r_e, 0.05 on breathing and 0.08 on the forces; the ENCUT-650 runs are the ones used. So the Fe_pv frozen
+   3s is not the cause: a better PAW makes the gap about 18% wider.
+4. **What remains is about 80% of the Fe8 gap,** and more against Fe_sv. It is neither Gaussian basis nor PAW
+   semicore. The main untested candidate is scalar relativity: VASP's PAW potentials are scalar-relativistic
+   and G09's default Hamiltonian is not. It has the right sign, since relativity contracts Fe 4s and shortens
+   Fe–Fe bonds. To explain the Fe2 r_e gap left at QZVPP against Fe_sv, it would have to shorten the bond by
+   about 0.011 A. That is plausible but has to be measured. If relativity does not close it, the next suspect is
+   the PW91 implementation (VASP GGA=91 vs G09 PW91PW91) or the PAW augmentation itself. That would need an
+   all-electron scalar-relativistic referee.
+
+**Revision: proposed package 88** (`88_clustermlip_gaussian_basis_attribution_r2`, staged with
+`HANDOFF_88_TO_DISPATCH.md`, not sent). Generator: `make_basis_check_package.py --ladder beyond-qz-r2`.
+
+- **One large-basis link per task** (the desk's suggestion), so no failure blocks another basis. Links 1–2
+  replay package 62. `Int=UltraFine` and `IOP(5/13=1,5/36=1,8/11=1)` are in every link.
+- unc-def2-QZVPP is dropped.
+- **Relativity comes from the cc-pVQZ / cc-pVQZ-DK pair** (BSE v0.12, SHA-pinned). Both have the same
+  8s7p5d3f2g1h shells, 104 functions per Fe, and no lone tight primitive. One is contracted for the
+  non-relativistic Hamiltonian, the other recontracted for Douglas–Kroll. The DKH2 links use
+  `Int=(UltraFine,DKH2)` as **single points**.
+  - **Fe2:** both links at the 7 scan points. r_e comes from cubic E(r) fits, and relativity_shift =
+    r_e(DKH2) − r_e(NR).
+  - **Fe8:** both links at the package-62 geometry scaled by 0.99, 1.00 and 1.01 about its centroid. Relativity
+    on the radial coordinate is d(E_DKH2 − E_NR)/ds by central difference. It is compared with the force gap
+    projected on the same coordinate: dE/ds = −Σ F·(r − c).
+- **The Fe2 ladder is completed** with pcseg-3, pcseg-4(-i) and pcseg-4 (the i shell, in its own task).
+- 41 tasks: 6 Fe8 tasks of about 1 h each first, then 35 Fe2 tasks of minutes each. About 90 SU expected.
+
+**Analysis changes:**
+
+- `analyze_basis_check.py` takes several results directories: package 83's merged results and package 88's.
+- DKH2 links count as energy-only.
+- The families are now def2-QZVPP vs pcseg-4(-i).
+- The deciding measures are the **Fe2 r_e** and the **Fe8 breathing coordinate**, the two that can carry an
+  energy-only relativity. They must agree. The Fe8 force-vector row stays informational.
+- The thresholds and outcome names are those of "Decision rule: Gaussian basis or VASP PAW" above.
+
+**Which result decides it:**
+
+- **`gaussian_basis+relativity`:** basis + relativity ≈ 1 against Fe_sv (residual ≤ 0.2). The training labels
+  differ from VASP by a Gaussian basis error (about 20% on Fe8, more on Fe2) plus the non-relativistic
+  Hamiltonian. The latter is physics, consistent across all G09 labels, and is a question for the
+  reference/delta design, not a bug in either code.
+- **`unexplained_residual`:** residual > 0.2 even with relativity. Next: the PW91 implementation (compare PBE
+  on both sides, which package 62 also has) and an all-electron scalar-relativistic referee.
+
+The plumbing was checked on mock results built from the package-83 logs with synthetic DKH2 shifts. It
+recovers a planted Fe2 Δr_e of −0.008 A (−0.0079) and a planted Fe8 breathing relativity share of 0.60
+(0.60). The E(r) and force fits agree to 1e-4 A. The default ladder still reproduces package 65's inputs byte
+for byte, and the package-75 report is unchanged.
+
+```bash
+python experiments/gaussian_vasp_calibration/analyze_basis_check.py \
+    --cluster-mlip-src .claude/worktrees/periodic-vasp-ingest/src \
+    --calibration D:/MLIP_Work_Folder/hpc_smoke_tests/62_clustermlip_gaussian_vasp_calibration \
+    --previous D:/MLIP_Work_Folder/hpc_smoke_tests/75_clustermlip_gaussian_basis_check \
+    D:/MLIP_Work_Folder/Cluster_MLIP/basis_attribution_83/results_merged \
+    <package-88 results with inputs> \
+    -o D:/MLIP_Work_Folder/Cluster_MLIP/basis_attribution_88
+```
