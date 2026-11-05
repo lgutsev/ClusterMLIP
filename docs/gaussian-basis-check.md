@@ -478,3 +478,73 @@ python experiments/gaussian_vasp_calibration/analyze_basis_check.py \
     D:/MLIP_Work_Folder/hpc_smoke_tests/88_clustermlip_gaussian_basis_attribution_r2 \
     -o D:/MLIP_Work_Folder/Cluster_MLIP/basis_attribution_88
 ```
+
+## Results: packages 83 + 88 (received 2026-11-04)
+
+Package 88 finished cleanly. All 41 tasks have 3 Normal terminations, including the six Fe8 cc-pVQZ /
+cc-pVQZ-DK+DKH2 tasks and the Fe2 pcseg-4 links with their i shell. The report covers packages 83 and 88
+together and is in `D:\MLIP_Work_Folder\Cluster_MLIP\basis_attribution_88` (`report.md`, `report.json`,
+`links.csv`).
+
+The checks all passed:
+
+- every link's SCF converged;
+- no larger-basis or DKH2 link changed state (Hirshfeld pattern held, ⟨S²⟩ within 0.1);
+- every link-2 control replays package 62 exactly;
+- the E(r) fits leave residuals of about 3e-5 eV;
+- d(E_DKH2 − E_NR) is linear across the Fe8 stretch (+0.0324 eV, then +0.0318 eV).
+
+**Fe2 M7 bond length:**
+
+| | r_e (A) |
+|---|---:|
+| G09 6-311++G* (training basis) | 2.0076 |
+| G09 def2-QZVPP / cc-pVQZ | 1.9989 |
+| G09 pcseg-3 / pcseg-4(-i) / pcseg-4 | 1.9980 / 1.9983 / 1.9983 |
+| G09 cc-pVQZ-DK + DKH2 | 1.9860 (relativistic shift −0.0130) |
+| **G09 basis limit + scalar relativity** (pcseg-4 + shift) | **1.9853** |
+| VASP PW91 Fe_pv | 1.9961 |
+| **VASP PW91 Fe_sv (ENCUT 650)** | **1.9878** |
+| experiment (Ne matrix) | 2.02 ± 0.02 |
+
+**Shares of the gap,** measured against VASP Fe_pv: Fe2 r_e (gap 0.0115 A) and the Fe8 breathing coordinate.
+
+| measure | basis | relativity | vasp_paw | residual vs Fe_sv | family_diff / last_step |
+|---|---:|---:|---:|---:|---|
+| Fe2 r_e | 0.81 | 1.13 | −0.72 | 0.22 (0.0025 A) | 0.05 / 0.03 |
+| Fe8 breathing | 0.19 | 0.91 | −0.18 | 0.09 | 0.03 / 0.01 |
+
+**Rule outcome: `state_dependent`.** The rule as written gives `unexplained_residual` for Fe2 (residual 0.22
+against the 0.20 cut) and `relativity` for Fe8 (basis 0.19 against the 0.20 cut). Both misses are within 0.02
+of a threshold. The thresholds are left as they were set before the data.
+
+**Reading:**
+
+1. **The package-62 G09-vs-VASP gap is the Gaussian basis plus scalar relativity.** G09 at its basis limit with
+   DKH2 agrees with VASP Fe_sv:
+   - Fe2 r_e to 0.0025 A (1.9853 vs 1.9878);
+   - the Fe8 radial force to 9% of the gap.
+
+   VASP Fe_pv appeared closer to G09 only because its frozen 3s lengthens the bonds and partly cancels the
+   other two effects.
+2. **The basis share depends on the system.** For Fe2 it is about 80% of the gap; 6-311++G* is missing diffuse
+   and polarization flexibility that matters for the dimer. For Fe8 it is about 20%, and the basis is converged
+   at QZ quality: def2-QZVPP, pcseg-3, pcseg-4(-i) and cc-pVQZ agree to within 0.05 of the gap.
+3. **Relativity is the dominant missing piece for the larger cluster.** It shortens the Fe2 bond by 0.013 A,
+   and on Fe8 it supplies 0.9 of the radial gap. This is not a code error: the G09 labels use the
+   non-relativistic Hamiltonian, which is consistent across all G09 labels.
+4. **Nothing points at the PW91 implementation or the PAW augmentation.** The residual is within 0.2 of the gap
+   once the Gaussian basis, scalar relativity and Fe_sv are accounted for.
+
+**Consequences for the MLIP:**
+
+- G09 6-311++G* UBPW91 labels and VASP PW91 labels differ for two understood reasons: Gaussian basis error,
+  and the absence of relativity in G09. Neither reason is noise. Package 62's decision of a separate head or
+  delta, not a shared head, stands and is now explained.
+- VASP Fe data, wherever they enter, should use Fe_sv (or harder) potentials. Fe_pv's frozen 3s is worth about
+  0.008 A on the Fe2 bond.
+- If the G09 labels should match the VASP physics, they need both a QZ-quality basis and DKH2. Neither alone
+  is enough for Fe8 and up. DKH2 has no analytic gradients in G09 D.01, so DKH2 forces would need G16 (which
+  the user does not use for these systems), finite differences, or a delta model. The alternative is to keep
+  the G09 labels non-relativistic as the reference and treat relativity as part of the G09→VASP delta.
+- Fe2 r_e from every method lies inside the experimental 2.02 ± 0.02 A, so experiment cannot choose.
