@@ -12,10 +12,10 @@ Each step then starts from a converged wavefunction one spin flip away.
 One input per frame, one checkpoint, at the fixed geometry fe16-200-49-gf (the A0 runs' geometry,
 coordinates taken from the kit A0 input):
 
-    M = 49   SP Stable=Opt Pop=Hirshfeld        default guess, coordinates (package 36 converged the
+    M = 49   Stable=Opt Pop=Hirshfeld           default guess, coordinates (package 36 converged the
                                                 FM state here in 98 cycles: -20221.7601 Ha)
     M = 49   Force Pop=Hirshfeld                Geom=Checkpoint Guess=Read
-    M = 47   SP Stable=Opt Pop=Hirshfeld        Geom=Checkpoint Guess=Read  (one alpha -> beta)
+    M = 47   Stable=Opt Pop=Hirshfeld           Geom=Checkpoint Guess=Read  (one alpha -> beta)
     M = 47   Force Pop=Hirshfeld                Geom=Checkpoint Guess=Read
     ...      down to M = 33
 
@@ -24,7 +24,10 @@ so each M is taken to a stable one before Force.
 - frame_0000 uses the group's standard ladder route (DEFAULT_SPIN_ROUTE without Opt).
 - frame_0001 adds XQC to SCF=(...), as a fallback if a step's first-order SCF hits the 129-cycle cap.
 
-IOP(5/13=1,5/36=1,8/11=1) is in every link. The run uses G09 D.01 on QB4 under the log-growth
+IOP(5/13=1,5/36=1,8/11=1) is in every link. Stable=Opt stands alone as the job type: the first
+staging (desk 91, job 1163098) wrote "SP Stable=Opt", and G09 turned that into an l108 scan step that
+failed at once with "No variables in Z-matrix" (package 78's working Stable=Opt link has no SP).
+`job_types` refuses any route with more than one job-type keyword. The run uses G09 D.01 on QB4 under the log-growth
 watchdog from make_scf_gate_package.py.
 """
 from __future__ import annotations
@@ -72,9 +75,9 @@ no converged state, and an XQC plateau about 6.7 eV above FM.
 Geometry fe16-200-49-gf, neutral, fixed. One input per frame, one checkpoint, {nlinks} links:
 
 ```
-M = 49        SP Stable=Opt Pop=Hirshfeld   default guess, coordinates
+M = 49        Stable=Opt Pop=Hirshfeld      default guess, coordinates
 M = 49        Force Pop=Hirshfeld           Geom=Checkpoint Guess=Read
-M = 47 ... {low}   per M: SP Stable=Opt, then Force, both Geom=Checkpoint Guess=Read
+M = 47 ... {low}   per M: Stable=Opt, then Force, both Geom=Checkpoint Guess=Read
 every link: IOP(5/13=1,5/36=1,8/11=1)
 ```
 
@@ -111,6 +114,20 @@ Route: agent `ClusterMLIP`, source `experiments/fe16_bs_pilot/make_ladder_packag
 """
 
 
+_JOB_TYPES = ("SP", "Opt", "Force", "Freq", "Stable", "IRC", "Scan")
+
+
+def job_types(route: str) -> list[str]:
+    """Job-type keywords in a Gaussian route (Stable=Opt counts as Stable, not Opt)."""
+    found = []
+    for token in route.split()[1:]:
+        key = token.split("=", 1)[0].split("(", 1)[0]
+        for job in _JOB_TYPES:
+            if key.lower() == job.lower():
+                found.append(job)
+    return found
+
+
 def coordinates(kit_text: str) -> list[str]:
     stage0 = split_input(kit_text.replace("\r\n", "\n"))[0]
     atoms = []
@@ -128,7 +145,7 @@ def ladder_input(atoms: list[str], scf: str, chk: str, mem: str, cpus: int) -> s
     header = f"%chk={chk}\n%mem={mem}\n%nprocshared={cpus}\n"
     links = []
     for m in range(HIGH, LOW - 1, -2):
-        for job in ("SP Stable=Opt", "Force"):
+        for job in ("Stable=Opt", "Force"):
             first = not links
             route = BASE.format(scf=scf, job=job) + ("" if first else " Geom=Checkpoint Guess=Read")
             kind = "stable" if "Stable" in job else "force"
@@ -143,6 +160,7 @@ def ladder_input(atoms: list[str], scf: str, chk: str, mem: str, cpus: int) -> s
     expected = [m for m in range(HIGH, LOW - 1, -2) for _ in (0, 1)]
     assert [s.charge_multiplicity for s in stages] == [[0, m] for m in expected]
     assert all("IOP(5/13=1,5/36=1,8/11=1)" in s.route for s in stages)
+    assert [job_types(s.route) for s in stages] == [["Stable"], ["Force"]] * (len(stages) // 2),         [s.route for s in stages]
     assert len(stages[0].atom_lines) == 16 and all(not s.atom_lines for s in stages[1:])
     assert all("Geom=Checkpoint Guess=Read" in s.route for s in stages[1:])
     assert "Guess=" not in stages[0].route and " Opt " not in f" {stages[0].route} ".replace("Stable=Opt", "")
@@ -185,7 +203,7 @@ def main() -> None:
         "make_scf_gate_package.py. One array task per frame:\n"
         "# a 4-link G09 tandem (fragment guess > SP convergence > Stable=Opt > Force) in work/frame_NNNN, where",
         "make_ladder_package.py. One array task per frame:\n"
-        "# a G09 flip-down spin ladder (per M: SP Stable=Opt > Force) in work/frame_NNNN, where")
+        "# a G09 flip-down spin ladder (per M: Stable=Opt > Force) in work/frame_NNNN, where")
     assert "make_ladder_package.py" in slurm
     fmt = dict(number=number, name=NAME, job=JOB, branch=branch, commit=commit, kit_input=kit_input.name,
                last=n - 1, cpus=cpus, mem=mem, hours=HOURS, sus=n * cpus * HOURS, grace=GRACE,
