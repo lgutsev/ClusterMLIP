@@ -64,7 +64,10 @@ from .routes import (
     input_stage_routes,
     inspect_job,
     recorded_saddle_order,
+    frame_label,
+    intended_stationary_point,
     route_is_force_only,
+    route_search_kind,
     running_search_route,
 )
 from .spin import (
@@ -89,6 +92,7 @@ from .slurm import (
 )
 from .stratify import STRATA_FIELDS
 from .training import DEFAULT_SEED, TrainingConfig, write_training_campaign
+from .vasp import VaspSettings, VaspSlurmConfig, collect_vasp_campaign, prepare_vasp_campaign
 
 
 def _elements(value: str | None) -> set[str] | None:
@@ -766,6 +770,37 @@ def _write_dataset_summary(
     return summary
 
 
+def command_audit_spin_labels(args: argparse.Namespace) -> int:
+    try:
+        from .spin_audit import run_audit
+    except ImportError as exc:
+        raise RuntimeError("audit-spin-labels needs numpy; install '.[audit]' in the audit environment") from exc
+    return run_audit(args)
+
+
+def _label_stage_frames(members: list[LabeledFrame]) -> None:
+    """Relabel the force frames of one job/spin stage one by one
+    (routes.frame_label): the first is the stage's starting geometry, the last
+    of a converged search its stationary point, the rest an optimization path.
+    The job-level label stays in ``job_config_type``."""
+    for position, frame in enumerate(members):
+        metadata = frame.record.metadata
+        target = str(metadata.get("target_record_multiplicity") or "").strip()
+        label = frame_label(
+            position=position,
+            count=len(members),
+            search_kind=str(metadata["stage_search_kind"]),
+            converged=bool(metadata["spin_stage_normal_termination"]
+                           and metadata["spin_stage_optimized"]),
+            job_config_type=str(metadata["job_config_type"]),
+            stage_index=int(metadata.get("stage_index") or 0),
+            initialization=str(metadata.get("initialization") or ""),
+            same_state_as_label=not target.isdigit() or int(target) == frame.record.multiplicity,
+        )
+        frame.record.config_type = label["config_type"]
+        metadata["frame_role"] = label["frame_role"]
+
+
 def command_collect(args: argparse.Namespace) -> int:
     output_roots = [Path(item).resolve() for item in args.outputs]
     destination = Path(args.output)
@@ -791,8 +826,10 @@ def command_collect(args: argparse.Namespace) -> int:
     source_geometries: dict[str, list[Atom]] = {}
     source_exact: dict[str, str] = {}
     counts_out: collections.Counter = collections.Counter()
+    allow_unconverged = getattr(args, "allow_unconverged_scf", False)
+    unconverged: list[tuple[str, str, str, int]] = []
     for outputs in output_roots:
-        spin_campaign = (outputs / "spin_jobs.csv").is_file()
+        spin_campaign =(outputs / "spin_jobs.csv").is_file()
         manifest_path = outputs / ("spin_jobs.csv" if spin_campaign else "jobs.csv")
         manifest = read_jobs_manifest(manifest_path)
         manifest_by_output: dict[str, list[dict[str, str]]] = {}
@@ -900,6 +937,7 @@ def command_collect(args: argparse.Namespace) -> int:
                         if rows[0].get("source_geometry_sha256"):
                             source_exact[parent_id] = rows[0]["source_geometry_sha256"]
                 diagnostics = parse_spin_diagnostics(text)
+                stage_routes = input_stage_routes(input_text) if input_text else []
                 grouped: dict[str, list] = {}
                 for frame in parsed:
                     if spin_campaign:
@@ -915,11 +953,23 @@ def command_collect(args: argparse.Namespace) -> int:
                     record = frame.record
                     record.record_id = job_id
                     record.source = row.get("source", str(path))
-                    record.config_type = row.get("config_type") or "labeled"
+                    # Spin campaigns prepared before the manifest carried
+                    # config_type still encode it in the input filename.
+                    job_config_type, config_type_source = resolve_config_type(
+                        row, Path(row.get("input") or "").name
+                    )
+                    record.config_type = job_config_type or "labeled"
                     record.route = row.get("legacy_route", "")
                     if row.get("legacy_energy_hartree"):
                         record.legacy_energy_hartree = float(row["legacy_energy_hartree"])
                     record.metadata.update({key: value for key, value in row.items() if value})
+                    record.metadata["job_config_type"] = record.config_type
+                    record.metadata["config_type_source"] = config_type_source
+                    stage = int(row.get("stage_index") or 0) if spin_campaign else 0
+                    own_route = stage_routes[stage] if stage < len(stage_routes) else ""
+                    record.metadata["stage_search_kind"] = (
+                        route_search_kind(own_route) if own_route else "unknown"
+                    )
                     record.metadata["parent_record_id"] = row.get("parent_record_id") or job_id
                     record.metadata["gaussian_output"] = str(path.relative_to(outputs))
                     record.metadata["collection_campaign"] = str(outputs)
@@ -983,6 +1033,8 @@ def command_collect(args: argparse.Namespace) -> int:
                     grouped.setdefault(job_id, []).append(frame)
                 if spin_campaign and complete and set(grouped) != {row["job_id"] for row in rows}:
                     raise ValueError("one or more planned spin stages have no force label")
+                for members in grouped.values():
+                    _label_stage_frames(members)
                 selected = []
                 row_by_job = {row.get("job_id", ""): row for row in rows}
                 for job_id, members in grouped.items():
@@ -1025,6 +1077,20 @@ def command_collect(args: argparse.Namespace) -> int:
                             selected.append(members[-1])
                     else:
                         selected.append(members[-1])
+                # A frame whose own SCF printed "Convergence criterion not met"
+                # (allowed to continue by IOP(5/13=1)) carries forces on an
+                # unconverged density. Drop it, after frame labelling so the
+                # remaining frames keep their roles; a dropped final frame is not
+                # replaced by an earlier step, which is a different geometry.
+                if not allow_unconverged:
+                    for frame in selected:
+                        if frame.record.metadata.get("scf_unconverged"):
+                            unconverged.append((
+                                str(path), str(frame.record.metadata.get("parent_record_id", "")),
+                                frame.record.record_id, frame.record.metadata["force_frame_index"],
+                            ))
+                    selected = [frame for frame in selected
+                                if not frame.record.metadata.get("scf_unconverged")]
                 campaign_frames.extend(selected)
             except Exception as exc:
                 failures.append((str(path), str(exc)))
@@ -1127,6 +1193,10 @@ def command_collect(args: argparse.Namespace) -> int:
         handle.write("output\tdropped_job_id\tkept_job_id\n")
         for name, dropped, kept in superseded:
             handle.write(f"{name}\t{dropped}\t{kept}\n")
+    with (destination / "unconverged_scf_frames.tsv").open("w", encoding="utf-8") as handle:
+        handle.write("output\tparent_record_id\trecord_id\tforce_frame_index\n")
+        for output, parent, record_id, frame_index in unconverged:
+            handle.write(f"{output}\t{parent}\t{record_id}\t{frame_index}\n")
     print(f"Collected {len(frames)} labeled frames; rejected {len(failures)} outputs")
     exact_duplicates = counts_out.get("frames_dropped_exact_duplicate", 0)
     if len(superseded) > exact_duplicates:
@@ -1139,6 +1209,15 @@ def command_collect(args: argparse.Namespace) -> int:
             f"Dropped {exact_duplicates} frame(s) identical in state and geometry to a kept "
             f"frame -- see {destination / 'superseded_labels.tsv'}"
         )
+    if unconverged:
+        print(
+            f"Dropped {len(unconverged)} frame(s) whose SCF did not converge "
+            f"(Convergence criterion not met) -- see {destination / 'unconverged_scf_frames.tsv'}"
+        )
+    elif allow_unconverged:
+        kept = sum(1 for frame in frames if frame.record.metadata.get("scf_unconverged"))
+        print(f"Kept {kept} frame(s) with an unconverged SCF (--allow-unconverged-scf; "
+              "flagged scf_unconverged=True)")
     print("Split: " + ", ".join(f"{name}={len(values)}" for name, values in splits.items()))
     print(
         f"Independent source geometries: {dataset_summary['independent_source_geometry_groups']} "
@@ -1516,6 +1595,52 @@ def command_literature_gap(args: argparse.Namespace) -> int:
     )
     print(f"Literature gap report: {Path(args.output).resolve() / 'literature_gap.md'}")
     return 0
+
+
+def _key_values(items: list[str] | None, flag: str) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for item in items or []:
+        key, sep, value = item.partition("=")
+        if not sep or not key.strip():
+            raise SystemExit(f"{flag} expects KEY=VALUE, got {item!r}")
+        out[key.strip()] = value.strip()
+    return out
+
+
+def command_vasp_prepare(args: argparse.Namespace) -> int:
+    kpoints = tuple(int(k) for k in args.kpoints.split(","))
+    if len(kpoints) != 3:
+        raise SystemExit("--kpoints expects three integers, e.g. 1,1,1")
+    nupdown = None if args.support_nupdown == "free" else int(args.support_nupdown)
+    settings = VaspSettings(
+        gga=args.gga, encut=args.encut, ediff=args.ediff, ivdw=args.ivdw, lreal=args.lreal,
+        kpoints=kpoints, dipole=not args.no_dipole, magnetic_mixing=not args.no_magnetic_mixing,
+        support_nupdown=nupdown, potcars=_key_values(args.potcar, "--potcar"),
+        incar_overrides=_key_values(args.incar, "--incar"),
+    )
+    slurm = VaspSlurmConfig(
+        partition=args.partition, account=args.account, nodes=args.nodes,
+        ntasks_per_node=args.ntasks_per_node, time_limit=args.time, modules=args.modules,
+        vasp_command=args.vasp_command, potcar_root=args.potcar_root,
+        concurrent_jobs=args.concurrent,
+    )
+    mults = [int(m) for m in args.multiplicities.split(",")] if args.multiplicities else None
+    plan = prepare_vasp_campaign(
+        Path(args.structures), Path(args.output), settings=settings, slurm=slurm,
+        multiplicities=mults, cluster_elements=_elements(args.cluster_elements),
+    )
+    print(json.dumps({k: plan[k] for k in ("n_structures", "n_jobs", "level")}, indent=2))
+    print(f"submit on the cluster with: bash {Path(args.output) / 'submit.sh'}")
+    return 0
+
+
+def command_vasp_collect(args: argparse.Namespace) -> int:
+    summary = collect_vasp_campaign(
+        Path(args.campaign), Path(args.output), energy=args.energy,
+        magnetization_tolerance=args.magnetization_tolerance,
+    )
+    print(json.dumps(summary, indent=2))
+    return 0 if summary["interaction_frames"] else 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1904,6 +2029,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     collect.add_argument(
+        "--allow-unconverged-scf", action="store_true",
+        help=(
+            "keep force frames whose SCF printed 'Convergence criterion not met' (continued "
+            "under IOP(5/13=1)); they stay flagged scf_unconverged=True. Off by default: their "
+            "energies and forces belong to an unconverged density"
+        ),
+    )
+    collect.add_argument(
         "--force-outlier-threshold", type=float, default=5.0,
         help="flag frames whose force RMS (eV/Angstrom) exceeds this in label_report.md/json",
     )
@@ -2147,6 +2280,64 @@ def build_parser() -> argparse.ArgumentParser:
     pdf_index.add_argument("source", help="a ZIP of PDFs, a folder of PDFs, or a single .pdf file")
     pdf_index.add_argument("-o", "--output", default="pdf_index")
     pdf_index.set_defaults(func=command_pdf_index)
+    vasp_prepare = sub.add_parser(
+        "vasp-prepare",
+        help="write VASP AB/A/B single points for supported clusters (interaction-energy labels)",
+    )
+    vasp_prepare.add_argument("structures", help="periodic extxyz with a per-atom 'cluster' column (1 = cluster)")
+    vasp_prepare.add_argument("-o", "--output", default="vasp_interaction")
+    vasp_prepare.add_argument("--multiplicities", help="comma list; default: each structure's multiplicity/spin info")
+    vasp_prepare.add_argument("--cluster-elements", help="fallback split when there is no 'cluster' column, e.g. Fe")
+    vasp_prepare.add_argument("--gga", default="PE", help="VASP GGA tag (PE = PBE, 91 = PW91)")
+    vasp_prepare.add_argument("--encut", type=float, default=450.0)
+    vasp_prepare.add_argument("--ediff", type=float, default=1e-6)
+    vasp_prepare.add_argument("--ivdw", type=int, default=12, help="12 = D3(BJ); 0 = no dispersion")
+    vasp_prepare.add_argument("--lreal", default="Auto")
+    vasp_prepare.add_argument("--kpoints", default="1,1,1", help="Gamma-centred grid, e.g. 2,2,1")
+    vasp_prepare.add_argument("--no-dipole", action="store_true", help="drop the slab dipole correction (IDIPOL=3)")
+    vasp_prepare.add_argument("--no-magnetic-mixing", action="store_true")
+    vasp_prepare.add_argument("--support-nupdown", default="0", help="support-only NUPDOWN, or 'free'")
+    vasp_prepare.add_argument("--potcar", action="append", metavar="EL=NAME", help="PAW dataset override, repeatable")
+    vasp_prepare.add_argument("--incar", action="append", metavar="TAG=VALUE", help="extra/overriding INCAR tag, repeatable")
+    vasp_prepare.add_argument("--partition", default="checkpt")
+    vasp_prepare.add_argument("--account", default="loni_perovsk27")
+    vasp_prepare.add_argument("--nodes", type=int, default=1)
+    vasp_prepare.add_argument("--ntasks-per-node", type=int, default=48)
+    vasp_prepare.add_argument("--time", default="24:00:00")
+    vasp_prepare.add_argument("--modules", default="vasp/6.4.2")
+    vasp_prepare.add_argument("--vasp-command", default="srun vasp_std")
+    vasp_prepare.add_argument("--potcar-root", default="$VASP_PP_PATH/potpaw_PBE")
+    vasp_prepare.add_argument("--concurrent", type=int, default=10)
+    vasp_prepare.set_defaults(func=command_vasp_prepare)
+
+    vasp_collect = sub.add_parser(
+        "vasp-collect",
+        help="turn a finished vasp-prepare campaign into dE_int, total and fragment extxyz",
+    )
+    vasp_collect.add_argument("campaign", help="directory written by vasp-prepare")
+    vasp_collect.add_argument("-o", "--output", default="vasp_labels")
+    vasp_collect.add_argument("--energy", choices=["free", "sigma0"], default="free",
+                              help="free energy (consistent with the forces) or the sigma->0 extrapolation")
+    vasp_collect.add_argument("--magnetization-tolerance", type=float, default=0.1,
+                              help="reject a job whose total moment differs from M-1 by more than this")
+    vasp_collect.set_defaults(func=command_vasp_collect)
+    p = sub.add_parser("audit-spin-labels", help="audit same-input E/F ambiguity and local-spin provenance (needs numpy)")
+    p.add_argument("datasets", nargs="+", help="collected extxyz files; with --gaussian: log files or recursive directories")
+    p.add_argument("-o", "--output", required=True)
+    p.add_argument("--formula", help="optional exact formula filter, e.g. Fe16")
+    p.add_argument("--gaussian", action="store_true", help="read Gaussian .log/.out directly; no collected dataset needed")
+    p.add_argument("--file-glob", action="append", help="raw directory filename glob, repeatable; default *.log and *.out")
+    p.add_argument("--gaussian-frames", choices=["all", "last-per-section"], default="all",
+                   help="all force frames (default) or final force frame per Gaussian state section")
+    p.add_argument("--verify-raw", action="store_true", help="reparse original Gaussian logs using campaign metadata")
+    p.add_argument("--raw-root", help="replacement campaign root for gaussian_output paths; requires --verify-raw")
+    for name, default in [("exact-tolerance", 1e-5), ("near-tolerance", 0.03),
+                          ("energy-threshold", 0.01), ("force-threshold", 0.05),
+                          ("spin-threshold", 0.3), ("spin-sum-tolerance", 0.1)]:
+        p.add_argument("--"+name, type=float, default=default)
+    p.add_argument("--mapping-budget", type=int, default=100000, help="backtracking nodes per alignment search")
+    p.add_argument("--max-pairs", type=int, default=5000000, help="candidate-pair work limit; exit 2 and report if exceeded")
+    p.set_defaults(func=command_audit_spin_labels)
     return parser
 
 

@@ -10,14 +10,16 @@ requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
+# Geometric mapping for the optional, read-only local-spin label audit.
+audit = ["numpy>=1.23"]
 # Needed only to *run* the scripts `cluster-mlip train` generates (and the
 # frozen `configs/*.sh` references), and for `cluster-mlip evaluate` /
 # `select-next-batch` (committee inference). `cluster-mlip train` itself only
 # renders the command line and needs nothing extra.
 train = ["mace-torch>=0.3.16"]
 # Needed only for `cluster-mlip pdf-index` (full-text extraction from a local
-# corpus of paper PDFs, see paper_pdfs.py). Everything else in this package
-# stays free of third-party dependencies. `[crypto]` pulls in `cryptography`,
+# corpus of paper PDFs, see paper_pdfs.py).
+# `[crypto]` pulls in `cryptography`,
 # which pypdf needs for AES-encrypted PDFs (some publisher-distributed
 # reprints use it) -- without it those specific PDFs fail with
 # "DependencyError: cryptography>=3.1 is required for AES algorithm" instead

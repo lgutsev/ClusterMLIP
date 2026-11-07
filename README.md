@@ -996,6 +996,23 @@ and every frame whose force RMS exceeds `--force-outlier-threshold` (default
 5 eV/Å, adjust for your route and system). A non-converged SCF root or a
 rattle that blew up a geometry shows up here before it ever reaches training.
 
+Every collected frame is labeled by what it is, not by the job it came from
+(`frame_role`): a job's `config_type` describes the geometry it *started* from,
+and an optimization moves away from it. The first step of a stage keeps the
+job's label (`input_geometry`, unless the label is a stationary point
+established at another multiplicity); checkpoint-seeded first steps are
+`spin_flip_start`/`restart_start`; intermediate steps are `optimization_step`
+with `config_type=optimization_path`; the last step of a converged search is
+`optimized_endpoint` -- a saddle for a saddle search, `minimum` only when a
+minimum search re-found a verified minimum in its own state, otherwise
+`optimized_unverified`. Single-point stages are `fixed_geometry`. The job-level
+label is kept in `job_config_type`; spin campaigns prepared before the manifest
+had a `config_type` column recover it from the input filename
+(`config_type_source=filename`) instead of falling back to `labeled`. Without
+this, every step of a minimum search counted as a stationary point in
+`physical_checks`, and the steps of an IRC point run as `Opt` stratified as IRC
+frames.
+
 ### Optimization trajectories, local spins and verified spin pairs
 
 ```bash
@@ -1171,6 +1188,27 @@ dataset constrains the least, and so are the best next candidates for the
 next (expensive) DFT labeling round rather than labeling the warehouse in
 arbitrary order. Needs the training extra.
 
+## 8. Supported clusters: VASP interaction labels
+
+For a cluster on a periodic support, the Δ-model `E = E_gas(cluster; q, M) +
+E_support + ΔE_int` keeps the UBPW91 gas-phase model and fits only the interaction
+to periodic DFT. `vasp-prepare` writes, for every structure of a periodic extxyz with a
+per-atom `cluster` column (1 = cluster), the three single points AB, A (frozen
+cluster) and B (frozen support) at identical settings in the same cell, with the total
+spin fixed at NUPDOWN = M − 1, plus a Slurm array (`submit.sh`); POTCARs are built on
+the cluster from `POTCAR.spec`. `vasp-collect` checks SCF convergence and the total
+moment and writes `interaction.extxyz` (ΔE_int, ΔF), the total and fragment frames and
+`interaction_summary.csv`.
+
+```bash
+cluster-mlip vasp-prepare supported.extxyz -o vasp_campaign --multiplicities 51,53
+cluster-mlip vasp-collect vasp_campaign -o vasp_labels
+```
+
+`cluster_mlip.delta` (needs ASE) has the matching `DeltaCalculator`,
+`SubtractiveInteraction` and a per-multiplicity relaxation helper. The worked example is
+`examples/supported_fe16_tem` (section 5 of its README).
+
 ## Model and data storage
 
 Keep code, small configs, manifests, and reports in Git. Keep raw warehouses,
@@ -1248,3 +1286,14 @@ paths. CI (`.github/workflows/tests.yml`) runs the unit tests on Python
 of this needs `mace-torch` installed -- the stratification, reporting, and
 physical-check logic is plain Python over data already in hand; only the
 CLI's actual model inference calls need the training extra, same as before.
+
+## Diagnose missing local-spin information before expanding the campaign
+
+`cluster-mlip audit-spin-labels` reads Gaussian `.log`/`.out` files directly
+(`--gaussian`) or compares collected E/F labels at matched
+geometry, charge and multiplicity, including explicit atom mapping, rotated
+forces, site-resolved spins, trajectory flags and optional verification against
+the original Gaussian force frames. It does not modify labels or launch jobs.
+See [the Fe16/LONI audit instructions](docs/spin_label_audit.md) and
+`scripts/run_spin_audit_slurm.sh` (one CPU on `single`; no MACE/GPU needed).
+The audit needs the optional `audit` extra (numpy).

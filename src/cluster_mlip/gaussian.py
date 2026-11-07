@@ -885,6 +885,7 @@ def parse_force_frames(text: str, source: Path, seed: Record | None = None) -> l
     energies = list(_SCF_RE.finditer(text))
     cms = list(_CM_RE.finditer(text))
     frames = []
+    routes = _routes(text)
     for index, header in enumerate(_FORCE_HEADER_RE.finditer(text)):
         preceding_energy = [match for match in energies if match.end() < header.start()]
         if not preceding_energy:
@@ -936,11 +937,30 @@ def parse_force_frames(text: str, source: Path, seed: Record | None = None) -> l
         record.atoms = atoms
         record.charge = charge
         record.multiplicity = multiplicity
+        # Seed diagnostics describe a different SCF/geometry. Never retain them
+        # when this force-bearing SCF did not print its own populations/S^2.
+        for key in ("atomic_spins", "s2_before", "s2_after"):
+            record.metadata.pop(key, None)
+        section_index = next((j for j, item in enumerate(cms) if item is cm), -1)
+        section_end = cms[section_index+1].start() if section_index+1 < len(cms) else len(text)
+        section = text[cm.start() if cm else 0:section_end].lower()
+        route_item = _last_before(routes, energy.start())
+        # This frame's own SCF, between its geometry and its force table. With
+        # IOP(5/13=1) Gaussian prints "Convergence criterion not met", keeps the
+        # unconverged density and computes forces on it: not a usable label.
+        frame_scf = text[geometry_end:header.start()].lower()
+        scf_unconverged = ("convergence criterion not met" in frame_scf
+                           or _SCF_NOT_CONVERGED_RE.search(text, geometry_end, header.start()) is not None)
         record.metadata.update({
+            "force_route": route_item[1] if route_item else "",
+            "explicit_charge_multiplicity": cm is not None,
+            "gaussian_section_index": section_index,
+            "section_normal_termination": "normal termination of gaussian" in section,
+            "section_error_termination": "error termination" in section,
+            "section_optimized": "optimization completed" in section or "stationary point found" in section,
             "force_frame_index": index, "orientation": orientation,
-            "scf_convergence_warning": _SCF_NOT_CONVERGED_RE.search(
-                text, geometry_end, header.start()
-            ) is not None,
+            "scf_convergence_warning": "convergence failure" in frame_scf or scf_unconverged,
+            "scf_unconverged": scf_unconverged,
         })
         electronic = text[energy.end():header.start()]
         s2 = list(_S2_RE.finditer(electronic))
