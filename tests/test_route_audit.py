@@ -23,6 +23,7 @@ from cluster_mlip.relaunch import prepare_route_relaunch
 from cluster_mlip.restart import prepare_spin_restarts
 from cluster_mlip.route_audit import audit_campaign_routes
 from cluster_mlip.routes import (
+    GEOMETRY_COLUMNS,
     config_type_from_stem,
     corrected_cartesian_route,
     geometry_source,
@@ -287,15 +288,18 @@ class BrokenCampaign:
         stem = Path(rows[0]['input']).stem
         job_input = root / rows[0]['input']
         if break_route:
+            # Whatever the generator now chooses (a saddle search, or a Force
+            # label for a higher-order candidate), the old one wrote plain Opt.
             job_input.write_text(
-                job_input.read_text().replace(DEFAULT_SADDLE_ROUTE, DEFAULT_ROUTE),
+                job_input.read_text().replace(rows[0]['first_route'], DEFAULT_ROUTE),
                 encoding='utf-8',
             )
             for row in rows:
                 row['first_route'] = DEFAULT_ROUTE
             fields = [
                 f for f in fields
-                if f not in ('route_intent', 'route_search_kind', 'intended_stationary_point')
+                if f not in ('route_intent', 'route_search_kind', 'intended_stationary_point',
+                             *GEOMETRY_COLUMNS)
             ]
         if not manifest_config_type:
             # Older campaigns have no config_type column; the label then has to
@@ -571,15 +575,36 @@ class RelaunchTests(BrokenCampaign, unittest.TestCase):
             self.assertIn('TS', plan['plan'][0]['route_after'])
             self.assertNotIn('Saddle=', plan['plan'][0]['route_after'])
 
-    def test_higher_order_saddles_need_an_explicit_order(self):
+    def test_higher_order_saddles_default_to_force_labels(self):
+        # Without an explicit request for Opt=(Saddle=N), a higher-order
+        # candidate is labeled where it is: its order is recorded nowhere, and
+        # a guessed search would move the archived geometry.
         with tempfile.TemporaryDirectory() as tmp:
             root, _, _ = self.campaign(Path(tmp), config_type='higher_order_saddle')
+            audit = audit_campaign_routes(root)
+            self.assertEqual(audit['rows'][0]['geometry_role'], 'higher_order_candidate')
+            self.assertEqual(audit['rows'][0]['findings'],
+                             'higher_order_launched_as_minimum_search')
             plan = prepare_route_relaunch(root, dry_run=True)
-            self.assertEqual(plan['input_count'], 0)
-            self.assertIn('--saddle-order', plan['skipped'][0]['reason'])
+            self.assertEqual(plan['input_count'], 1)
+            row = plan['plan'][0]
+            self.assertEqual(row['repair'], 'fixed_geometry_force')
+            self.assertEqual(row['saddle_order'], '')
+            for route in row['stage_routes_after'].split(' || '):
+                self.assertIn('Force', route)
+                self.assertNotRegex(route, r'(?i)opt|freq')
+            # An explicit order is the request for a search.
             plan = prepare_route_relaunch(root, dry_run=True, saddle_order=2)
             self.assertEqual(plan['input_count'], 1)
             self.assertIn('Saddle=2', plan['plan'][0]['route_after'])
+            # Asking for a search without saying which order is refused.
+            plan = prepare_route_relaunch(
+                root, dry_run=True, higher_order_policy='saddle-search')
+            self.assertEqual(plan['input_count'], 0)
+            self.assertIn('--saddle-order', plan['skipped'][0]['reason'])
+            with self.assertRaises(ValueError):
+                prepare_route_relaunch(
+                    root, dry_run=True, higher_order_policy='force', saddle_order=2)
 
     def test_collect_refuses_labels_from_a_mislaunched_transition_state(self):
         with tempfile.TemporaryDirectory() as tmp:

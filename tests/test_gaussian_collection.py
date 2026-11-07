@@ -11,6 +11,8 @@ from pathlib import Path
 from cluster_mlip.cli import build_parser
 from cluster_mlip.dataset import read_labeled_extxyz
 from cluster_mlip.gaussian import gaussian_job_complete, parse_force_frames, parse_final_force_frame
+from cluster_mlip.label_levels import route_label_level
+from cluster_mlip.routes import log_routes
 from cluster_mlip.slurm import _completion_function, SlurmConfig, prepare_slurm_batches
 
 FIXTURE = Path(__file__).parent / 'fixtures' / 'force.log'
@@ -168,3 +170,27 @@ class GaussianCollectionTests(unittest.TestCase):
         self.assertEqual(frames[0].record.metadata['s2_after'], 2.0)
         self.assertEqual(frames[0].record.metadata['atomic_spins'], [[1, 'H', 0.7], [2, 'H', -0.7]])
         self.assertNotIn('atomic_spins', frames[1].record.metadata)
+
+    def test_route_echo_wrapped_mid_word_is_rejoined_and_irc_summary_is_not_a_route(self):
+        # Gaussian cuts the route echo at a fixed width, mid-word, with a
+        # one-space prefix on every line. The legacy FePt IRC seeds came out as
+        # "NoVa rAcc" / "UltraF ine" (grid unreadable) or as the IRC progress
+        # block's "# OF POINTS ALONG THE PATH" line.
+        dashes = ' ' + '-' * 70 + '\n'
+        text = (
+            dashes
+            + ' #P UBPW91/GEN Pseudo=Read scf=(VSHIFT=5,NoIncFock,MAXCYC=200,Tight,NoVa\n'
+            + ' rAcc) NOSYMM IOP(5/13=1,5/36=1,8/11=1) INT=UltraF\n'
+            + ' ine IRC(CalcFC,MaxPoints=50)\n'
+            + dashes
+            + ' IRC-IRC-IRC-IRC-IRC-IRC-IRC-IRC-IRC-IRC-IRC-IRC-IRC-IRC-IRC-IRC-IRC-IRC\n'
+            + '  # OF POINTS ALONG THE PATH =   1\n'
+            + '  # OF STEPS =   1\n\n'
+            + ' Calculating another point on the path.\n'
+        )
+        self.assertEqual(log_routes(text), [
+            '#P UBPW91/GEN Pseudo=Read scf=(VSHIFT=5,NoIncFock,MAXCYC=200,Tight,NoVarAcc) '
+            'NOSYMM IOP(5/13=1,5/36=1,8/11=1) INT=UltraFine IRC(CalcFC,MaxPoints=50)'])
+        level = route_label_level(log_routes(text)[0])
+        self.assertEqual(level.grid, 'ultrafine')
+        self.assertNotIn('ine', level.extras)
