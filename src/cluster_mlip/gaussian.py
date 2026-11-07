@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import hashlib
+import bisect
 import copy
+import hashlib
 import math
 import re
 from pathlib import Path
@@ -91,21 +92,43 @@ def _float(value: str) -> float:
     return float(value.replace("D", "E").replace("d", "e"))
 
 
+_SEPARATOR_RE = re.compile(r"^\s*-{10,}\s*$", re.M)
+# The same separator with no line-start anchor, for the first match at a
+# position: a scan of ``text[pos:]`` treats ``pos`` as a line start.
+_SEPARATOR_AT_POS_RE = re.compile(r"\s*-{10,}\s*$", re.M)
+
+
+def _next_separators(text: str, pos: int, count: int) -> list[tuple[int, int]]:
+    """(start, end) in ``text`` of the first ``count`` dashed separator lines at
+    or after ``pos`` -- exactly what ``list(re.finditer(sep, text[pos:], re.M))
+    [:count]`` finds, but without copying the rest of the file and without
+    scanning past the last separator needed. Every Gaussian step prints a table
+    of these, so the copy-and-scan-to-end form made parsing quadratic in the
+    number of steps."""
+    found: list[tuple[int, int]] = []
+    match = _SEPARATOR_AT_POS_RE.match(text, pos) or _SEPARATOR_RE.search(text, pos)
+    while match is not None:
+        found.append((match.start(), match.end()))
+        if len(found) == count:
+            break
+        match = _SEPARATOR_RE.search(text, match.end())
+    return found
+
+
 def _orientation_tables(text: str) -> list[tuple[int, int, list[Atom], str]]:
     starts = list(re.finditer(r"(?:Standard|Input|Z-Matrix) orientation:\s*", text, re.I))
     tables: list[tuple[int, int, list[Atom], str]] = []
     for start in starts:
         cursor = start.end()
         # Gaussian orientation tables have two header separators before atoms.
-        separators = list(re.finditer(r"^\s*-{10,}\s*$", text[cursor:], re.M))
+        separators = _next_separators(text, cursor, 2)
         if len(separators) < 2:
             continue
-        atom_start = cursor + separators[1].end()
-        tail = text[atom_start:]
-        atom_end_match = re.search(r"^\s*-{10,}\s*$", tail, re.M)
-        if atom_end_match is None:
+        atom_start = separators[1][1]
+        atom_end_match = _next_separators(text, atom_start, 1)
+        if not atom_end_match:
             continue
-        atom_end = atom_start + atom_end_match.start()
+        atom_end = atom_end_match[0][0]
         atoms: list[Atom] = []
         for line in text[atom_start:atom_end].splitlines():
             parts = line.split()
@@ -886,6 +909,10 @@ def parse_force_frames(text: str, source: Path, seed: Record | None = None) -> l
     cms = list(_CM_RE.finditer(text))
     frames = []
     routes = _routes(text)
+    # Where each Link1 section ends, found once: per frame, the first at or
+    # after its force table (a per-frame forward search rescanned the section).
+    section_ends = [match.start() for match in _SECTION_END_RE.finditer(text)]
+    lowered_sections: dict[int, str] = {}
     for index, header in enumerate(_FORCE_HEADER_RE.finditer(text)):
         preceding_energy = [match for match in energies if match.end() < header.start()]
         if not preceding_energy:
@@ -901,11 +928,10 @@ def parse_force_frames(text: str, source: Path, seed: Record | None = None) -> l
         if not geometries:
             continue
         _, geometry_end, atoms, orientation = geometries[-1]
-        tail = text[header.end():]
-        separators = list(re.finditer(r"^\s*-{10,}\s*$", tail, re.M))
+        separators = _next_separators(text, header.end(), 2)
         if len(separators) < 2:
             continue
-        force_lines = tail[separators[0].end():separators[1].start()].strip().splitlines()
+        force_lines = text[separators[0][1]:separators[1][0]].strip().splitlines()
         if len(force_lines) != len(atoms):
             continue
         forces = []
@@ -943,7 +969,9 @@ def parse_force_frames(text: str, source: Path, seed: Record | None = None) -> l
             record.metadata.pop(key, None)
         section_index = next((j for j, item in enumerate(cms) if item is cm), -1)
         section_end = cms[section_index+1].start() if section_index+1 < len(cms) else len(text)
-        section = text[cm.start() if cm else 0:section_end].lower()
+        if section_index not in lowered_sections:
+            lowered_sections[section_index] = text[cm.start() if cm else 0:section_end].lower()
+        section = lowered_sections[section_index]
         route_item = _last_before(routes, energy.start())
         # This frame's own SCF, between its geometry and its force table. With
         # IOP(5/13=1) Gaussian prints "Convergence criterion not met", keeps the
@@ -973,8 +1001,9 @@ def parse_force_frames(text: str, source: Path, seed: Record | None = None) -> l
             [match.start() for match in (
                 next((m for m in energies if m.start() > header.end()), None),
                 next((m for m in cms if m.start() > header.end()), None),
-                _SECTION_END_RE.search(text, header.end()),
-            ) if match is not None] or [len(text)]
+            ) if match is not None]
+            + section_ends[bisect.bisect_left(section_ends, header.end()):][:1]
+            or [len(text)]
         )
         record.metadata.update(_frame_local_spins(
             text, tables, atoms, orientation,
