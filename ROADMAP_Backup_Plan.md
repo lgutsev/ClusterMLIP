@@ -193,6 +193,10 @@ These links are inherited research leads, not independently verified citations f
 - Constrained magnetic/magnetic-force lead: https://doi.org/10.1016/j.commatsci.2024.113331
 - MagNet lead: https://doi.org/10.1007/s44214-024-00055-3
 
+## Workflow validation
+
+- **Structural verification (2026-10-13).** Alampara, Miret & Jablonka, "Less can be more for predicting properties with large language models", *Nat. Comput. Sci.* (2026), https://doi.org/10.1038/s43588-026-01045-2. Scope as read: fine-tuned text LLMs (BERT, Llama-2 7–70B) on text-encoded crystals learn element/category information but barely use coordinates ("geometric blindness"); GNNs show the opposite, and scaling data or model size does not close the gap. Use here: any structural interpretation (contacts, coordination, sites, rearrangement) must cite computed numbers (`cluster-mlip geometry-check`, `docs/geometry-verification.md`), not coordinate listings read as text. Not applicable as an explanation of the Fe16 MACE force-learning failure; MACE is a geometric model, and the paper does not test MLIPs.
+
 ## Deliverables and stopping rule for any reopened diagnostic
 
 Work on an isolated experimental branch, preserving unrelated worktrees. Record reproducible commands, hashes, inventories, curves, a comparison table, runtime, seed variation, concrete prediction examples, verified literature and the smallest justified next action.
