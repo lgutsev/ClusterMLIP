@@ -12,7 +12,7 @@ from typing import Any
 
 from .gaussian import gaussian_job_complete, parse_final_force_frame
 from .route_audit import resolve_config_type
-from .routes import FINDINGS, inspect_job
+from .routes import FINDINGS, checkpoint_stages_with_coordinates, inspect_job
 from .spin import parse_spin_diagnostics
 
 STATES = ('complete', 'failed', 'incomplete', 'activity_unconfirmed', 'not_started', 'missing_input')
@@ -155,6 +155,12 @@ def write_batch_progress(campaign: Path, destination: Path | None = None, *,
                     issue(batch_name, name, 'error', errors[-1].strip() if errors else f'Worker failure: {status}; rc={rc}')
                 if re.search(r'Guess\s*=\s*\((?=[^)]*\bRead\b)(?=[^)]*\bAlways\b)[^)]*\)', input_text, re.I):
                     issue(batch_name, name, 'error', 'Contradictory Guess=(Read,Always); regenerate inputs')
+                # Gaussian takes a Geom=Checkpoint stage's structure from the
+                # checkpoint and reads leftover atom lines as the next section.
+                for stage in checkpoint_stages_with_coordinates(input_text):
+                    issue(batch_name, name, 'error',
+                          f'Link1 stage {stage} reads Geom=Checkpoint but still carries '
+                          'explicit coordinates; rebuild the restart')
                 nprocs = re.findall(r'^\s*%nprocshared\s*=\s*(\d+)', input_text, re.I | re.M)
                 cpus = plan.get('config', {}).get('cpus_per_job')
                 if cpus and any(int(n) != int(cpus) for n in nprocs):
