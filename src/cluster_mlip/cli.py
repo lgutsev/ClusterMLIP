@@ -37,6 +37,7 @@ from .progress import write_campaign_progress
 from .relaunch import prepare_route_relaunch
 from .restart import prepare_spin_restarts
 from .route_audit import audit_campaign_routes, resolve_config_type
+from .saddle_triage import RECOMMENDATIONS, triage_campaign_saddles
 from .routes import (
     FINDINGS,
     frame_label,
@@ -268,6 +269,28 @@ def command_audit_routes(args: argparse.Namespace) -> int:
         print(f"NOT AUDITED: {item['input']}: {item['reason']}", file=sys.stderr)
     print(f"Reports: {result['destination']}")
     return 2 if summary["must_relaunch"] else 0
+
+
+def command_triage_saddles(args: argparse.Namespace) -> int:
+    result = triage_campaign_saddles(
+        Path(args.campaign),
+        Path(args.output) if args.output else None,
+        include_converged=args.include_converged,
+    )
+    summary = result["summary"]
+    print(f"Saddle jobs started: {summary['saddles_started']} "
+          f"(not started: {summary['saddles_not_started']}); triaged: {summary['triaged']}")
+    if summary["by_termination"]:
+        print("How they ended: " + ", ".join(
+            f"{name}={count}" for name, count in
+            sorted(summary["by_termination"].items(), key=lambda item: -item[1])
+        ))
+    for name, count in sorted(summary["by_recommendation"].items(), key=lambda item: -item[1]):
+        print(f"  {count:5} {name}: {RECOMMENDATIONS[name]}")
+    for item in summary["unreadable"]:
+        print(f"NOT TRIAGED: {item['input']}: {item['reason']}", file=sys.stderr)
+    print(f"Reports: {result['destination'] / 'saddle_triage.csv'}")
+    return 0
 
 
 def command_relaunch_routes(args: argparse.Namespace) -> int:
@@ -1249,6 +1272,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="also audit superseded manifest rows from earlier restarts/relaunches",
     )
     audit_routes.set_defaults(func=command_audit_routes)
+
+    triage_saddles = sub.add_parser(
+        "triage-saddles",
+        help="read every started saddle (TS) job, classify how it ended and how close it "
+             "came to a first-order saddle, and recommend a rescue (read-only)",
+    )
+    triage_saddles.add_argument(
+        "campaign", help="prepared Gaussian campaign containing jobs.csv or spin_jobs.csv"
+    )
+    triage_saddles.add_argument(
+        "-o", "--output", help="report directory (default: CAMPAIGN/monitoring)"
+    )
+    triage_saddles.add_argument(
+        "--include-converged", action="store_true",
+        help="also list saddles that converged with the expected imaginary-mode count",
+    )
+    triage_saddles.set_defaults(func=command_triage_saddles)
 
     relaunch_routes = sub.add_parser(
         "relaunch-routes",
