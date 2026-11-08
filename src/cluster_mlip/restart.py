@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TypedDict
 
 from .io import write_text_lf
+from .routes import checkpoint_stages_with_coordinates, drop_molecule_coordinates
 from .spin import SPIN_MANIFEST_COLUMNS, SPIN_RESTART_COLUMNS, parse_spin_diagnostics
 
 
@@ -86,6 +87,18 @@ def _attempt_is_unconfirmed(batch: Path, stem: str) -> bool:
     )
 
 
+def _append_keyword(route: str, keyword: str) -> str:
+    """Add a keyword, keeping a trailing population request last.
+
+    Matches the layout the ladder generator writes for checkpoint stages
+    ("... Int=UltraFine Geom=Checkpoint Guess=Read Pop=Regular").
+    """
+    trailing = re.search(r"\s+(Pop(?:ulation)?\s*=\s*(?:\([^)]*\)|\S+))$", route, re.IGNORECASE)
+    if trailing:
+        return f"{route[:trailing.start()]} {keyword} {trailing.group(1)}"
+    return f"{route} {keyword}"
+
+
 def _rewrite_stage(section: str, *, oldchk: str, chk: str) -> str:
     if not _CHK_RE.search(section):
         raise ValueError("generated stage has no %chk directive")
@@ -102,13 +115,19 @@ def _rewrite_stage(section: str, *, oldchk: str, chk: str) -> str:
     if geom is not None:
         route = route[:geom.start()] + "Geom=Checkpoint" + route[geom.end():]
     else:
-        route += " Geom=Checkpoint"
+        route = _append_keyword(route, "Geom=Checkpoint")
     guess = re.search(r"\bGuess\s*=\s*(\([^)]*\)|[^\s]+)", route, re.IGNORECASE)
     if guess is not None:
         route = route[:guess.start()] + "Guess=Read" + route[guess.end():]
     else:
-        route += " Guess=Read"
-    section = section[:route_match.start()] + route + section[route_match.end():]
+        route = _append_keyword(route, "Guess=Read")
+    # Under Geom=Checkpoint the structure comes from the checkpoint; atom
+    # lines left in the molecule specification -- stage 0 is the one stage
+    # that has them -- would be read as the next input section (l101).
+    section = (
+        section[:route_match.start()] + route
+        + drop_molecule_coordinates(section[route_match.end():])
+    )
     return section.strip("\n")
 
 
@@ -380,7 +399,16 @@ def prepare_spin_restarts(
             new_rows.append(row)
             prior_checkpoint = checkpoint
             prior_job = job_id
-        new_text = "\n\n--Link1--\n".join(new_sections) + "\n"
+        # Every stage's molecule specification ends in a blank line, the last
+        # one included: strip("\n") in _rewrite_stage removes it, and Gaussian
+        # needs it to terminate the final charge/multiplicity section.
+        new_text = "\n\n--Link1--\n".join(new_sections) + "\n\n"
+        broken = checkpoint_stages_with_coordinates(new_text)
+        if broken:
+            raise RuntimeError(
+                f"{source_input}: restart stage(s) {broken} would read Geom=Checkpoint "
+                "while still carrying explicit coordinates"
+            )
         input_sha = hashlib.sha256(new_text.encode()).hexdigest()
         for row in new_rows:
             row["input_sha256"] = input_sha

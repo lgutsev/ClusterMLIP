@@ -410,6 +410,38 @@ def _has_coordinates(section: str) -> bool:
     return bool(_molecular_specification(section))
 
 
+def checkpoint_stages_with_coordinates(text: str) -> list[int]:
+    """Stages that read ``Geom=Checkpoint`` yet still carry atom lines.
+
+    Under ``Geom=Checkpoint`` Gaussian takes the structure from the checkpoint
+    and expects only the charge/multiplicity line before the terminating blank
+    line, so leftover atom lines are read as the *next* input section and the
+    job dies in l101 ("Atom specifications unexpectedly found in input
+    stream"). No generated input may contain such a stage.
+    """
+    return [
+        index for index, section in enumerate(_LINK1_SPLIT_RE.split(text))
+        if route_reads_checkpoint_geometry(stage_route(section)) and _has_coordinates(section)
+    ]
+
+
+def drop_molecule_coordinates(text: str) -> str:
+    """Keep only the charge/multiplicity line of a stage's molecule specification.
+
+    Everything after the terminating blank line -- a Gen basis block, say --
+    is kept, and so is everything before the charge/multiplicity line.
+    """
+    lines = text.split("\n")
+    for index, line in enumerate(lines):
+        if not _CHARGE_MULT_LINE_RE.fullmatch(line.rstrip("\r")):
+            continue
+        end = index + 1
+        while end < len(lines) and lines[end].strip():
+            end += 1
+        return "\n".join(lines[:index + 1] + lines[end:])
+    raise ValueError("stage has no charge/multiplicity line")
+
+
 def input_is_zmatrix(text: str) -> bool:
     """Whether the first stage's geometry is a Z-matrix rather than Cartesians.
 

@@ -6,7 +6,7 @@ repairs a wrong route; it does nothing for a TS search that ran out of steps,
 broke its internal coordinates, lost the SCF, or slid off the saddle into a
 minimum. This module reads every started saddle job, works out how it ended and
 where along its trajectory it came closest to a first-order saddle, and
-recommends one of three rescues:
+recommends a rescue:
 
 ``restart_best_frame``
     Restart Opt=(TS,CalcFC,NoEigenTest) from the frame with exactly one
@@ -28,6 +28,13 @@ recommends one of three rescues:
 ``scf_rescue``
     The SCF failed before any force was computed: an electronic-structure
     problem (guess, spin state), not a saddle-search problem.
+``regenerate_input``
+    Gaussian rejected the input file (l1/l101, e.g. atom lines left in a
+    Geom=Checkpoint restart stage) or could not read the checkpoint before
+    the first step: nothing was computed, so the fix is a correct input, not
+    a saddle rescue.
+``freq_check``
+    Converged, but the log has no frequency analysis to confirm the order.
 
 The Hessian information is Berny's own: each optimization step prints the
 eigenvalues of its current (updated) second-derivative matrix as
@@ -76,6 +83,7 @@ RECOMMENDATIONS = {
     "mlip_ts_guess": "TS guess on the MLIP surface (Sella/CI-NEB), verify with DFT",
     "scf_rescue": "fix the SCF (guess/spin state) before any saddle search",
     "freq_check": "converged without a frequency analysis; run Freq to confirm the order",
+    "regenerate_input": "never computed anything: the input or checkpoint was unusable; rebuild it",
     "none": "converged to the expected saddle order; nothing to rescue",
 }
 
@@ -86,6 +94,14 @@ _STEPS_EXCEEDED_RE = re.compile(
 )
 _SCF_FAILED_RE = re.compile(r"Convergence failure -- run terminated", re.I)
 _CLOSE_CONTACT_RE = re.compile(r"Small interatomic distances encountered", re.I)
+# Gaussian rejected the input file itself (l1/l101 read the route, title and
+# molecule specification), e.g. atom lines left in a Geom=Checkpoint stage.
+_INPUT_ERROR_RE = re.compile(
+    r"unexpectedly found in input stream|End of file in ZSymb|"
+    r"QPErr --- A syntax error was detected", re.I
+)
+# The checkpoint could not be read (missing, truncated, or from another job).
+_CHECKPOINT_ERROR_RE = re.compile(r"Error termination in NtrErr|Unable to open checkpoint", re.I)
 
 
 def _float(token: str) -> float | None:
@@ -126,6 +142,10 @@ def termination(text: str, state: str) -> tuple[str, str]:
     link = link_match.group(1) if link_match else ""
     if state == "complete":
         return "normal", link
+    if _INPUT_ERROR_RE.search(text) or link in ("l1", "l101"):
+        return "input_error", link
+    if _CHECKPOINT_ERROR_RE.search(text):
+        return "checkpoint_error", link
     if internal_coordinate_failure(text):
         return "internal_coordinate_failure", link
     if _SCF_FAILED_RE.search(text) or link == "l502":
@@ -202,7 +222,14 @@ def triage_output(text: str, source: Path, config_type: str, state: str,
     elif state == "complete" and final_imaginary is None:
         recommendation, reason = "freq_check", "converged, but no frequency analysis in the log"
     elif not frames:
-        if ending == "scf_failure":
+        if ending in ("input_error", "checkpoint_error"):
+            recommendation = "regenerate_input"
+            reason = (
+                "Gaussian rejected the input before the first step"
+                if ending == "input_error"
+                else "the checkpoint could not be read before the first step"
+            )
+        elif ending == "scf_failure":
             recommendation, reason = "scf_rescue", "SCF failed before the first force evaluation"
         else:
             recommendation, reason = "mlip_ts_guess", "no usable DFT frame to restart from"

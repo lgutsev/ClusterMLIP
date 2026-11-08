@@ -116,6 +116,20 @@ class RecommendationTests(unittest.TestCase):
             ' Error termination via Lnk1e in /g09/l502.exe\n'
         self.assertEqual(_triage(text)['recommendation'], 'scf_rescue')
 
+    def test_input_rejected_by_gaussian_is_regenerated_not_rescued(self):
+        text = ROUTE + ' Charge = 0 Multiplicity = 9\n' \
+            ' Atom specifications unexpectedly found in input stream.\n' \
+            ' Error termination via Lnk1e in /g09/l101.exe at Wed Sep 23 18:44:04 2026.\n'
+        verdict = _triage(text)
+        self.assertEqual((verdict['termination'], verdict['error_link']), ('input_error', 'l101'))
+        self.assertEqual(verdict['recommendation'], 'regenerate_input')
+
+    def test_unreadable_checkpoint_is_regenerated(self):
+        text = ROUTE + ' Wr Pntr         40448\n Error termination in NtrErr:\n'
+        verdict = _triage(text)
+        self.assertEqual(verdict['termination'], 'checkpoint_error')
+        self.assertEqual(verdict['recommendation'], 'regenerate_input')
+
     def test_converged_saddles(self):
         text = _log([(0.75, 0.0001, INDEX1)], ' Normal termination of Gaussian 09\n')
         self.assertEqual(_triage(text, 'complete', 1)['recommendation'], 'none')
