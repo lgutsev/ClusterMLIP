@@ -1,0 +1,6 @@
+{
+  "calculator": "toy",
+  "arms": ["random", "evolutionary"],
+  "seeds": [0],
+  "search": {"budget": 20, "population": 8, "fmax": 0.05, "max_steps": 200}
+}

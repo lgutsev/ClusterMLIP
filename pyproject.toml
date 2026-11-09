@@ -12,6 +12,9 @@ dependencies = []
 [project.optional-dependencies]
 # Geometric mapping for the optional, read-only local-spin label audit.
 audit = ["numpy>=1.23"]
+# Needed only for `cluster_mlip.adsorbate_search` (site finding, candidate building,
+# duplicate tests and the random/evolutionary adsorbate search).
+search = ["numpy>=1.23", "scipy>=1.10", "ase>=3.23"]
 # Needed only to *run* the scripts `cluster-mlip train` generates (and the
 # frozen `configs/*.sh` references), and for `cluster-mlip evaluate` /
 # `select-next-batch` (committee inference). `cluster-mlip train` itself only
