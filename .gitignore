@@ -28,3 +28,4 @@ slurm_batches/
 # OS archive metadata
 ._*
 .DS_Store
+.ipynb_checkpoints/

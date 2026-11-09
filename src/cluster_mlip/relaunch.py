@@ -47,7 +47,6 @@ from .routes import (
     geometry_source,
     input_is_zmatrix,
     route_optimizes,
-    route_uses_cartesian,
     stage_route,
 )
 
