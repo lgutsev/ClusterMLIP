@@ -1,6 +1,6 @@
 # NVIDIA ALCHEMI batch backend for the Fe16 CO/H pilot: feasibility
 
-Date: 2026-11-09. Branch `feat/alchemi-batch-backend` (stacked on `feat/acat-adsorbate-search`).
+Date: 2026-11-09, timings 2026-11-10. Branch `feat/alchemi-batch-backend` (stacked on `feat/acat-adsorbate-search`).
 Scope: an optional batch backend for the fixed-catalyst candidate screening of
 [acat_cluster_feasibility.md](acat_cluster_feasibility.md). No new campaign, no multi-GPU run, no distillation.
 
@@ -17,10 +17,8 @@ Reasons, all measured here:
   equal to native's own repeatability), in any batch size, order or company.
 - Reliable. 128 of 128 candidates reach a terminal status in every toolkit run; frozen atoms never move;
   a deliberately broken input fails alone; converged forces are confirmed by a native recompute.
-- Faster by far more than the 1.5× threshold. On the 128-candidate pool the toolkit took 109 s (fixed
-  batches of 16) and 66 s (inflight batching, 16 slots) against 2,983 s for native, measured on a GPU that
-  another job was using at the time. The absolute numbers are not clean; the direction is not in doubt (see
-  [Throughput](#throughput)).
+- Faster. On the 128-candidate pool, three repeats on an idle GPU: native 260 s, fixed batches of 16
+  41 s (6.4×), inflight batching with 64 slots 22 s (12×). The threshold was 1.5×.
 - Small to maintain: about 250 lines of adapter in `experiments/`, and one contract in the package.
 
 Limits that keep this from being more than optional:
@@ -132,36 +130,36 @@ converged. The adapter records each structure at the step it first converges.
 
 ## Throughput
 
-128 candidates, one run per configuration, float32, same model, same criterion. **The GPU was shared with
-another project's job the whole time (about 7.3 of 8 GB in use, 100 % utilisation).** Treat the times as
-indicative; the repeat requirement (3×) and a quiet-GPU run are not done.
+128 candidates, float32, same model, same criterion, three repeats each on an idle GPU (0 MiB in use and
+0 to 1 % utilisation logged before every configuration; 2026-11-10). Every run converged 128 of 128.
+Times are the relaxation loop; the first repeat of each process adds 3 to 22 s of model load and warm-up.
 
-| Backend | Run (s) | End to end (s) | Candidates / hour | Model calls | Peak VRAM (MB) | Slot use |
+| Backend | Run (s), 3 repeats | Median (s) | Candidates / hour | Speed-up vs native | Model calls | Peak VRAM (MB) |
 |---|---|---|---|---|---|---|
-| native (ASE BFGS) | 2,983 | 2,996 | 153 | 7,298 | 98 | – |
-| toolkit, batch 1 | 1,779 | 1,816 | 259 | 5,189 | 171 | 100 % |
-| toolkit, batch 4 | 701 | 713 | 657 | 1,920 | 285 | 68 % |
-| toolkit, batch 16 | 109 | 135 | 4,213 | 674 | 741 | 48 % |
-| toolkit, batch 64 | 215 / 190 (repeat) | 227 / 209 | 2,140 / 2,426 | 185 / 192 | 2,557 | 43 % |
-| toolkit, batch 128 | 1,700 | 1,722 | 271 | 109 | 4,900 | 37 % |
-| toolkit, inflight, 16 slots | 66 | 79 | 6,937 | 356 | 662 | 91 % |
-| toolkit, inflight, 64 slots | 139 | 149 | 3,318 | 156 | 2,480 | – |
+| native (ASE BFGS) | 238 / 260 / 276 | 260 | 1,770 | 1.0 | 7,160 | 98 |
+| toolkit, batch 1 | 317 / 305 / 177 | 305 | 1,510 | 0.85 | 5,127 | 98 |
+| toolkit, batch 4 | 69 / 62 / 60 | 62 | 7,380 | 4.2 | 1,887 | 209 |
+| toolkit, batch 16 | 41 / 40 / 45 | 41 | 11,350 | 6.4 | 634 | 665 |
+| toolkit, batch 64 | 42 / 44 / 40 | 42 | 10,920 | 6.2 | 180 | 2,480 |
+| toolkit, batch 128 | 36 / 51 / 48 | 48 | 9,580 | 5.4 | 110 | 4,979 |
+| toolkit, inflight, 16 slots | 29 / 30 / 24 | 29 | 15,840 | 8.9 | 357 | 664 |
+| toolkit, inflight, 64 slots | 21 / 22 / 24 | 22 | 21,240 | 12.0 | 124 | 2,480 |
 
 How to read it:
 
-- End to end includes model load, warm-up, conversion to and from ASE. Setup is 4 to 13 s in every case, so
-  cold and warm differ by seconds, not by a factor.
-- Batch 16 against native: 22× end to end. Earlier, on an idle GPU, native ran at about 0.066 s per call
-  instead of 0.41 s. Even granting native that idle speed and keeping the toolkit's contended time, the
-  ratio is about 4×. The 1.5× threshold is met either way.
-- Batch 4 slower than batch 16 by 6× and batch 128 at 1,700 s are contention artefacts (batch 128 needs
-  4.9 GB when under 1 GB was free). They say nothing about the toolkit.
-- Fixed batches waste half their slots on structures that have already finished. Inflight batching replaces
-  a finished structure at once: 356 batch steps instead of 674 for the same 16 slots.
-- L-BFGS needs fewer steps than ASE BFGS here (40.5 against 56.0 per candidate). That is an optimizer
-  gain, not a batching gain, and is 1.4× of the total.
+- The adoption threshold of 1.5× end to end is met from batch 4 upward. Including a cold start, inflight
+  with 64 slots takes 23 to 27 s against 241 to 276 s for native: about 10×.
+- Batch 1 is no faster than native. The gain comes from batching, not from the toolkit as such.
+- Fixed batches stop paying beyond 16: they keep stepping structures that have already finished (slot use
+  48 % at batch 16, 43 % at 64, 37 % at 128). Inflight batching replaces a finished structure at once, so
+  it keeps improving with slots.
+- L-BFGS needs fewer steps than ASE BFGS here (about 40 against 56 per candidate). That part of the gain,
+  1.4×, is the optimizer, not batching.
+- Run-to-run spread is about ±10 %, except batch 1 (177 to 317 s).
+- An earlier single run, taken while another job held 7.3 of 8 GB of the card, is kept in
+  `report/bench128_log.txt`. Its ratios were inflated (native suffers most from sharing) and it is superseded.
 
-Sensible setting on this card: 16 slots, inflight. Larger batches bought nothing here.
+Sensible setting on this card: inflight, 64 slots (2.5 GB).
 
 ## Integration with the search
 
@@ -185,7 +183,6 @@ Sensible setting on this card: 16 slots, inflight. Larger batches bought nothing
 | Windows: no Triton, no cuEquivariance, checkpoint path bug | toolkit runs in its slow path here | check on Linux (QB4) before quoting numbers |
 | mace-torch pin 0.3.15 vs 0.3.16 | none seen | keep watching |
 | Float32 relaxations not repeatable | minima differ run to run on both backends | float64 for final ranking, or accept and deduplicate |
-| Timings contended, single run | absolute throughput unknown | rerun 3× on a quiet GPU |
 | Free-catalyst relaxation (Stage B) | not exercised | small |
 
 ## Conditional notes
@@ -209,5 +206,5 @@ Sensible setting on this card: 16 slots, inflight. Larger batches bought nothing
 
 ## Next action
 
-Rerun the timed benchmark three times on a quiet GPU (about 15 minutes), then repeat the parity and one
-benchmark row on a Linux node. Nothing else is needed to use the backend for random-arm screening today.
+Repeat the parity check and one benchmark row on a Linux node. Nothing else is needed to use the backend
+for random-arm screening today.
