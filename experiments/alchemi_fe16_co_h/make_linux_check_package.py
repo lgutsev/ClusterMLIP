@@ -1,17 +1,26 @@
 """Write the dispatch package for the Linux check of the batch backend.
 
-    python make_linux_check_package.py DATA_DIR MODEL OUT_DIR [--number 100]
+    python make_linux_check_package.py DATA_DIR MODEL OUT_DIR --date YYYY-MM-DD [--number 111]
 
 DATA_DIR holds pool/pool128.extxyz and pool/fixture12.extxyz (from build_pool.py). The
-package is self-contained: it carries the code it runs (``kit/``), the frozen pool, the
-fixture and the model, and needs no installed ClusterMLIP. One GPU job, no Gaussian.
+package carries the code it runs (``kit/``), the frozen pool and the fixture, and needs
+no installed ClusterMLIP. One GPU job, no Gaussian.
+
+Desk rules folded in after intake as package 111 (2026-11-10):
+* no model binary in a package or in Git: the job reads the master copy on LONI and
+  checks its sha256 before running (MODEL here is only used to confirm the hash);
+* no environment inside the package and none built on a login node: setup_env.sh is a
+  GPU batch job that builds ``/project/lgutsev/env/alchemi_check`` from Miniforge
+  Python 3.12 (``ALCHEMI_ENV`` overrides the location);
+* partition gpu2 with ``--gres=gpu:1`` is correct on QB4.
+The desk's own copies of setup_env.sh and run_check.slurm in package 111 are the ones
+that ran; the templates below follow the same rules.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -20,22 +29,32 @@ REPO = HERE.parents[1]
 SCRIPTS = ["alchemi_backend.py", "alchemi_evaluator.py", "parity_single_point.py", "relax_bench.py", "inflight_bench.py",
            "compare_backends.py", "inflight_compare.py", "constraints.txt"]
 MODEL_SHA = "75428afe"  # MACE-MPA-0 medium, as used by the pilot
+MODEL_MASTER = "/ddnB/project/ramu/lgutsev/MLIP_PROJECT_STORAGE/MLIP_Foundational_Models/mace/mace-mpa-0-medium.model"
+ENV_DEFAULT = "/project/lgutsev/env/alchemi_check"
 
 SETUP = r"""#!/bin/bash
-# Run ONCE on a login node (needs internet). Builds the Python environment in ./env.
-# No conda env is modified; nothing is written outside this package directory.
+#SBATCH --job-name=alchemi-env
+#SBATCH --account=loni_perovsk27
+#SBATCH --partition=gpu2
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --gres=gpu:1
+#SBATCH --time=01:00:00
+#SBATCH --output=logs/%x_%j.out
+# Builds the Python environment OUTSIDE the package (desk rule: no venv in /work, none on a login node).
+# Run as a batch job: sbatch setup_env.sh. Miniforge Python 3.12 is expected on PATH as `mamba`/`conda`.
 set -eo pipefail
-cd "$(dirname "$0")"
-PY=${PYTHON:-python3}
-"$PY" -c 'import sys; assert (3, 11) <= sys.version_info[:2] <= (3, 13), sys.version' \
-  || { echo "need Python 3.11-3.13: set PYTHON=/path/to/python"; exit 1; }
-"$PY" -m venv env
-env/bin/python -m pip install --upgrade pip
-env/bin/python -m pip install torch==2.11.0 mace-torch==0.3.16 nvalchemi-toolkit==0.3.0 ase==3.29.0 scipy
+[ -n "${SLURM_JOB_ID:-}" ] || { echo "run inside an allocation: sbatch setup_env.sh"; exit 1; }
+cd "${SLURM_SUBMIT_DIR:?submit from the package directory}"
+ENV=${ALCHEMI_ENV:-__ENV__}
 mkdir -p outputs
-env/bin/python -m pip freeze > outputs/pip_freeze.txt
-env/bin/python -c 'import torch, nvalchemi, mace; print("torch", torch.__version__, "cuda build", torch.version.cuda)' \
-  | tee outputs/setup_ok.txt
+curl -sSfI https://pypi.org/simple/pip/ > /dev/null || { echo "PyPI not reachable from this node"; exit 1; }
+CONDA=$(command -v mamba || command -v conda) || { echo "no mamba/conda on PATH"; exit 1; }
+[ -x "$ENV/bin/python" ] || "$CONDA" create -y -p "$ENV" --override-channels -c conda-forge python=3.12 pip
+"$ENV/bin/python" -m pip install torch==2.11.0 mace-torch==0.3.16 nvalchemi-toolkit==0.3.0 ase==3.29.0 scipy
+"$ENV/bin/python" -m pip freeze > outputs/pip_freeze.txt
+"$ENV/bin/python" -c 'import torch, nvalchemi, mace; ok = torch.cuda.is_available(); print("torch", torch.__version__, "cuda build", torch.version.cuda, "cuda ok", ok); raise SystemExit(0 if ok else 1)' | tee outputs/setup_ok.txt
 """
 
 SLURM = r"""#!/bin/bash
@@ -49,16 +68,18 @@ SLURM = r"""#!/bin/bash
 #SBATCH --time=02:00:00
 #SBATCH --output=logs/%x_%j.out
 # Written by ClusterMLIP experiments/alchemi_fe16_co_h/make_linux_check_package.py.
-# One GPU, one job. Partition and gres are ClusterMLIP's guess: the desk sets what QB4 needs.
-# Run setup_env.sh on a login node first. Nothing here needs the network.
+# One GPU, one job. gpu2 with gres=gpu:1 is what the desk uses on QB4 (A100 80 GB).
+# Run `sbatch setup_env.sh` first and wait for outputs/setup_ok.txt ("cuda ok True"). Nothing here needs the network.
 set -eo pipefail
 cd "${SLURM_SUBMIT_DIR:?submit from the package directory}"
 PKG=$PWD
-PY=$PKG/env/bin/python
+PY=${ALCHEMI_ENV:-__ENV__}/bin/python
 K=$PKG/kit/experiments/alchemi_fe16_co_h
 POOL=$PKG/data/pool128.extxyz
 FIX=$PKG/data/fixture12.extxyz
-MODEL=$PKG/model/mace-mpa-0-medium.model
+MODEL=${ALCHEMI_MODEL:-__MODEL__}
+# desk rule: models are not copied into packages; use the master copy and check it is the pilot's model
+case "$(sha256sum "$MODEL" | cut -c1-8)" in __SHA__) ;; *) echo "model sha256 mismatch: $MODEL"; exit 1 ;; esac
 OUT=$PKG/outputs
 mkdir -p "$OUT"
 start=$(date +%s)
@@ -115,10 +136,9 @@ measurements on a LONI GPU node.
 
 ## Steps
 
-1. Login node, once (needs internet, about 6 GB in `./env`): `bash setup_env.sh`
-   - needs Python 3.11 to 3.13; set `PYTHON=/path/to/python` if `python3` is something else.
-2. `sbatch run_check.slurm` from this directory.
-   - `--partition={partition}` and `--gres=gpu:1` are ClusterMLIP's guess. Set whatever QB4 needs for one GPU.
+1. Once: `sbatch setup_env.sh`. It builds `{env}` (outside the package; `ALCHEMI_ENV` overrides) from
+   Miniforge Python 3.12, needs PyPI, and ends with `outputs/setup_ok.txt` saying `cuda ok True`.
+2. `sbatch run_check.slurm` from this directory (`--partition={partition}`, `--gres=gpu:1`).
 
 ## What it runs
 
@@ -146,7 +166,7 @@ Do not resubmit with changes without asking.
 |---|---|
 | `kit/` | the code that runs: `src/cluster_mlip` and the two experiment folders, from commit `{commit}` |
 | `data/pool128.extxyz`, `data/fixture12.extxyz` | frozen candidate pool and parity fixture |
-| `model/mace-mpa-0-medium.model` | MACE-MPA-0 medium, sha256 `{model_sha}…` ({model_mb} MB) |
+| model | not in the package: `{model_master}` (MACE-MPA-0 medium, sha256 `{model_sha}…`, checked by the job) |
 | `setup_env.sh`, `run_check.slurm` | environment and job |
 | `package.json` | SHA-256 of every file |
 
@@ -173,7 +193,7 @@ def main() -> None:
     ap.add_argument("data", type=Path)
     ap.add_argument("model", type=Path)
     ap.add_argument("out", type=Path)
-    ap.add_argument("--number", type=int, default=100)
+    ap.add_argument("--number", type=int, default=111)
     ap.add_argument("--partition", default="gpu2")
     ap.add_argument("--date", required=True)
     args = ap.parse_args()
@@ -199,19 +219,19 @@ def main() -> None:
         copy_lf(HERE / s, pkg / "kit" / "experiments" / "alchemi_fe16_co_h" / s)
     for f in ("pool128.extxyz", "fixture12.extxyz"):
         copy_lf(args.data / "pool" / f, pkg / "data" / f)
-    (pkg / "model").mkdir()
-    shutil.copyfile(args.model, pkg / "model" / "mace-mpa-0-medium.model")
-    write_lf(pkg / "setup_env.sh", SETUP)
-    write_lf(pkg / "run_check.slurm", SLURM.replace("__PARTITION__", args.partition))
+    write_lf(pkg / "setup_env.sh", SETUP.replace("__ENV__", ENV_DEFAULT))
+    write_lf(pkg / "run_check.slurm", SLURM.replace("__PARTITION__", args.partition).replace("__ENV__", ENV_DEFAULT)
+             .replace("__MODEL__", MODEL_MASTER).replace("__SHA__", MODEL_SHA))
     write_lf(pkg / "logs" / "README.txt", "Slurm logs land here.\n")
-    write_lf(pkg / ".gitignore", "env/\noutputs/\nlogs/*.out\n")
+    write_lf(pkg / ".gitignore", "outputs/\nlogs/*.out\n")
     write_lf(pkg / "README.md", README.format(name=name, date=args.date, commit=commit, partition=args.partition,
-                                              model_sha=MODEL_SHA, model_mb=round(args.model.stat().st_size / 2**20)))
+                                              model_sha=MODEL_SHA, model_master=MODEL_MASTER, env=ENV_DEFAULT))
     files = sorted(p for p in pkg.rglob("*") if p.is_file())
     meta = {"package": name, "owner": "ClusterMLIP", "generator": "experiments/alchemi_fe16_co_h/make_linux_check_package.py",
             "commit": commit, "branch": branch, "uncommitted_changes_in_src_or_experiments": bool(dirty),
-            "cluster": "LONI QB4", "partition": args.partition, "partition_verified": False, "gpus": 1,
-            "cpus_per_task": 8, "time_hours": 2, "gaussian": None, "needs_network": "setup_env.sh only (login node)",
+            "cluster": "LONI QB4", "partition": args.partition, "partition_verified": True, "gpus": 1,
+            "model_master": MODEL_MASTER, "model_sha256_prefix": MODEL_SHA, "environment": ENV_DEFAULT,
+            "cpus_per_task": 8, "time_hours": 2, "gaussian": None, "needs_network": "setup_env.sh only (batch job)",
             "sha256": {p.relative_to(pkg).as_posix(): sha(p) for p in files}}
     write_lf(pkg / "package.json", json.dumps(meta, indent=1) + "\n")
     print(pkg, len(files) + 1, "files", "dirty" if dirty else "clean", commit)
