@@ -114,7 +114,7 @@ def main() -> None:
     ap.add_argument("draft", type=Path)
     ap.add_argument("template", type=Path)
     ap.add_argument("out", type=Path)
-    ap.add_argument("--number", type=int, default=101)
+    ap.add_argument("--number", type=int, default=112)
     ap.add_argument("--date", required=True)
     args = ap.parse_args()
     pkg = args.out / f"{args.number}_{NAME}"
@@ -166,6 +166,13 @@ def main() -> None:
     files["run_gaussian.slurm"] = head.encode("utf-8")
     for small in (".gitignore", "export.list", "logs/README.txt"):
         files[small] = (args.template / small).read_bytes()
+    # desk change at intake as package 112: the watchdog's stderr (Slurm logs) comes back with the outputs
+    export = files["export.list"].decode("utf-8").replace("
+", "
+").splitlines()
+    files["export.list"] = ("
+".join(export + [line for line in ["logs/*"] if line not in export]) + "
+").encode("utf-8")
     su = len(PICKS) * CORES * HOURS
     files["README.md"] = README.format(number=args.number, name=NAME, date=args.date, commit=commit, branch=branch,
                                        rows="\n".join(rows), cores=CORES, mem=MEM, hours=HOURS,
