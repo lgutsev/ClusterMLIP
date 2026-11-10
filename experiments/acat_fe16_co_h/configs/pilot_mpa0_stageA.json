@@ -1,0 +1,8 @@
+{
+  "calculator": "mace:~/.cache/mace/mace-mpa-0-medium.model",
+  "device": "cuda",
+  "dtype": "float32",
+  "arms": ["random", "evolutionary"],
+  "seeds": [0, 1, 2],
+  "search": {"budget": 200, "population": 20, "fmax": 0.05, "max_steps": 200, "free_catalyst": false}
+}

@@ -1,0 +1,454 @@
+{
+  "roles_in_seeds": {
+    "Fe16": {
+      "first_order_saddle": 2,
+      "irc_forward": 274,
+      "irc_reverse": 73,
+      "optimized_unverified": 668,
+      "transition_state": 106,
+      "unknown": 25
+    },
+    "H2Fe4": {
+      "first_order_saddle": 1,
+      "irc_forward": 120,
+      "irc_reverse": 164,
+      "minimum": 17,
+      "optimized_unverified": 349,
+      "transition_state": 97,
+      "unknown": 14
+    },
+    "CFe2O": {
+      "irc_forward": 22,
+      "irc_reverse": 35,
+      "minimum": 9,
+      "optimized_unverified": 128,
+      "transition_state": 57,
+      "unknown": 9
+    },
+    "H2Fe2": {
+      "irc_forward": 86,
+      "irc_reverse": 85,
+      "minimum": 5,
+      "optimized_unverified": 81,
+      "transition_state": 142,
+      "unknown": 5
+    },
+    "CFe4O": {
+      "minimum": 4,
+      "optimized_unverified": 38,
+      "unknown": 4
+    },
+    "CO": {
+      "minimum": 1,
+      "optimized_unverified": 3
+    },
+    "H2": {
+      "minimum": 2,
+      "optimized_unverified": 9
+    }
+  },
+  "roles_used": "minimum,optimized_unverified",
+  "method_tokens_used": {
+    "CFe2O": {
+      "UBPW91/chkbas": 9,
+      "UBPW91/6-311++G*": 128
+    },
+    "CFe4O": {
+      "UBPW91/chkbas": 4,
+      "UBPW91/6-311++G*": 38
+    },
+    "CO": {
+      "UBPW91/chkbas": 1,
+      "UBPW91/6-311++G*": 3
+    },
+    "H2Fe2": {
+      "UBPW91/chkbas": 5,
+      "UBPW91/6-311++G*": 81
+    },
+    "H2Fe4": {
+      "UBPW91/chkbas": 17,
+      "UBPW91/6-311++G*": 349
+    },
+    "H2": {
+      "Geom=AllCheck": 1,
+      "UBPW91/chkbas": 1,
+      "UBPW91/6-311++G*": 9
+    },
+    "Fe16": {
+      "UBPW91/6-311++G*": 668
+    }
+  },
+  "spin_spread_same_geometry": {
+    "CFe2O": {
+      "geometries_with_several_M": 6,
+      "median_spread_ev": 0.6062714542931644,
+      "max_spread_ev": 1.6065822851960547
+    },
+    "CFe4O": {
+      "geometries_with_several_M": 1,
+      "median_spread_ev": 0.7847148815635592,
+      "max_spread_ev": 0.7847148815635592
+    },
+    "CO": {
+      "geometries_with_several_M": 0,
+      "median_spread_ev": null,
+      "max_spread_ev": null
+    },
+    "H2Fe2": {
+      "geometries_with_several_M": 4,
+      "median_spread_ev": 0.7635093204153236,
+      "max_spread_ev": 0.8845455664413748
+    },
+    "H2Fe4": {
+      "geometries_with_several_M": 8,
+      "median_spread_ev": 0.12130305366008542,
+      "max_spread_ev": 0.9195032180286944
+    },
+    "H2": {
+      "geometries_with_several_M": 0,
+      "median_spread_ev": null,
+      "max_spread_ev": null
+    },
+    "Fe16": {
+      "geometries_with_several_M": 12,
+      "median_spread_ev": 0.22027481108671054,
+      "max_spread_ev": 0.6087105468614027
+    }
+  },
+  "models": {
+    "mpa0": {
+      "path": "~/.cache/mace/mace-mpa-0-medium.model",
+      "per_formula": {
+        "CFe2O": {
+          "distinct_geometries": 85,
+          "rel_energy_mae_ev": 0.307444559148123,
+          "rel_energy_max_err_ev": 1.2427563137762263,
+          "ref_range_ev": 1.9293944976961939,
+          "pairs_ordered": 1829,
+          "pairs_total": 3138,
+          "pair_order_accuracy": 0.582855321861058,
+          "near_degenerate_pairs_ordered": 707,
+          "near_degenerate_pairs_total": 1182,
+          "model_minimum_is_ref_minimum": true,
+          "ref_rank_of_model_minimum": 1,
+          "same_M_pairs_ordered": 491,
+          "same_M_pairs_total": 698,
+          "same_M_pair_order_accuracy": 0.7034383954154728,
+          "same_M_rel_energy_mae_ev": 0.10603738793706634,
+          "multiplicities": [
+            1,
+            3,
+            5,
+            7,
+            9
+          ]
+        },
+        "CFe4O": {
+          "distinct_geometries": 25,
+          "rel_energy_mae_ev": 2.7742630451642767,
+          "rel_energy_max_err_ev": 3.3817302059535876,
+          "ref_range_ev": 1.0706975712964777,
+          "pairs_ordered": 61,
+          "pairs_total": 210,
+          "pair_order_accuracy": 0.2904761904761905,
+          "near_degenerate_pairs_ordered": 8,
+          "near_degenerate_pairs_total": 8,
+          "model_minimum_is_ref_minimum": true,
+          "ref_rank_of_model_minimum": 1,
+          "same_M_pairs_ordered": 31,
+          "same_M_pairs_total": 52,
+          "same_M_pair_order_accuracy": 0.5961538461538461,
+          "same_M_rel_energy_mae_ev": 0.8332378543671123,
+          "multiplicities": [
+            11,
+            13,
+            15
+          ]
+        },
+        "CO": {
+          "distinct_geometries": 2,
+          "rel_energy_mae_ev": 0.00818239479320404,
+          "rel_energy_max_err_ev": 0.01636478958640808,
+          "ref_range_ev": 0.38397891891827385,
+          "pairs_ordered": 1,
+          "pairs_total": 1,
+          "pair_order_accuracy": 1.0,
+          "near_degenerate_pairs_ordered": 1,
+          "near_degenerate_pairs_total": 1,
+          "model_minimum_is_ref_minimum": true,
+          "ref_rank_of_model_minimum": 1,
+          "same_M_pairs_ordered": 1,
+          "same_M_pairs_total": 1,
+          "same_M_pair_order_accuracy": 1.0,
+          "same_M_rel_energy_mae_ev": 0.00818239479320404,
+          "multiplicities": [
+            1
+          ]
+        },
+        "H2Fe2": {
+          "distinct_geometries": 55,
+          "rel_energy_mae_ev": 0.8707906078304414,
+          "rel_energy_max_err_ev": 1.5277861950999192,
+          "ref_range_ev": 2.181251387883094,
+          "pairs_ordered": 899,
+          "pairs_total": 1353,
+          "pair_order_accuracy": 0.6644493717664449,
+          "near_degenerate_pairs_ordered": 2,
+          "near_degenerate_pairs_total": 2,
+          "model_minimum_is_ref_minimum": false,
+          "ref_rank_of_model_minimum": 35,
+          "same_M_pairs_ordered": 335,
+          "same_M_pairs_total": 400,
+          "same_M_pair_order_accuracy": 0.8375,
+          "same_M_rel_energy_mae_ev": 0.127167587273021,
+          "multiplicities": [
+            1,
+            3,
+            5,
+            7,
+            9
+          ]
+        },
+        "H2Fe4": {
+          "distinct_geometries": 269,
+          "rel_energy_mae_ev": 0.8875913544467718,
+          "rel_energy_max_err_ev": 1.6276166079202916,
+          "ref_range_ev": 1.9485673683520872,
+          "pairs_ordered": 17292,
+          "pairs_total": 30813,
+          "pair_order_accuracy": 0.5611917047999221,
+          "near_degenerate_pairs_ordered": 306,
+          "near_degenerate_pairs_total": 414,
+          "model_minimum_is_ref_minimum": false,
+          "ref_rank_of_model_minimum": 3,
+          "same_M_pairs_ordered": 1446,
+          "same_M_pairs_total": 2365,
+          "same_M_pair_order_accuracy": 0.6114164904862579,
+          "same_M_rel_energy_mae_ev": 0.14785678568646407,
+          "multiplicities": [
+            1,
+            3,
+            5,
+            7,
+            9,
+            11,
+            13,
+            15,
+            17
+          ]
+        },
+        "H2": {
+          "distinct_geometries": 6,
+          "rel_energy_mae_ev": 0.3815477649658235,
+          "rel_energy_max_err_ev": 0.9538592155307142,
+          "ref_range_ev": 2.900206134158452,
+          "pairs_ordered": 14,
+          "pairs_total": 14,
+          "pair_order_accuracy": 1.0,
+          "near_degenerate_pairs_ordered": 3,
+          "near_degenerate_pairs_total": 3,
+          "model_minimum_is_ref_minimum": true,
+          "ref_rank_of_model_minimum": 1,
+          "same_M_pairs_ordered": 14,
+          "same_M_pairs_total": 14,
+          "same_M_pair_order_accuracy": 1.0,
+          "same_M_rel_energy_mae_ev": 0.3815477649658235,
+          "multiplicities": [
+            1
+          ]
+        },
+        "Fe16": {
+          "distinct_geometries": 631,
+          "rel_energy_mae_ev": 0.8699833952475774,
+          "rel_energy_max_err_ev": 2.5613553647793026,
+          "ref_range_ev": 3.170831272494979,
+          "pairs_ordered": 96498,
+          "pairs_total": 185638,
+          "pair_order_accuracy": 0.5198181406824034,
+          "near_degenerate_pairs_ordered": 9992,
+          "near_degenerate_pairs_total": 11305,
+          "model_minimum_is_ref_minimum": false,
+          "ref_rank_of_model_minimum": 539,
+          "same_M_pairs_ordered": 26784,
+          "same_M_pairs_total": 49400,
+          "same_M_pair_order_accuracy": 0.5421862348178138,
+          "same_M_rel_energy_mae_ev": 0.6168559882925673,
+          "multiplicities": [
+            47,
+            49,
+            51,
+            53
+          ]
+        }
+      },
+      "adsorption_energy": {}
+    },
+    "matpes_r2scan": {
+      "path": "~/.cache/mace/MACE-matpes-r2scan-omat-ft.model",
+      "per_formula": {
+        "CFe2O": {
+          "distinct_geometries": 85,
+          "rel_energy_mae_ev": 0.7199720419123313,
+          "rel_energy_max_err_ev": 1.8033179361589262,
+          "ref_range_ev": 1.9293944976961939,
+          "pairs_ordered": 1368,
+          "pairs_total": 3138,
+          "pair_order_accuracy": 0.4359464627151052,
+          "near_degenerate_pairs_ordered": 643,
+          "near_degenerate_pairs_total": 1182,
+          "model_minimum_is_ref_minimum": false,
+          "ref_rank_of_model_minimum": 78,
+          "same_M_pairs_ordered": 459,
+          "same_M_pairs_total": 698,
+          "same_M_pair_order_accuracy": 0.6575931232091691,
+          "same_M_rel_energy_mae_ev": 0.31123069709313544,
+          "multiplicities": [
+            1,
+            3,
+            5,
+            7,
+            9
+          ]
+        },
+        "CFe4O": {
+          "distinct_geometries": 25,
+          "rel_energy_mae_ev": 0.4546585941409825,
+          "rel_energy_max_err_ev": 0.883744670702157,
+          "ref_range_ev": 1.0706975712964777,
+          "pairs_ordered": 60,
+          "pairs_total": 210,
+          "pair_order_accuracy": 0.2857142857142857,
+          "near_degenerate_pairs_ordered": 8,
+          "near_degenerate_pairs_total": 8,
+          "model_minimum_is_ref_minimum": true,
+          "ref_rank_of_model_minimum": 1,
+          "same_M_pairs_ordered": 30,
+          "same_M_pairs_total": 52,
+          "same_M_pair_order_accuracy": 0.5769230769230769,
+          "same_M_rel_energy_mae_ev": 0.23178834741723847,
+          "multiplicities": [
+            11,
+            13,
+            15
+          ]
+        },
+        "CO": {
+          "distinct_geometries": 2,
+          "rel_energy_mae_ev": 0.13489171714156,
+          "rel_energy_max_err_ev": 0.26978343428312,
+          "ref_range_ev": 0.38397891891827385,
+          "pairs_ordered": 1,
+          "pairs_total": 1,
+          "pair_order_accuracy": 1.0,
+          "near_degenerate_pairs_ordered": 1,
+          "near_degenerate_pairs_total": 1,
+          "model_minimum_is_ref_minimum": true,
+          "ref_rank_of_model_minimum": 1,
+          "same_M_pairs_ordered": 1,
+          "same_M_pairs_total": 1,
+          "same_M_pair_order_accuracy": 1.0,
+          "same_M_rel_energy_mae_ev": 0.13489171714156,
+          "multiplicities": [
+            1
+          ]
+        },
+        "H2Fe2": {
+          "distinct_geometries": 55,
+          "rel_energy_mae_ev": 0.8805035916001168,
+          "rel_energy_max_err_ev": 1.5896276441956587,
+          "ref_range_ev": 2.181251387883094,
+          "pairs_ordered": 643,
+          "pairs_total": 1353,
+          "pair_order_accuracy": 0.475240206947524,
+          "near_degenerate_pairs_ordered": 2,
+          "near_degenerate_pairs_total": 2,
+          "model_minimum_is_ref_minimum": false,
+          "ref_rank_of_model_minimum": 43,
+          "same_M_pairs_ordered": 167,
+          "same_M_pairs_total": 400,
+          "same_M_pair_order_accuracy": 0.4175,
+          "same_M_rel_energy_mae_ev": 0.331357999755432,
+          "multiplicities": [
+            1,
+            3,
+            5,
+            7,
+            9
+          ]
+        },
+        "H2Fe4": {
+          "distinct_geometries": 269,
+          "rel_energy_mae_ev": 0.8180809009592047,
+          "rel_energy_max_err_ev": 1.6110444863985762,
+          "ref_range_ev": 1.9485673683520872,
+          "pairs_ordered": 17107,
+          "pairs_total": 30813,
+          "pair_order_accuracy": 0.5551877454321228,
+          "near_degenerate_pairs_ordered": 291,
+          "near_degenerate_pairs_total": 414,
+          "model_minimum_is_ref_minimum": false,
+          "ref_rank_of_model_minimum": 65,
+          "same_M_pairs_ordered": 1489,
+          "same_M_pairs_total": 2365,
+          "same_M_pair_order_accuracy": 0.6295983086680761,
+          "same_M_rel_energy_mae_ev": 0.25850102797195557,
+          "multiplicities": [
+            1,
+            3,
+            5,
+            7,
+            9,
+            11,
+            13,
+            15,
+            17
+          ]
+        },
+        "H2": {
+          "distinct_geometries": 6,
+          "rel_energy_mae_ev": 0.1006660221281741,
+          "rel_energy_max_err_ev": 0.261677877010821,
+          "ref_range_ev": 2.900206134158452,
+          "pairs_ordered": 14,
+          "pairs_total": 14,
+          "pair_order_accuracy": 1.0,
+          "near_degenerate_pairs_ordered": 3,
+          "near_degenerate_pairs_total": 3,
+          "model_minimum_is_ref_minimum": true,
+          "ref_rank_of_model_minimum": 1,
+          "same_M_pairs_ordered": 14,
+          "same_M_pairs_total": 14,
+          "same_M_pair_order_accuracy": 1.0,
+          "same_M_rel_energy_mae_ev": 0.1006660221281741,
+          "multiplicities": [
+            1
+          ]
+        },
+        "Fe16": {
+          "distinct_geometries": 631,
+          "rel_energy_mae_ev": 0.272047953544013,
+          "rel_energy_max_err_ev": 0.9310581105367532,
+          "ref_range_ev": 3.170831272494979,
+          "pairs_ordered": 163439,
+          "pairs_total": 185638,
+          "pair_order_accuracy": 0.880417802389597,
+          "near_degenerate_pairs_ordered": 10085,
+          "near_degenerate_pairs_total": 11305,
+          "model_minimum_is_ref_minimum": false,
+          "ref_rank_of_model_minimum": 34,
+          "same_M_pairs_ordered": 47425,
+          "same_M_pairs_total": 49400,
+          "same_M_pair_order_accuracy": 0.9600202429149798,
+          "same_M_rel_energy_mae_ev": 0.32559059438624627,
+          "multiplicities": [
+            47,
+            49,
+            51,
+            53
+          ]
+        }
+      },
+      "adsorption_energy": {}
+    }
+  }
+}

@@ -1,0 +1,226 @@
+<title>Fe16 CO/H Search Pilot</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column (max 1040px); verdict strip first, then evidence in the order a reviewer checks it. */
+:root {
+  --bg: #f6f7f9; --surface: #ffffff; --fg: #17202b; --muted: #5b6878; --line: #dbe0e7;
+  --accent: #0d6b6e; --random: #3a6fb0; --evo: #d1661f; --bad: #b3261e; --ok: #1b7a43; --badbg: #fbeceb; --tagbg: #e9eef3;
+  --picbg: #eef1f5;
+  --display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --body: "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11161c; --surface: #19212a; --fg: #e6ebf1; --muted: #9aa7b6; --line: #2c3743;
+  --accent: #4fc3c1; --random: #7fb0ea; --evo: #f0914f; --bad: #ff8a80; --ok: #6fd69a; --badbg: #3a1f1e; --tagbg: #25303b;
+  --picbg: #2a3541; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #11161c; --surface: #19212a; --fg: #e6ebf1; --muted: #9aa7b6; --line: #2c3743;
+  --accent: #4fc3c1; --random: #7fb0ea; --evo: #f0914f; --bad: #ff8a80; --ok: #6fd69a; --badbg: #3a1f1e; --tagbg: #25303b;
+  --picbg: #2a3541; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 15px/1.55 var(--body); }
+.wrap { max-width: 1040px; margin: 0 auto; padding-block: 28px 56px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 36px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.2; }
+h1 { font-size: clamp(26px, 4vw, 36px); font-weight: 600; }
+h2 { font-size: 21px; font-weight: 600; }
+h3 { font-size: 15px; font-weight: 600; }
+p { margin: 0; max-width: 68ch; }
+.eyebrow { font: 500 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+header { display: flex; flex-direction: column; gap: 10px; }
+.lede { font-size: 16px; color: var(--muted); }
+section { display: flex; flex-direction: column; gap: 14px; }
+.verdicts { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.verdict { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; }
+.verdict .state { font: 600 12px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+.verdict.fail .state { color: var(--bad); } .verdict.pass .state { color: var(--ok); } .verdict.todo .state { color: var(--accent); }
+.verdict b { font: 600 17px/1.25 var(--display); }
+.verdict p { font-size: 13.5px; color: var(--muted); }
+.two { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+.two > * { min-width: 0; }
+@media (max-width: 760px) { .two { grid-template-columns: 1fr; } }
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: 14px; }
+.facts dt { color: var(--muted); } .facts dd { margin: 0; }
+figure { margin: 0; }
+.sitefig { background: var(--picbg); border-radius: 8px; padding: 8px; text-align: center; }
+.sitefig img { max-width: 100%; width: 320px; }
+.sitefig figcaption, .legend { font-size: 12.5px; color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; justify-content: center; }
+.key { display: inline-flex; align-items: center; gap: 5px; }
+.key i { width: 9px; height: 9px; display: inline-block; }
+.scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+th, td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font: 500 11.5px/1.3 var(--mono); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); white-space: normal; vertical-align: bottom; }
+tr:last-child td { border-bottom: 0; }
+td.n, th.n { text-align: right; }
+td.bad { color: var(--bad); } td.ok { color: var(--ok); } td.strong { font-weight: 600; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; }
+.dot.random { background: var(--random); } .dot.evolutionary { background: var(--evo); }
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 12px; }
+.chart { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 12px 6px; min-width: 0; }
+.chart h3 { margin-bottom: 4px; }
+.chart svg { width: 100%; height: auto; display: block; }
+.chart text { font: 11px var(--body); fill: var(--muted); }
+.callout { border-left: 3px solid var(--bad); background: var(--badbg); padding: 12px 16px; border-radius: 0 8px 8px 0; display: flex; flex-direction: column; gap: 6px; }
+.callout b { font-family: var(--display); font-size: 16px; }
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.cand { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
+.cand img { width: 100%; aspect-ratio: 1; object-fit: contain; background: var(--picbg); }
+.cand figcaption { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.cand b { font-weight: 600; line-height: 1.3; }
+.tag { align-self: flex-start; font: 500 10.5px/1 var(--mono); letter-spacing: .04em; text-transform: uppercase; padding: 4px 6px; border-radius: 4px; background: var(--tagbg); color: var(--muted); }
+.tag.constructed_control { color: var(--accent); } .tag.largest_model_disagreement { color: var(--bad); }
+.cand dl { display: flex; gap: 14px; margin: 0; font-variant-numeric: tabular-nums; }
+.cand dt { font: 500 10.5px/1.2 var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.cand dd { margin: 0; font-weight: 500; }
+.cand .id, .note { font: 400 11.5px/1.3 var(--mono); color: var(--muted); }
+ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; max-width: 72ch; }
+code { font: 12.5px var(--mono); background: var(--tagbg); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+footer { font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 14px; }
+</style>
+
+<div class="wrap">
+<header>
+  <span class="eyebrow">ClusterMLIP · ACAT assignment · 9 Nov 2026</span>
+  <h1>Fe16 + CO + 2H adsorbate search pilot</h1>
+  <p class="lede">A bounded test of evolutionary against random search for adsorbate arrangements on one fixed Fe16 cluster, and of whether any available MLIP can be trusted to rank them. Bare gas-phase cluster; software and model benchmark only.</p>
+</header>
+
+<section>
+  <div class="verdicts">
+    <div class="verdict fail"><span class="state">MLIP gate · failed</span><b>No available model can rank these structures</b><p>Both foundation models mis-order UBPW91 energies on Fe2/Fe4 with CO or H, and their force errors exceed the reference forces. No Fe16 + CO/H reference label exists.</p></div>
+    <div class="verdict pass"><span class="state">Search · works</span><b>Evolutionary ahead in 3 of 3 seeds</b><p>0.02–0.06 eV lower model energy at equal budget, with about 40% fewer calculator calls. The margin is below the model error.</p></div>
+    <div class="verdict todo"><span class="state">Next · needs approval</span><b>20 draft Gaussian inputs</b><p>Reference panel prepared, not submitted: about 1,000–1,500 core-hours if SCFs converge. Suggested first batch: 4 inputs.</p></div>
+  </div>
+  <p><b>Recommendation: adapt.</b> Keep the search adapter, atom-role representation and duplicate test. Do not rank Fe16 + CO + 2H with any current model. Label the reference panel first, then repeat the comparison on a model trained on it.</p>
+</section>
+
+<section>
+  <h2>The pilot</h2>
+  <div class="two">
+    <dl class="facts">
+      <dt>Catalyst</dt><dd>Neutral Fe16, geometry <code>fe16-200-49-gf</code>, UBPW91/6-311++G* optimum at M = 49</dd>
+      <dt>Adsorbates</dt><dd>One CO and two H, fixed</dd>
+      <dt>Constraint</dt><dd>All 16 Fe fixed (Stage A); only C, O, H move</dd>
+      <dt>Sites</dt><dd>15 top, 39 bridge, 26 three-fold hollow on 15 surface atoms; atom 3 is interior</dd>
+      <dt>Site finder</dt><dd>Convex hull of the actual cluster. ACAT's finder needs <code>asap3</code> (Linux only) and expects fcc-like shapes</dd>
+      <dt>Search model</dt><dd>MACE-MPA-0 medium, no charge or spin input</dd>
+      <dt>Budget</dt><dd>200 relaxations × 3 seeds per arm, same first 20 candidates in both arms</dd>
+      <dt>Reference calls</dt><dd>0</dd>
+    </dl>
+    <figure class="sitefig">
+      <img alt="Fe16 cluster with adsorption sites marked" src="SITES_IMG">
+      <div class="legend">
+        <span class="key"><i style="background:#1f6fb5;border-radius:50%"></i>top</span>
+        <span class="key"><i style="background:#2a9d6f"></i>bridge</span>
+        <span class="key"><i style="background:#8a4fbf;clip-path:polygon(50% 0,100% 100%,0 100%)"></i>hollow</span>
+      </div>
+      <figcaption>Sites on the half of the cluster facing the viewer. Numbers are catalyst atom IDs.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section>
+  <h2>MLIP gate on existing UBPW91 labels</h2>
+  <p>Pairs of structures with the same multiplicity, at least 0.05 eV apart in the reference. Thresholds: 90% of pairs ordered correctly and a relative-energy error of 0.03 eV or less.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Set</th><th class="n">Distinct geometries</th><th class="n">MPA-0 pairs ordered</th><th class="n">MPA-0 error (eV)</th><th class="n">r2SCAN pairs ordered</th><th class="n">r2SCAN error (eV)</th></tr></thead>
+    <tbody><!--GATE_ROWS--></tbody>
+  </table></div>
+  <p>Force error per element (eV/Å), next to the size of the reference forces. A model that predicted zero force would score the last column.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Set</th><th>Element</th><th class="n">MPA-0</th><th class="n">r2SCAN</th><th class="n">Reference force RMS</th></tr></thead>
+    <tbody><!--FORCE_ROWS--></tbody>
+  </table></div>
+  <p>Most records are steps of geometry optimizations, so these pass rates are upper bounds. Nothing could be tested on Fe16 with adsorbates, on coadsorption, or on CO-containing forces: no such labels exist.</p>
+</section>
+
+<section>
+  <h2>Random against evolutionary search</h2>
+  <p>Model energies on the MACE-MPA-0 surface, relative to the lowest structure found by any run. One line per seed.</p>
+  <div class="legend" style="justify-content:flex-start"><span class="key"><i class="dot random" style="margin:0"></i>Random</span><span class="key"><i class="dot evolutionary" style="margin:0"></i>Evolutionary</span></div>
+  <div class="charts">
+    <div class="chart"><h3>Best energy so far, by relaxations</h3><svg id="c1" viewBox="0 0 420 260" role="img" aria-label="Best model energy against relaxations started"></svg></div>
+    <div class="chart"><h3>Best energy so far, by calculator calls</h3><svg id="c2" viewBox="0 0 420 260" role="img" aria-label="Best model energy against calculator calls"></svg></div>
+    <div class="chart"><h3>Low-energy structures found</h3><svg id="c3" viewBox="0 0 420 260" role="img" aria-label="Pooled structures within 0.30 eV found against relaxations"></svg></div>
+  </div>
+  <div class="scroll"><table>
+    <thead><tr><th>Arm</th><th class="n">Seed</th><th class="n">Proposals</th><th class="n">Rejected before relaxing (distance / duplicate)</th><th class="n">Relaxed</th><th class="n">Converged</th><th class="n">Duplicates after</th><th class="n">Unique</th><th class="n">Motifs</th><th class="n">Calls</th><th class="n">Best above pooled min (eV)</th></tr></thead>
+    <tbody><!--RUN_ROWS--></tbody>
+  </table></div>
+  <ul>
+    <li>The evolutionary arm is ahead in every seed at 100 and 200 relaxations and at equal calls. It is not ahead at 50.</li>
+    <li>It samples less widely: about 157 unique structures per seed against 199, and 21% of its relaxations repeat a structure it had.</li>
+    <li>451 distinct structures lie within 0.30 eV. Each evolutionary seed found 21–22% of them, each random seed 13–15%. Neither arm exhausts the surface in 200 relaxations.</li>
+    <li>Wall time is not compared: the runs shared the GPU with an unrelated job.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>What the search exposed about the model</h2>
+  <div class="callout">
+    <b>MACE-MPA-0 gives CO almost no binding to this cluster</b>
+    <p>46 relaxed structures have CO 6–7 Å away from the cluster. The lowest is 0.022 eV above the best bound structure. MACE-MATPES-r2SCAN puts the same structures 1.8–2.4 eV up. Neither has been checked against UBPW91.</p>
+  </div>
+  <ul>
+    <li>The search flagged these structures and kept them out of the parent population. Two are on the reference shortlist because they measure the CO binding energy directly.</li>
+    <li>No CO dissociation, formyl, or H2 formation in 1,200 relaxations, and no atom overlaps. With a model that barely binds CO, the absence of CO activation says nothing about Fe16.</li>
+    <li>The two models order 72% of low-energy pairs the same way; the MPA-0 minimum is rank 28 for r2SCAN.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Reference shortlist</h2>
+  <p>Twenty structures proposed for UBPW91 at M = 49, 47 and 45 (60 states). Energies are model values in eV above the MPA-0 pooled minimum, for both models. Not submitted.</p>
+  <div class="gallery"><!--CARDS--></div>
+</section>
+
+<section>
+  <h2>Limits</h2>
+  <ul>
+    <li>Nothing here is a physical result for Fe16. It is not a statement about supported Fe/K on θ-alumina or a working catalyst.</li>
+    <li>One geometry, one composition, Fe fixed at the UBPW91 positions, which are not a minimum of the model.</li>
+    <li>ACAT's own site finder and genetic operators were not exercised; equivalent operators were written against the project's site list.</li>
+    <li>Recovery of DFT-confirmed motifs could not be measured.</li>
+  </ul>
+</section>
+
+<footer>Branch <code>feat/acat-adsorbate-search</code> (local). Full write-up: <code>docs/acat_cluster_feasibility.md</code>. Run output: <code>D:\MLIP_Work_Folder\Cluster_MLIP\acat_fe16_co_h</code>.</footer>
+</div>
+
+<script>
+const DATA = /*CURVES*/;
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function chart(id, xKey, yKey, opt) {
+  const svg = document.getElementById(id), W = 420, H = 260, m = {l: 46, r: 12, t: 10, b: 38};
+  const xmax = opt.xmax, ymax = opt.ymax;
+  const X = v => m.l + (W - m.l - m.r) * v / xmax, Y = v => H - m.b - (H - m.t - m.b) * Math.min(v, ymax) / ymax;
+  let s = '';
+  for (const t of opt.yticks) s += `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(t)}" y2="${Y(t)}" stroke="${css('--line')}" stroke-width="1"/><text x="${m.l - 6}" y="${Y(t) + 4}" text-anchor="end">${t}</text>`;
+  for (const t of opt.xticks) s += `<text x="${X(t)}" y="${H - m.b + 15}" text-anchor="middle">${t.toLocaleString()}</text>`;
+  s += `<text x="${(m.l + W - m.r) / 2}" y="${H - 4}" text-anchor="middle">${opt.xlabel}</text>`;
+  s += `<text transform="translate(11 ${(m.t + H - m.b) / 2}) rotate(-90)" text-anchor="middle">${opt.ylabel}</text>`;
+  for (const run of DATA.runs) {
+    let d = '', prev = null;
+    run[xKey].forEach((x, i) => {
+      const y = run[yKey][i];
+      if (y === null || x > xmax) return;
+      d += prev === null ? `M${X(x).toFixed(1)} ${Y(y).toFixed(1)}` : `H${X(x).toFixed(1)}V${Y(y).toFixed(1)}`;
+      prev = y;
+    });
+    s += `<path d="${d}" fill="none" stroke="${css(run.arm === 'random' ? '--random' : '--evo')}" stroke-width="1.8" stroke-linejoin="round" opacity=".9"/>`;
+  }
+  svg.innerHTML = s;
+}
+function draw() {
+  chart('c1', 'relaxations', 'best', {xmax: 200, ymax: 0.25, yticks: [0, 0.05, 0.1, 0.15, 0.2, 0.25], xticks: [0, 50, 100, 150, 200], xlabel: 'relaxations started', ylabel: 'eV above pooled minimum'});
+  chart('c2', 'calls', 'best', {xmax: 12000, ymax: 0.25, yticks: [0, 0.05, 0.1, 0.15, 0.2, 0.25], xticks: [0, 4000, 8000, 12000], xlabel: 'energy and force calls', ylabel: 'eV above pooled minimum'});
+  chart('c3', 'relaxations', 'low_found', {xmax: 200, ymax: 100, yticks: [0, 25, 50, 75, 100], xticks: [0, 50, 100, 150, 200], xlabel: 'relaxations started', ylabel: 'structures within 0.30 eV'});
+}
+draw();
+new MutationObserver(draw).observe(document.documentElement, {attributes: true, attributeFilter: ['data-theme']});
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', draw);
+</script>
