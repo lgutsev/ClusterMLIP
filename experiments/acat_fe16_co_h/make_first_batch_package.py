@@ -167,12 +167,10 @@ def main() -> None:
     for small in (".gitignore", "export.list", "logs/README.txt"):
         files[small] = (args.template / small).read_bytes()
     # desk change at intake as package 112: the watchdog's stderr (Slurm logs) comes back with the outputs
-    export = files["export.list"].decode("utf-8").replace("
-", "
-").splitlines()
-    files["export.list"] = ("
-".join(export + [line for line in ["logs/*"] if line not in export]) + "
-").encode("utf-8")
+    export = files["export.list"].decode("utf-8").splitlines()
+    if "logs/*" not in export:
+        export.append("logs/*")
+    files["export.list"] = "".join(line + chr(10) for line in export).encode("utf-8")
     su = len(PICKS) * CORES * HOURS
     files["README.md"] = README.format(number=args.number, name=NAME, date=args.date, commit=commit, branch=branch,
                                        rows="\n".join(rows), cores=CORES, mem=MEM, hours=HOURS,
