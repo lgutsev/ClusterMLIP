@@ -1,0 +1,52 @@
+{
+  "dataset": "D:\\MLIP_Work_Folder\\Cluster_MLIP\\FenOm_Warehouse2\\dataset_spin_v0\\all.extxyz",
+  "dropped_force_outliers": 0,
+  "frames_used": {
+    "Fe16 (bare)": 300,
+    "Fe2H2": 241
+  },
+  "models": {
+    "mpa0": {
+      "Fe16 (bare)": {
+        "Fe": {
+          "model_rmse_ev_per_A": 0.178,
+          "zero_model_rmse_ev_per_A": 0.057,
+          "components": 14400
+        }
+      },
+      "Fe2H2": {
+        "Fe": {
+          "model_rmse_ev_per_A": 0.824,
+          "zero_model_rmse_ev_per_A": 0.461,
+          "components": 1446
+        },
+        "H": {
+          "model_rmse_ev_per_A": 0.361,
+          "zero_model_rmse_ev_per_A": 0.186,
+          "components": 1446
+        }
+      }
+    },
+    "matpes_r2scan": {
+      "Fe16 (bare)": {
+        "Fe": {
+          "model_rmse_ev_per_A": 0.237,
+          "zero_model_rmse_ev_per_A": 0.057,
+          "components": 14400
+        }
+      },
+      "Fe2H2": {
+        "Fe": {
+          "model_rmse_ev_per_A": 1.232,
+          "zero_model_rmse_ev_per_A": 0.461,
+          "components": 1446
+        },
+        "H": {
+          "model_rmse_ev_per_A": 0.306,
+          "zero_model_rmse_ev_per_A": 0.186,
+          "components": 1446
+        }
+      }
+    }
+  }
+}

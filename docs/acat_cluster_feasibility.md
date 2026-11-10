@@ -7,7 +7,7 @@
 
 - **Recommendation: adapt.** Keep the search adapter, the site/atom-role representation and the
   duplicate test. Do not use any available MLIP to rank Fe16 + CO + 2H structures. The next step
-  is the reference panel in section 8 (21 draft Gaussian inputs, not submitted).
+  is the reference panel in section 8 (20 draft Gaussian inputs, not submitted).
 - **Pilot.** Neutral Fe16, geometry `fe16-200-49-gf` (UBPW91 M = 49 optimum), one CO and two H,
   all Fe fixed (Stage A). This is a software and model benchmark on a bare gas-phase cluster. It
   says nothing about supported Fe/K on θ-alumina or a working catalyst.
@@ -15,9 +15,12 @@
   The only calculators that can run the composition are spin-blind foundation models.
 - **The MLIP gate failed.** On existing UBPW91 labels for Fe2/Fe4 with CO or H, MACE-MPA-0 orders
   58–84% of same-multiplicity pairs correctly and MACE-MATPES-r2SCAN 42–66%; both have force errors
-  larger than the reference forces themselves. Low-lying Fe16 + CO + 2H candidates sit about
-  @@GAP@@ apart on the model surface, far below the model's error.
-- **Search comparison (model surface only, 200 relaxations × 3 seeds per arm).** @@HEADLINE@@
+  larger than the reference forces themselves. The six lowest Fe16 + CO + 2H candidates span 0.016 eV on the model
+  surface, far below the model's error, and the model puts desorbed CO only 0.02 eV above the best
+  bound structure.
+- **Search comparison (model surface only, 200 relaxations × 3 seeds per arm).** The evolutionary arm reached a lower model energy than the random arm in all three seeds, by 0.02–0.06 eV,
+  using about 40% fewer calculator calls. That margin is smaller than the model's error, so it shows the
+  search works, not that it found better structures.
 - **ACAT itself.** Its cluster site finder cannot run here (it needs `asap3`, Linux only) and
   assumes fcc/icosahedral/decahedral shapes; Fe16 is a centred 15-atom shell. Sites come from a
   built-in convex-hull finder instead. ACAT's genetic operators depend on its own site objects, so
@@ -196,7 +199,7 @@ Set from the candidate separations found in section 6 and the convergence of the
 
 | Quantity | Threshold | Why |
 |---|---|---|
-| Relative energy within one composition and one spin branch | MAE ≤ 0.03 eV | low-lying candidates are about @@GAP@@ apart on the model surface |
+| Relative energy within one composition and one spin branch | MAE ≤ 0.03 eV | the six lowest candidates span 0.016 eV on the model surface; motif minima are 0.01–0.09 eV apart |
 | Pair ordering, pairs ≥ 0.05 eV apart | ≥ 90% | below this the top of a ranking is not informative |
 | Forces on adsorbate atoms and on Fe, separately | RMSE ≤ 0.10 eV/Å and below half the reference force RMS | relaxations stop at 0.05 eV/Å |
 | Adsorption geometry | Fe–C, Fe–H, C–O within 0.05 Å of reference minima; same site | |
@@ -253,18 +256,123 @@ its lowest structure is not a statement about Fe16.
 
 ## 6. Equal-budget search comparison (model surface)
 
-@@BENCH@@
+Both arms: 200 relaxations per seed, seeds 0–2, MACE-MPA-0 (float32, GPU), all Fe fixed, BFGS to
+0.05 eV/Å, at most 200 steps. Config `configs/pilot_mpa0_stageA.json`, commit `ca5f749`. Energies
+are model energies relative to the lowest structure found by any run ("pooled minimum").
+Reference DFT calls: 0.
+
+| Arm | Seed | Proposals | Rejected before relaxing (distance / duplicate start) | Relaxations | Converged | Duplicates after relaxing | Unique | Motifs | Calculator calls | Best energy above pooled minimum (eV) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Random | 0 | 216 | 16 / 0 | 200 | 200 | 0 | 200 | 20 | 10,907 | 0.057 |
+| Random | 1 | 211 | 11 / 0 | 200 | 200 | 1 | 199 | 20 | 11,538 | 0.036 |
+| Random | 2 | 213 | 13 / 0 | 200 | 200 | 1 | 199 | 24 | 10,715 | 0.033 |
+| Evolutionary | 0 | 244 | 5 / 39 | 200 | 199 | 41 | 159 | 18 | 6,898 | 0.000 |
+| Evolutionary | 1 | 228 | 7 / 21 | 200 | 200 | 44 | 156 | 13 | 7,651 | 0.013 |
+| Evolutionary | 2 | 226 | 4 / 22 | 200 | 200 | 43 | 157 | 15 | 6,080 | 0.008 |
+
+No relaxation failed and no calculator error occurred. One evolutionary relaxation hit the step cap
+and is counted as not converged.
+
+Best energy so far above the pooled minimum (eV), seeds 0 / 1 / 2:
+
+| Budget | Random | Evolutionary |
+|---|---|---|
+| 50 relaxations | 0.086 / 0.039 / 0.033 | 0.047 / 0.052 / 0.024 |
+| 100 relaxations | 0.057 / 0.036 / 0.033 | 0.047 / 0.013 / 0.009 |
+| 200 relaxations | 0.057 / 0.036 / 0.033 | 0.000 / 0.013 / 0.008 |
+| 3,040 calls | 0.086 / 0.039 / 0.033 | 0.047 / 0.013 / 0.009 |
+| 6,080 calls | 0.057 / 0.036 / 0.033 | 0.000 / 0.013 / 0.008 |
+
+What the comparison supports:
+
+- **The evolutionary arm is ahead in all three seeds** at 100 and 200 relaxations and at matched
+  calculator calls. At 50 relaxations it is not (the first 20 are the shared random population).
+- **It is cheaper per relaxation.** Children start near relaxed parents: 30–38 calls per
+  relaxation against 54–58 for random starts.
+- **It samples less widely.** 156–159 unique structures and 13–18 motifs per seed against
+  199–200 and 20–24; about 21% of its relaxations end in a structure it already had. Within
+  0.30 eV of the pooled minimum it still holds 6–9 motifs per seed, so it did not collapse onto one.
+- **Coverage of the low-energy pool.** 451 distinct structures from all runs lie within 0.30 eV.
+  Each evolutionary seed found 21–22% of them, each random seed 13–15%. Only one run
+  (evolutionary, seed 0, at relaxation 125) found the pooled minimum. 200 relaxations do not
+  exhaust this surface for either arm.
+- **The margin is 0.02–0.06 eV**, on a surface whose six lowest structures span 0.016 eV, with a
+  model whose error on comparable reference data is 0.1–0.8 eV. The result is about search
+  efficiency on a given surface. It is not evidence that the structures are better.
+- **Wall time is not reported as a comparison.** The runs shared the laptop GPU with each other
+  and with an unrelated job; per-run wall times range from 399 to 2,860 s with no relation to the
+  number of calls. Calculator calls are the cost measure here. The one run that had the GPU
+  mostly to itself took 399 s for 200 relaxations.
+- **Not measured:** recovery of DFT-confirmed motifs. No reference label exists, so "low-energy"
+  above means low on the model surface, and coverage is counted against the pool of these six
+  runs, not against all possible configurations.
+
+Figures: `experiments/acat_fe16_co_h/report/progress.png` and `diversity.png`. Per-run table:
+`report/runs.csv`. Comparison: `report/arms.json`.
 
 ## 7. Audit of search results
 
-@@AUDIT@@
+All 991 pooled structures were read back after relaxation (fragments, sites, contacts).
+
+| Check | Result |
+|---|---|
+| Atom overlap, composition or role errors | 0 |
+| CO dissociated, HCO/COH, H2 formed | 0 in 1,200 relaxations |
+| Fe displacement | 0 (Fe fixed in Stage A) |
+| CO with O nearer to Fe than C | 33 pooled structures, 33 of them with CO desorbed |
+| **CO desorbed** (no C or O within 3.3 Å of Fe) | **46 pooled structures, 34 of them within 0.30 eV of the pooled minimum; the lowest is 0.022 eV above it** |
+
+**The desorbed-CO result is a model artifact and the main finding of the audit.** On MACE-MPA-0 a
+CO molecule 6–7 Å from the cluster, with both H still adsorbed, costs 0.02 eV relative to the best
+bound structure. The model gives CO essentially no binding energy to this Fe16 with Fe fixed.
+MACE-MATPES-r2SCAN puts the same structures 1.8–2.4 eV above the bound ones. The two cannot both
+be right, and neither has been checked against UBPW91 for this system. The search did not treat
+these as discoveries: they are flagged, excluded from the parent population, and two of them are
+on the DFT shortlist because they measure the CO binding energy directly.
+
+The two foundation models also disagree on the bound structures: over the 451 low-energy pool
+entries they order 72% of pairs the same way, the root-mean-square difference in relative energy
+over the whole pool is 0.43 eV, and the MPA-0 minimum is rank 28 for r2SCAN.
+
+No CO activation appeared at all. With a model that barely binds CO, that absence carries no
+information about Fe16.
 
 ## 8. Reference-validation matrix and DFT shortlist
 
 **Prepared, not submitted. No compute authorization exists for it; it needs the user's approval
 and a desk package.**
 
-@@SHORTLIST@@
+Files: `report/shortlist.csv`, `report/shortlist.extxyz`, `report/dft_draft_frames.csv`. Draft
+inputs: `D:\MLIP_Work_Folder\Cluster_MLIP\acat_fe16_co_h\dft_draft\inputs\` (20 files, written by
+`make_dft_inputs.py`; the folder is not a dispatch package).
+
+| Group | Structures | Purpose |
+|---|---|---|
+| Lowest structure of each of the six lowest motifs | 6 (two have CO desorbed) | Motif ordering; CO binding energy |
+| Near-degenerate competitors of the model minimum | 4 (within 0.016 eV) | Whether the reference separates what the model cannot |
+| Largest disagreement between the two models, CO bound | 3 (H on top sites, 1.1–1.7 eV on MPA-0) | Extrapolative cases |
+| Diverse controls from the random arm | 4 (0.10–0.51 eV) | Unbiased sample for error statistics |
+| Constructed controls, not relaxed | 3: O-bound CO, side-on CO, separate C + O | High-energy controls and the dissociated state at the same composition |
+
+Matrix per structure: charge 0; M = 49, 47, 45 by flip-down ladder; per M a `Stable=Opt` link and a
+`Force` link with Hirshfeld populations; fixed geometry. 20 structures × 3 multiplicities = 60
+labelled states, 120 links. Existing references used alongside: bare Fe16 at M = 49/47/45 (packages
+91, 99), CO and H2 (warehouse).
+
+Splits: the four diverse controls and the three constructed controls are the frozen audit set and
+must never be used for fitting. The other 13 may enter training later; split by motif, not by
+neighbouring frames.
+
+Cost estimate (not measured for this composition): package 36 ran three links on bare Fe16 in
+1.8 h on 12 cores. At a similar 0.6–1 h per link, one input (6 links) takes 4–6 h, so 20 inputs
+come to roughly **1,000–1,500 core-hours** when the SCFs converge. The risk is the lower rungs:
+for bare Fe16, M = 45 and below needed the 12 h link cap or did not converge. With a 12 h cap per
+link and 48 h per job the ceiling is 11,520 core-hours. A sensible first submission is 4 inputs
+(model minimum, one desorbed-CO structure, one near-degenerate competitor, the O-bound control)
+to measure timing and SCF behaviour before the other 16.
+
+Second tier, only after the first returns: constrained optimizations (Fe frozen) of the lowest
+reference structures at their lowest M, then Stage B with Fe free.
 
 ## 9. Supported-catalyst extension (assessment)
 
@@ -300,4 +408,49 @@ selectivity; neither follows from low-energy structures.
 
 ## 10. Handoff
 
-@@HANDOFF@@
+**Branch and commits:** `feat/acat-adsorbate-search`, local only (not pushed), based on
+`origin/main` `bfb9668`. Code and scripts: `ca5f749`; this document and the report files are in the
+commit after it. The main checkout (`feat/irc-force-labels`, uncommitted work) was not touched.
+
+**Files**
+
+| Path | Content |
+|---|---|
+| `src/cluster_mlip/adsorbate_search.py` | Sites, genes, builder, filters, analysis, duplicate test, the two search arms, toy potential |
+| `tests/test_adsorbate_search.py` | 24 checks |
+| `experiments/acat_fe16_co_h/` | Catalyst file, configs, run/analysis/gate/draft scripts, README |
+| `experiments/acat_fe16_co_h/report/` | Run table, arm comparison, shortlist, gate results, figures |
+| `pyproject.toml`, `.github/workflows/tests.yml` | New optional extra `search` (numpy, scipy, ASE); CI installs it so the new tests run |
+| `D:\MLIP_Work_Folder\Cluster_MLIP\acat_fe16_co_h\` | Full run output: six manifests and structure files, pooled candidates, pictures, draft Gaussian inputs |
+| `D:\MLIP_Work_Folder\envs\acat_fe16` | Environment: venv on top of `defects`, plus `acat 2.0.3` and `ase-ga` |
+
+**Checks run**
+
+- `python -m unittest discover -s tests`: 351 tests pass, 2 skipped (system Python 3.14, ASE 3.29).
+- `mypy src`: clean.
+- New tests cover: site counts on an icosahedron and a cube; refusal of periodic cells by the
+  cluster finder; composition and role preservation; placement distances and CO modes; rejection
+  of crowded starts; minimum-image distance filter against the same structure without a cell;
+  dissociated CO, H2, formyl, desorption and overlap recognition; duplicates under swapping
+  identical atoms; rigid rotation as a duplicate for an isolated cluster and not for a supported
+  one; ledger accounting, shared initial population, parent records and same-seed repeatability.
+- Toy-potential smoke run repeated: identical final structures.
+
+**Limits**
+
+- No reference energy for Fe16 with CO or H exists. Nothing here is a physical result for Fe16.
+- Both available models failed the gate; the search ran on MACE-MPA-0, which gives CO almost no
+  binding to the cluster.
+- Stage A only (Fe fixed at the UBPW91 geometry, which is not a minimum of the model). Stage B not run.
+- One catalyst geometry, one composition, three seeds per arm.
+- ACAT's own site finder and operators were not exercised (`asap3` unavailable on Windows).
+- The duplicate test uses distance lists: mirror images count as one structure, and two different
+  structures with identical distance lists would be merged (not observed, not excluded).
+- Wall-time comparison is unusable (shared GPU).
+- The draft Gaussian inputs have not been run through the desk's package generator or its checks.
+
+**Next action (needs the user's approval):** submit the 4-input first batch of the reference panel
+through the desk. Its result decides everything else: if UBPW91 binds CO by more than about 1 eV
+and orders the motifs differently from both models, the path is to label the remaining 16, add
+Fe16 + CO/H frames to the project's spin-aware MACE training set, and rerun this same comparison
+on that model.

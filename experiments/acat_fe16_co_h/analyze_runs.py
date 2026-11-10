@@ -29,7 +29,7 @@ from cluster_mlip.adsorbate_search import (Gene, analyze, build_candidate, finge
                                            validate)
 
 LOW_WINDOW = 0.30  # eV above the pooled model minimum: "low-energy" candidates
-ANOMALY_FLAGS = ("co_stretched", "co_dissociated", "co_reacted", "h2_formed", "h_pooling", "co_o_bound",
+ANOMALY_FLAGS = ("desorbed_CO", "co_stretched", "co_dissociated", "co_reacted", "h2_formed", "h_pooling", "co_o_bound",
                  "catalyst_rearranged")
 
 
@@ -270,9 +270,11 @@ def main() -> None:
         if hit is not None:
             take(f"anomaly:{flag}", hit)
     if args.second_model:
-        for entry in sorted(pool, key=lambda e: -abs(e["model_disagreement"]))[:3]:
+        bound = [e for e in pool if not any(f.startswith("desorbed") for f in e["flags"])]
+        for entry in sorted(bound, key=lambda e: -abs(e["model_disagreement"]))[:3]:
             take("largest_model_disagreement", entry)
-    random_only = [e for e in pool if e["pool_id"] not in taken and any(arm == "random" for arm, _ in e["found"])]
+    random_only = [e for e in pool if e["pool_id"] not in taken and any(arm == "random" for arm, _ in e["found"])
+                   and not any(f.startswith("desorbed") for f in e["flags"])]
     for entry in farthest_points(random_only, [e["fp"] for _, e in shortlist], 4):  # C: diverse random controls
         take("diverse_random_control", entry)
 
