@@ -1,0 +1,534 @@
+{
+  "reference": "alchemi_b1",
+  "energy_tolerance_eV": 0.0001,
+  "runs": {
+    "alchemi_b1": {
+      "inputs": 128,
+      "outputs": 128,
+      "every_input_once": true,
+      "ids_match_reference": true,
+      "status": {
+        "converged": 128
+      },
+      "composition_and_roles_kept": true,
+      "max_catalyst_move_A": 1.1486816386963028e-07,
+      "converged_above_fmax_on_native_recompute": 0,
+      "max_abs_reported_minus_native_energy_eV": 3.0517578125e-05,
+      "steps_per_candidate_mean": 40.5390625,
+      "topologies": {
+        "CO+H+H": 128
+      },
+      "flags": {
+        "co_o_bound": 6,
+        "desorbed_CO": 9
+      },
+      "motifs": {
+        "CO@C-top|H@H-hollow3|H@H-hollow3": 19,
+        "CO@C-bridge|H@H-bridge|H@H-hollow3": 21,
+        "CO@C-bridge|H@H-bridge|H@H-top": 4,
+        "CO@C-top|H@H-bridge|H@H-hollow3": 10,
+        "CO@C-hollow3|H@H-bridge|H@H-hollow3": 16,
+        "CO@C-bridge|H@H-hollow3|H@H-hollow3": 17,
+        "CO@C-hollow3|H@H-hollow3|H@H-hollow3": 16,
+        "CO@gas|H@H-top|H@H-top": 1,
+        "CO@C-top|H@H-hollow3|H@H-top": 3,
+        "CO@C-bridge|H@H-bridge|H@H-bridge": 4,
+        "CO@C-top|H@H-bridge|H@H-top": 1,
+        "CO@C-hollow3|H@H-bridge|H@H-bridge": 3,
+        "CO@gas|H@H-hollow3|H@H-hollow3": 4,
+        "CO@C-hollow3|H@H-bridge|H@H-top": 1,
+        "CO@gas|H@H-hollow3|H@H-top": 2,
+        "CO@gas|H@H-bridge|H@H-hollow3": 1,
+        "CO@gas|H@H-bridge|H@H-bridge": 1,
+        "CO@C-bridge|H@H-hollow3|H@H-top": 3,
+        "CO@C-top|H@H-bridge|H@H-bridge": 1
+      },
+      "timings": [
+        {
+          "setup_s": 7.003718899999512,
+          "convert_s": 4.271900900021137,
+          "step_s": 1743.4296462999773,
+          "extract_s": 31.651677799687604,
+          "batch_steps": 5189,
+          "system_steps": 5189,
+          "active_system_steps": 5189,
+          "run_s": 1779.4094097999987,
+          "model_calls": 5189,
+          "total_s": 1815.8891874999972,
+          "peak_vram_mb": 171.296875,
+          "converged": 128,
+          "candidates_per_hour_warm": 258.96232618652544
+        }
+      ]
+    },
+    "alchemi_b128": {
+      "inputs": 128,
+      "outputs": 128,
+      "every_input_once": true,
+      "ids_match_reference": true,
+      "status": {
+        "converged": 128
+      },
+      "composition_and_roles_kept": true,
+      "max_catalyst_move_A": 1.1486816386963028e-07,
+      "converged_above_fmax_on_native_recompute": 0,
+      "max_abs_reported_minus_native_energy_eV": 3.0517578125e-05,
+      "steps_per_candidate_mean": 40.171875,
+      "topologies": {
+        "CO+H+H": 128
+      },
+      "flags": {
+        "co_o_bound": 6,
+        "desorbed_CO": 9
+      },
+      "motifs": {
+        "CO@C-top|H@H-hollow3|H@H-hollow3": 20,
+        "CO@C-bridge|H@H-bridge|H@H-hollow3": 20,
+        "CO@C-bridge|H@H-bridge|H@H-top": 4,
+        "CO@C-top|H@H-bridge|H@H-hollow3": 11,
+        "CO@C-hollow3|H@H-bridge|H@H-hollow3": 16,
+        "CO@C-bridge|H@H-hollow3|H@H-hollow3": 17,
+        "CO@C-hollow3|H@H-hollow3|H@H-hollow3": 15,
+        "CO@gas|H@H-top|H@H-top": 1,
+        "CO@C-top|H@H-hollow3|H@H-top": 3,
+        "CO@C-bridge|H@H-bridge|H@H-bridge": 3,
+        "CO@C-top|H@H-bridge|H@H-top": 1,
+        "CO@C-hollow3|H@H-bridge|H@H-bridge": 3,
+        "CO@gas|H@H-hollow3|H@H-hollow3": 5,
+        "CO@C-hollow3|H@H-bridge|H@H-top": 1,
+        "CO@gas|H@H-hollow3|H@H-top": 2,
+        "CO@gas|H@H-bridge|H@H-hollow3": 1,
+        "CO@C-hollow3|H@H-hollow3|H@H-top": 1,
+        "CO@C-bridge|H@H-hollow3|H@H-top": 3,
+        "CO@C-top|H@H-bridge|H@H-bridge": 1
+      },
+      "timings": [
+        {
+          "setup_s": 6.639532599998347,
+          "convert_s": 2.18194080000103,
+          "step_s": 1678.3327001000798,
+          "extract_s": 19.683585600003425,
+          "batch_steps": 109,
+          "system_steps": 13952,
+          "active_system_steps": 5142,
+          "run_s": 1700.2168412999963,
+          "model_calls": 109,
+          "total_s": 1722.3395965000018,
+          "peak_vram_mb": 4900.08837890625,
+          "converged": 128,
+          "candidates_per_hour_warm": 271.02425338150954
+        }
+      ],
+      "vs_reference": {
+        "both_converged": 128,
+        "same_structure": 113,
+        "same_motif": 115,
+        "different_minimum": 15,
+        "lower_energy_than_reference": 36,
+        "higher_energy_than_reference": 45,
+        "same_structure_abs_dE_eV": {
+          "max": 0.0057220458984375,
+          "median": 0.0001678466796875
+        },
+        "all_abs_dE_eV_median": 0.00020599365234375,
+        "ranking_pairs": {
+          "resolution_eV": 0.011444091796875,
+          "agree": 6186,
+          "disagree": 0,
+          "unresolved_within_tolerance": 142
+        },
+        "best_energy_minus_reference_best_eV": -0.0599365234375
+      }
+    },
+    "alchemi_b16": {
+      "inputs": 128,
+      "outputs": 128,
+      "every_input_once": true,
+      "ids_match_reference": true,
+      "status": {
+        "converged": 128
+      },
+      "composition_and_roles_kept": true,
+      "max_catalyst_move_A": 1.1486816386963028e-07,
+      "converged_above_fmax_on_native_recompute": 0,
+      "max_abs_reported_minus_native_energy_eV": 3.0517578125e-05,
+      "steps_per_candidate_mean": 40.5234375,
+      "topologies": {
+        "CO+H+H": 128
+      },
+      "flags": {
+        "co_o_bound": 6,
+        "desorbed_CO": 9
+      },
+      "motifs": {
+        "CO@C-top|H@H-hollow3|H@H-hollow3": 18,
+        "CO@C-bridge|H@H-bridge|H@H-hollow3": 19,
+        "CO@C-bridge|H@H-bridge|H@H-top": 4,
+        "CO@C-top|H@H-bridge|H@H-hollow3": 13,
+        "CO@C-hollow3|H@H-bridge|H@H-hollow3": 16,
+        "CO@C-bridge|H@H-hollow3|H@H-hollow3": 18,
+        "CO@C-hollow3|H@H-hollow3|H@H-hollow3": 15,
+        "CO@gas|H@H-top|H@H-top": 1,
+        "CO@C-top|H@H-hollow3|H@H-top": 3,
+        "CO@C-bridge|H@H-bridge|H@H-bridge": 3,
+        "CO@C-top|H@H-bridge|H@H-top": 1,
+        "CO@C-hollow3|H@H-bridge|H@H-bridge": 3,
+        "CO@gas|H@H-hollow3|H@H-hollow3": 5,
+        "CO@C-hollow3|H@H-bridge|H@H-top": 1,
+        "CO@gas|H@H-hollow3|H@H-top": 2,
+        "CO@gas|H@H-bridge|H@H-hollow3": 1,
+        "CO@C-hollow3|H@H-hollow3|H@H-top": 1,
+        "CO@C-bridge|H@H-hollow3|H@H-top": 3,
+        "CO@C-top|H@H-bridge|H@H-bridge": 1
+      },
+      "timings": [
+        {
+          "setup_s": 7.304041499999585,
+          "convert_s": 0.3805131000044639,
+          "step_s": 104.78839029981464,
+          "extract_s": 4.206802099943161,
+          "batch_steps": 674,
+          "system_steps": 10784,
+          "active_system_steps": 5187,
+          "run_s": 109.37968220000039,
+          "model_calls": 674,
+          "total_s": 134.8427529000037,
+          "peak_vram_mb": 741.451171875,
+          "converged": 128,
+          "candidates_per_hour_warm": 4212.848224932934
+        }
+      ],
+      "vs_reference": {
+        "both_converged": 128,
+        "same_structure": 116,
+        "same_motif": 115,
+        "different_minimum": 12,
+        "lower_energy_than_reference": 42,
+        "higher_energy_than_reference": 37,
+        "same_structure_abs_dE_eV": {
+          "max": 0.00970458984375,
+          "median": 0.00019073486328125
+        },
+        "all_abs_dE_eV_median": 0.00030517578125,
+        "ranking_pairs": {
+          "resolution_eV": 0.0194091796875,
+          "agree": 6422,
+          "disagree": 0,
+          "unresolved_within_tolerance": 248
+        },
+        "best_energy_minus_reference_best_eV": 0.000152587890625
+      }
+    },
+    "alchemi_b4": {
+      "inputs": 128,
+      "outputs": 128,
+      "every_input_once": true,
+      "ids_match_reference": true,
+      "status": {
+        "converged": 128
+      },
+      "composition_and_roles_kept": true,
+      "max_catalyst_move_A": 1.1486816386963028e-07,
+      "converged_above_fmax_on_native_recompute": 0,
+      "max_abs_reported_minus_native_energy_eV": 3.0517578125e-05,
+      "steps_per_candidate_mean": 40.5078125,
+      "topologies": {
+        "CO+H+H": 128
+      },
+      "flags": {
+        "co_o_bound": 6,
+        "desorbed_CO": 9
+      },
+      "motifs": {
+        "CO@C-top|H@H-hollow3|H@H-hollow3": 19,
+        "CO@C-bridge|H@H-bridge|H@H-hollow3": 21,
+        "CO@C-bridge|H@H-bridge|H@H-top": 4,
+        "CO@C-top|H@H-bridge|H@H-hollow3": 11,
+        "CO@C-hollow3|H@H-bridge|H@H-hollow3": 16,
+        "CO@C-bridge|H@H-hollow3|H@H-hollow3": 17,
+        "CO@C-hollow3|H@H-hollow3|H@H-hollow3": 15,
+        "CO@gas|H@H-top|H@H-top": 1,
+        "CO@C-top|H@H-hollow3|H@H-top": 3,
+        "CO@C-bridge|H@H-bridge|H@H-bridge": 3,
+        "CO@C-top|H@H-bridge|H@H-top": 1,
+        "CO@C-hollow3|H@H-bridge|H@H-bridge": 3,
+        "CO@gas|H@H-hollow3|H@H-hollow3": 5,
+        "CO@C-hollow3|H@H-bridge|H@H-top": 1,
+        "CO@gas|H@H-hollow3|H@H-top": 2,
+        "CO@gas|H@H-bridge|H@H-hollow3": 1,
+        "CO@C-hollow3|H@H-hollow3|H@H-top": 1,
+        "CO@C-bridge|H@H-hollow3|H@H-top": 3,
+        "CO@C-top|H@H-bridge|H@H-bridge": 1
+      },
+      "timings": [
+        {
+          "setup_s": 5.094513600000937,
+          "convert_s": 2.5610503999705543,
+          "step_s": 676.189645499966,
+          "extract_s": 22.10277699996368,
+          "batch_steps": 1920,
+          "system_steps": 7680,
+          "active_system_steps": 5185,
+          "run_s": 700.8696985999995,
+          "model_calls": 1920,
+          "total_s": 713.2361596999981,
+          "peak_vram_mb": 285.30078125,
+          "converged": 128,
+          "candidates_per_hour_warm": 657.468857507261
+        }
+      ],
+      "vs_reference": {
+        "both_converged": 128,
+        "same_structure": 115,
+        "same_motif": 115,
+        "different_minimum": 13,
+        "lower_energy_than_reference": 40,
+        "higher_energy_than_reference": 36,
+        "same_structure_abs_dE_eV": {
+          "max": 0.00543212890625,
+          "median": 0.000152587890625
+        },
+        "all_abs_dE_eV_median": 0.000213623046875,
+        "ranking_pairs": {
+          "resolution_eV": 0.0108642578125,
+          "agree": 6420,
+          "disagree": 0,
+          "unresolved_within_tolerance": 135
+        },
+        "best_energy_minus_reference_best_eV": 0.0047607421875
+      }
+    },
+    "alchemi_b64": {
+      "inputs": 128,
+      "outputs": 128,
+      "every_input_once": true,
+      "ids_match_reference": true,
+      "status": {
+        "converged": 128
+      },
+      "composition_and_roles_kept": true,
+      "max_catalyst_move_A": 1.1486816386963028e-07,
+      "converged_above_fmax_on_native_recompute": 0,
+      "max_abs_reported_minus_native_energy_eV": 3.0517578125e-05,
+      "steps_per_candidate_mean": 40.078125,
+      "topologies": {
+        "CO+H+H": 128
+      },
+      "flags": {
+        "co_o_bound": 6,
+        "desorbed_CO": 9
+      },
+      "motifs": {
+        "CO@C-top|H@H-hollow3|H@H-hollow3": 20,
+        "CO@C-bridge|H@H-bridge|H@H-hollow3": 21,
+        "CO@C-bridge|H@H-bridge|H@H-top": 4,
+        "CO@C-top|H@H-bridge|H@H-hollow3": 11,
+        "CO@C-hollow3|H@H-bridge|H@H-hollow3": 15,
+        "CO@C-bridge|H@H-hollow3|H@H-hollow3": 18,
+        "CO@C-hollow3|H@H-hollow3|H@H-hollow3": 15,
+        "CO@gas|H@H-top|H@H-top": 1,
+        "CO@C-top|H@H-hollow3|H@H-top": 3,
+        "CO@C-bridge|H@H-bridge|H@H-bridge": 2,
+        "CO@C-top|H@H-bridge|H@H-top": 1,
+        "CO@C-hollow3|H@H-bridge|H@H-bridge": 3,
+        "CO@gas|H@H-hollow3|H@H-hollow3": 4,
+        "CO@C-hollow3|H@H-bridge|H@H-top": 1,
+        "CO@gas|H@H-hollow3|H@H-top": 2,
+        "CO@gas|H@H-bridge|H@H-hollow3": 1,
+        "CO@C-hollow3|H@H-hollow3|H@H-top": 1,
+        "CO@gas|H@H-bridge|H@H-bridge": 1,
+        "CO@C-bridge|H@H-hollow3|H@H-top": 3,
+        "CO@C-top|H@H-bridge|H@H-bridge": 1
+      },
+      "timings": [
+        {
+          "setup_s": 4.749689399999625,
+          "convert_s": 0.10966539999935776,
+          "step_s": 207.55449769995903,
+          "extract_s": 7.643994499965629,
+          "batch_steps": 185,
+          "system_steps": 11840,
+          "active_system_steps": 5130,
+          "run_s": 215.30969649999315,
+          "model_calls": 185,
+          "total_s": 226.86954060000426,
+          "peak_vram_mb": 2557.42822265625,
+          "converged": 128,
+          "candidates_per_hour_warm": 2140.173004238175
+        }
+      ],
+      "vs_reference": {
+        "both_converged": 128,
+        "same_structure": 114,
+        "same_motif": 117,
+        "different_minimum": 14,
+        "lower_energy_than_reference": 36,
+        "higher_energy_than_reference": 45,
+        "same_structure_abs_dE_eV": {
+          "max": 0.0051422119140625,
+          "median": 0.00018310546875
+        },
+        "all_abs_dE_eV_median": 0.0002899169921875,
+        "ranking_pairs": {
+          "resolution_eV": 0.010284423828125,
+          "agree": 6317,
+          "disagree": 0,
+          "unresolved_within_tolerance": 124
+        },
+        "best_energy_minus_reference_best_eV": 0.00018310546875
+      }
+    },
+    "alchemi_b64_again": {
+      "inputs": 128,
+      "outputs": 128,
+      "every_input_once": true,
+      "ids_match_reference": true,
+      "status": {
+        "converged": 128
+      },
+      "composition_and_roles_kept": true,
+      "max_catalyst_move_A": 1.1486816386963028e-07,
+      "converged_above_fmax_on_native_recompute": 0,
+      "max_abs_reported_minus_native_energy_eV": 3.0517578125e-05,
+      "steps_per_candidate_mean": 40.0625,
+      "topologies": {
+        "CO+H+H": 128
+      },
+      "flags": {
+        "co_o_bound": 6,
+        "desorbed_CO": 9
+      },
+      "motifs": {
+        "CO@C-top|H@H-hollow3|H@H-hollow3": 19,
+        "CO@C-bridge|H@H-bridge|H@H-hollow3": 23,
+        "CO@C-bridge|H@H-bridge|H@H-top": 4,
+        "CO@C-top|H@H-bridge|H@H-hollow3": 10,
+        "CO@C-hollow3|H@H-bridge|H@H-hollow3": 14,
+        "CO@C-bridge|H@H-hollow3|H@H-hollow3": 18,
+        "CO@C-hollow3|H@H-hollow3|H@H-hollow3": 15,
+        "CO@gas|H@H-top|H@H-top": 1,
+        "CO@C-top|H@H-hollow3|H@H-top": 3,
+        "CO@C-bridge|H@H-bridge|H@H-bridge": 3,
+        "CO@C-top|H@H-bridge|H@H-top": 1,
+        "CO@C-hollow3|H@H-bridge|H@H-bridge": 3,
+        "CO@gas|H@H-hollow3|H@H-hollow3": 5,
+        "CO@C-hollow3|H@H-bridge|H@H-top": 1,
+        "CO@gas|H@H-hollow3|H@H-top": 2,
+        "CO@gas|H@H-bridge|H@H-hollow3": 1,
+        "CO@C-hollow3|H@H-hollow3|H@H-top": 1,
+        "CO@C-bridge|H@H-hollow3|H@H-top": 3,
+        "CO@C-top|H@H-bridge|H@H-bridge": 1
+      },
+      "timings": [
+        {
+          "setup_s": 5.433292299996538,
+          "convert_s": 0.10721100000228034,
+          "step_s": 187.93133359993953,
+          "extract_s": 1.8885812999578775,
+          "batch_steps": 192,
+          "system_steps": 12288,
+          "active_system_steps": 5128,
+          "run_s": 189.92854439999792,
+          "model_calls": 192,
+          "total_s": 208.76247060000605,
+          "peak_vram_mb": 2480.1826171875,
+          "converged": 128,
+          "candidates_per_hour_warm": 2426.1755991218192
+        }
+      ],
+      "vs_reference": {
+        "both_converged": 128,
+        "same_structure": 112,
+        "same_motif": 117,
+        "different_minimum": 16,
+        "lower_energy_than_reference": 43,
+        "higher_energy_than_reference": 37,
+        "same_structure_abs_dE_eV": {
+          "max": 0.004638671875,
+          "median": 0.00018310546875
+        },
+        "all_abs_dE_eV_median": 0.00022125244140625,
+        "ranking_pairs": {
+          "resolution_eV": 0.00927734375,
+          "agree": 6112,
+          "disagree": 0,
+          "unresolved_within_tolerance": 104
+        },
+        "best_energy_minus_reference_best_eV": 0.000213623046875
+      }
+    },
+    "native": {
+      "inputs": 128,
+      "outputs": 128,
+      "every_input_once": true,
+      "ids_match_reference": true,
+      "status": {
+        "converged": 127,
+        "step_cap": 1
+      },
+      "composition_and_roles_kept": true,
+      "max_catalyst_move_A": 0.0,
+      "converged_above_fmax_on_native_recompute": 0,
+      "max_abs_reported_minus_native_energy_eV": 1.52587890625e-05,
+      "steps_per_candidate_mean": 56.015625,
+      "topologies": {
+        "CO+H+H": 128
+      },
+      "flags": {
+        "co_o_bound": 7,
+        "desorbed_CO": 9
+      },
+      "motifs": {
+        "CO@C-top|H@H-bridge|H@H-hollow3": 14,
+        "CO@C-bridge|H@H-hollow3|H@H-hollow3": 18,
+        "CO@C-bridge|H@H-bridge|H@H-top": 4,
+        "CO@C-hollow3|H@H-bridge|H@H-hollow3": 15,
+        "CO@C-bridge|H@H-bridge|H@H-hollow3": 19,
+        "CO@C-hollow3|H@H-hollow3|H@H-hollow3": 13,
+        "CO@gas|H@H-top|H@H-top": 1,
+        "CO@C-top|H@H-hollow3|H@H-top": 4,
+        "CO@C-bridge|H@H-bridge|H@H-bridge": 3,
+        "CO@C-top|H@H-hollow3|H@H-hollow3": 17,
+        "CO@C-top|H@H-bridge|H@H-top": 1,
+        "CO@C-hollow3|H@H-bridge|H@H-bridge": 4,
+        "CO@gas|H@H-hollow3|H@H-hollow3": 5,
+        "CO@C-hollow3|H@H-bridge|H@H-top": 1,
+        "CO@gas|H@H-hollow3|H@H-top": 2,
+        "CO@gas|H@H-bridge|H@H-hollow3": 1,
+        "CO@C-top|H@H-bridge|H@H-bridge": 3,
+        "CO@C-bridge|H@H-hollow3|H@H-top": 3
+      },
+      "timings": [
+        {
+          "setup_s": 4.0705753000002005,
+          "run_s": 2983.4620196999967,
+          "model_calls": 7298,
+          "total_s": 2995.641805799998,
+          "peak_vram_mb": 98.3935546875,
+          "converged": 127,
+          "candidates_per_hour_warm": 153.24478641962867
+        }
+      ],
+      "vs_reference": {
+        "both_converged": 127,
+        "same_structure": 85,
+        "same_motif": 98,
+        "different_minimum": 42,
+        "lower_energy_than_reference": 59,
+        "higher_energy_than_reference": 60,
+        "same_structure_abs_dE_eV": {
+          "max": 0.00616455078125,
+          "median": 0.0005950927734375
+        },
+        "all_abs_dE_eV_median": 0.001007080078125,
+        "ranking_pairs": {
+          "resolution_eV": 0.0123291015625,
+          "agree": 3496,
+          "disagree": 0,
+          "unresolved_within_tolerance": 74
+        },
+        "best_energy_minus_reference_best_eV": 0.0014801025390625
+      }
+    }
+  }
+}

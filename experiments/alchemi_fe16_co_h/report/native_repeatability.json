@@ -1,0 +1,50 @@
+{
+  "n": 8,
+  "converged": [
+    [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  ],
+  "steps": [
+    [
+      73,
+      72,
+      15,
+      36,
+      28,
+      79,
+      27,
+      108
+    ],
+    [
+      73,
+      72,
+      15,
+      36,
+      28,
+      79,
+      27,
+      84
+    ]
+  ],
+  "same_structure": 7,
+  "max_abs_dE_eV": 0.0483856201171875,
+  "max_position_diff_A": 0.4541693487769851
+}
