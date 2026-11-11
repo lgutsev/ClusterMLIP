@@ -97,8 +97,8 @@ step() {  # step NAME LOG command... : never aborts the job; the exit code is th
 suite() {  # suite DIR NATIVE_REPEATS : the same measurements as on the laptop
   local d=$OUT/$1 nrep=$2
   mkdir -p "$d/bench" "$d/inflight"
-  step "$1/parity64" "$d/parity64.log" "$PY" -W ignore "$K/parity_single_point.py" "$FIX" "$MODEL" --dtype float64 --out "$d/parity_float64.json"
-  step "$1/parity32" "$d/parity32.log" "$PY" -W ignore "$K/parity_single_point.py" "$FIX" "$MODEL" --dtype float32 --out "$d/parity_float32.json"
+  step "$1/parity64" "$d/parity64.log" "$PY" -W ignore "$K/parity_single_point.py" "$FIX" "$MODEL" --dtype float64 --out "$d"
+  step "$1/parity32" "$d/parity32.log" "$PY" -W ignore "$K/parity_single_point.py" "$FIX" "$MODEL" --dtype float32 --out "$d"
   for b in 16 64; do
     step "$1/batch$b" "$d/bench_b$b.log" "$PY" -W ignore "$K/relax_bench.py" "$POOL" "$MODEL" --backend alchemi --batch-size $b --repeat 3 --out "$d/bench"
   done

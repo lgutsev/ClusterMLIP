@@ -30,8 +30,10 @@ Limits that keep this from being more than optional:
   only the first 50 of 200 evaluations of the evolutionary arm.
 - The MLIP gate of the ACAT pilot still fails. Faster relaxations on MACE-MPA-0 produce candidates for DFT
   faster; they do not produce physical conclusions.
-- This Windows laptop runs the toolkit without its compiled kernels path (`torch.compile` needs Triton) and
-  without cuEquivariance. A Linux check is needed before any number here is quoted for LONI.
+- cuEquivariance was not tested on either platform.
+
+The Linux check (LONI QB4, A100, 2026-11-10) confirmed parity, reliability and the speed-up, and showed
+that the toolkit's compiled path brings nothing at this system size. See [Linux check](#linux-check).
 
 ## Stack and inputs
 
@@ -161,6 +163,46 @@ How to read it:
 
 Sensible setting on this card: inflight, 64 slots (2.5 GB).
 
+## Linux check
+
+Desk package 111, LONI QB4, one A100 80 GB, torch 2.11.0+cu130 (the laptop has cu128), same toolkit, MACE
+and ASE pins, Triton 3.6.0 present. Same pool, fixture, model and scripts as above. Two passes: `compiled`
+(toolkit as shipped, `torch.compile` on) and `nocompile` (`TORCHDYNAMO_DISABLE=1`, the laptop's
+configuration). All 28 steps exited 0; the job took 30 minutes.
+
+**Parity and reliability: the same as on Windows, in both passes.**
+
+- Float64: native against batch 1, batch 12, permuted order and different companions all within 6e-14 eV
+  and 3e-14 eV/Å. Float32: within 3.1e-5 eV and 1.6e-5 eV/Å. No edge between structures; ranking identical.
+- Every relaxation run: 128 of 128 converged, each input once, composition and roles kept, frozen atoms
+  moved at most 1.1e-7 Å, no converged structure above 0.05 eV/Å on a native recompute.
+- Against native: 84 to 90 of 128 end in the same structure, no ranking pair disagrees. As on Windows, the
+  difference is the optimizer.
+
+**Throughput, 128 candidates, relaxation loop in seconds (repeats).**
+
+| Backend | compiled | nocompile | Speed-up vs native (nocompile) |
+|---|---|---|---|
+| native (ASE BFGS) | 175 / 171 / 166 | 171 | 1.0 |
+| toolkit, batch 1 | 117 | 116 | 1.5 |
+| toolkit, batch 16 | 22 / 19 / 19 | 20 / 17 / 16 | 9.9 |
+| toolkit, batch 64 | 19 / 17 / 16 | 16 / 17 / 17 | 10.3 |
+| toolkit, inflight, 16 slots | 21 / 16 / 16 | 13 / 13 / 13 | 13 |
+| toolkit, inflight, 64 slots | 16 / 13 / 13 | 10 / 10 / 10 | 17 |
+
+- **The speed-up holds on Linux and is somewhat larger:** 10× for fixed batches, 13× to 17× inflight
+  (laptop: 6× and 9× to 12×).
+- **`torch.compile` does not help here.** The compiled pass is equal or slower in every row, with a slower
+  first repeat. For 20-atom clusters the missing Triton on Windows costs nothing; run with
+  `TORCHDYNAMO_DISABLE=1` on both platforms.
+- The A100 is only about 1.5× faster than the laptop GPU on native and about 2× on inflight. These systems
+  are too small to load it: 64 slots use 2.5 GB of 80 GB. Larger slot counts were not tried.
+- Peak VRAM matches the laptop (0.66 GB at 16 slots, 2.5 GB at 64).
+
+One packaging slip, harmless: the job passed a file name where the parity script expects a folder, so the
+parity JSON sits one level deeper than intended (`parity_float64.json/parity_float64.json`). Fixed in the
+generator.
+
 ## Integration with the search
 
 - `cluster_mlip.adsorbate_search` gains `BatchEvaluator`, `native_evaluator` (the fallback, same ASE BFGS
@@ -180,7 +222,8 @@ Sensible setting on this card: inflight, 64 slots (2.5 GB).
 |---|---|---|
 | No charge/spin in the toolkit's MACE wrapper | spin models need our subclass | done here; must be re-checked on each toolkit release |
 | No per-structure step cap in inflight mode | a structure that never converges holds a slot until the global cap | small: evict by step count in the adapter |
-| Windows: no Triton, no cuEquivariance, checkpoint path bug | toolkit runs in its slow path here | check on Linux (QB4) before quoting numbers |
+| Windows: no Triton, checkpoint path bug | none at this size: the compiled path is no faster on Linux | worked around in the adapter |
+| cuEquivariance | not tested on either platform | optional; try only if larger systems need it |
 | mace-torch pin 0.3.15 vs 0.3.16 | none seen | keep watching |
 | Float32 relaxations not repeatable | minima differ run to run on both backends | float64 for final ranking, or accept and deduplicate |
 | Free-catalyst relaxation (Stage B) | not exercised | small |
@@ -206,5 +249,5 @@ Sensible setting on this card: inflight, 64 slots (2.5 GB).
 
 ## Next action
 
-Repeat the parity check and one benchmark row on a Linux node. Nothing else is needed to use the backend
-for random-arm screening today.
+None for the backend itself: it is checked on Windows and Linux and can be used for random-arm screening
+today. What limits its value is the model, not the backend (see `acat_cluster_feasibility.md`, section 11).
