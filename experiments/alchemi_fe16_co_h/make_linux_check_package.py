@@ -223,6 +223,8 @@ def main() -> None:
     write_lf(pkg / "run_check.slurm", SLURM.replace("__PARTITION__", args.partition).replace("__ENV__", ENV_DEFAULT)
              .replace("__MODEL__", MODEL_MASTER).replace("__SHA__", MODEL_SHA))
     write_lf(pkg / "logs" / "README.txt", "Slurm logs land here.\n")
+    # desk rule (package 111): without an export.list nothing comes back from LONI
+    write_lf(pkg / "export.list", "outputs/*" + chr(10) + "logs/*" + chr(10))
     write_lf(pkg / ".gitignore", "outputs/\nlogs/*.out\n")
     write_lf(pkg / "README.md", README.format(name=name, date=args.date, commit=commit, partition=args.partition,
                                               model_sha=MODEL_SHA, model_master=MODEL_MASTER, env=ENV_DEFAULT))

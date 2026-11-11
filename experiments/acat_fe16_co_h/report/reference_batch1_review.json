@@ -1,0 +1,521 @@
+{
+  "package": "112_clustermlip_fe16_coh_reference_batch1",
+  "frames": [
+    {
+      "frame": "frame_0000",
+      "draft_job": "fe16coh2_000",
+      "why": "model minimum (MACE-MPA-0)",
+      "motif": "CO@C-top|H@H-hollow3|H@H-hollow3",
+      "links": 6,
+      "normal_terminations": 6,
+      "watchdog": null,
+      "seconds": 17482,
+      "states": {
+        "49": {
+          "stable_opt": {
+            "normal": true,
+            "scf_not_converged": 0,
+            "scf_cycles": 106,
+            "energy_ha": -20336.3694182,
+            "stable": true,
+            "instability_found": false
+          },
+          "force": {
+            "normal": true,
+            "scf_not_converged": 0,
+            "scf_cycles": 4,
+            "energy_ha": -20336.3694182,
+            "s2_after": 600.01
+          },
+          "force_link_reproduces_energy_ha": 0.0,
+          "s2_expected": 600.0,
+          "usable": true,
+          "note": null,
+          "energy_ev": -553380.8030797384,
+          "force_rms_ev_a": {
+            "Fe": 0.2512584277282227,
+            "adsorbate": 0.5907581854361795,
+            "max_norm": 1.5802974077046719
+          }
+        },
+        "47": {
+          "stable_opt": {
+            "normal": true,
+            "scf_not_converged": 0,
+            "scf_cycles": 55,
+            "energy_ha": -20336.3640174,
+            "stable": true,
+            "instability_found": false
+          },
+          "force": {
+            "normal": true,
+            "scf_not_converged": 0,
+            "scf_cycles": 3,
+            "energy_ha": -20336.3640174,
+            "s2_after": 552.013
+          },
+          "force_link_reproduces_energy_ha": 0.0,
+          "s2_expected": 552.0,
+          "usable": true,
+          "note": null,
+          "energy_ev": -553380.6561164836,
+          "force_rms_ev_a": {
+            "Fe": 0.14636041741112546,
+            "adsorbate": 0.49965596872044654,
+            "max_norm": 1.449529395925856
+          }
+        },
+        "45": {
+          "stable_opt": {
+            "normal": true,
+            "scf_not_converged": 0,
+            "scf_cycles": 67,
+            "energy_ha": -20336.3483831,
+            "stable": true,
+            "instability_found": false
+          },
+          "force": {
+            "normal": true,
+            "scf_not_converged": 0,
+            "scf_cycles": 5,
+            "energy_ha": -20336.3483831,
+            "s2_after": 506.0232
+          },
+          "force_link_reproduces_energy_ha": 0.0,
+          "s2_expected": 506.0,
+          "usable": true,
+          "note": null,
+          "energy_ev": -553380.2306855076,
+          "force_rms_ev_a": {
+            "Fe": 0.15566792976998292,
+            "adsorbate": 0.42044606073387236,
+            "max_norm": 1.3174846770176174
+          }
+        }
+      },
+      "lowest_multiplicity": 49,
+      "spin_gaps_ev": {
+        "49": 0.0,
+        "47": 0.14696325485483863,
+        "45": 0.5723942307875685
+      }
+    },
+    {
+      "frame": "frame_0001",
+      "draft_job": "fe16coh2_002",
+      "why": "desorbed CO: lowest such structure on the model",
+      "motif": "CO@gas|H@H-bridge|H@H-hollow3",
+      "links": 6,
+      "normal_terminations": 6,
+      "watchdog": null,
+      "seconds": 17570,
+      "states": {
+        "49": {
+          "stable_opt": {
+            "normal": true,
+            "scf_not_converged": 1,
+            "scf_cycles": 129,
+            "energy_ha": -20336.3127579,
+            "stable": true,
+            "instability_found": false
+          },
+          "force": {
+            "normal": true,
+            "scf_not_converged": 0,
+            "scf_cycles": 3,
+            "energy_ha": -20336.3127579,
+            "s2_after": 600.0105
+          },
+          "force_link_reproduces_energy_ha": 0.0,
+          "s2_expected": 600.0,
+          "usable": true,
+          "note": "Stable=Opt SCF hit the cycle cap; energy and forces are taken from the converged Force link",
+          "energy_ev": -553379.2612744303,
+          "force_rms_ev_a": {
+            "Fe": 0.16805401375288284,
+            "adsorbate": 0.08412196506594721,
+            "max_norm": 0.7433170592911666
+          }
+        },
+        "47": {
+          "stable_opt": {
+            "normal": true,
+            "scf_not_converged": 0,
+            "scf_cycles": 49,
+            "energy_ha": -20336.2998912,
+            "stable": true,
+            "instability_found": false
+          },
+          "force": {
+            "normal": true,
+            "scf_not_converged": 0,
+            "scf_cycles": 3,
+            "energy_ha": -20336.2998912,
+            "s2_after": 552.0151
+          },
+          "force_link_reproduces_energy_ha": 0.0,
+          "s2_expected": 552.0,
+          "usable": true,
+          "note": null,
+          "energy_ev": -553378.9111536869,
+          "force_rms_ev_a": {
+            "Fe": 0.07371627265741236,
+            "adsorbate": 0.0872309411085133,
+            "max_norm": 0.2186775169189767
+          }
+        },
+        "45": {
+          "stable_opt": {
+            "normal": true,
+            "scf_not_converged": 0,
+            "scf_cycles": 62,
+            "energy_ha": -20336.276985,
+            "stable": true,
+            "instability_found": false
+          },
+          "force": {
+            "normal": true,
+            "scf_not_converged": 0,
+            "scf_cycles": 3,
+            "energy_ha": -20336.276985,
+            "s2_after": 506.0288
+          },
+          "force_link_reproduces_energy_ha": 0.0,
+          "s2_expected": 506.0,
+          "usable": true,
+          "note": null,
+          "energy_ev": -553378.2878442314,
+          "force_rms_ev_a": {
+            "Fe": 0.16215675209734676,
+            "adsorbate": 0.0815655922101299,
+            "max_norm": 0.5937485445885604
+          }
+        }
+      },
+      "lowest_multiplicity": 49,
+      "spin_gaps_ev": {
+        "49": 0.0,
+        "47": 0.3501207433838952,
+        "45": 0.9734301990077211
+      }
+    },
+    {
+      "frame": "frame_0002",
+      "draft_job": "fe16coh2_006",
+      "why": "near-degenerate competitor of the minimum",
+      "motif": "CO@C-top|H@H-bridge|H@H-hollow3",
+      "links": 6,
+      "normal_terminations": 6,
+      "watchdog": null,
+      "seconds": 17661,
+      "states": {
+        "49": {
+          "stable_opt": {
+            "normal": true,
+            "scf_not_converged": 0,
+            "scf_cycles": 122,
+            "energy_ha": -20336.3635921,
+            "stable": true,
+            "instability_found": false
+          },
+          "force": {
+            "normal": true,
+            "scf_not_converged": 0,
+            "scf_cycles": 7,
+            "energy_ha": -20336.3635921,
+            "s2_after": 600.0107
+          },
+          "force_link_reproduces_energy_ha": 0.0,
+          "s2_expected": 600.0,
+          "usable": true,
+          "note": null,
+          "energy_ev": -553380.644543481,
+          "force_rms_ev_a": {
+            "Fe": 0.23498226490854934,
+            "adsorbate": 0.5508308752398606,
+            "max_norm": 1.5656761009801596
+          }
+        },
+        "47": {
+          "stable_opt": {
+            "normal": true,
+            "scf_not_converged": 0,
+            "scf_cycles": 53,
+            "energy_ha": -20336.3586681,
+            "stable": true,
+            "instability_found": false
+          },
+          "force": {
+            "normal": true,
+            "scf_not_converged": 0,
+            "scf_cycles": 3,
+            "energy_ha": -20336.3586681,
+            "s2_after": 552.0142
+          },
+          "force_link_reproduces_energy_ha": 0.0,
+          "s2_expected": 552.0,
+          "usable": true,
+          "note": null,
+          "energy_ev": -553380.5105546152,
+          "force_rms_ev_a": {
+            "Fe": 0.14266135111987058,
+            "adsorbate": 0.44639865209481955,
+            "max_norm": 1.3816485757418295
+          }
+        },
+        "45": {
+          "stable_opt": {
+            "normal": true,
+            "scf_not_converged": 0,
+            "scf_cycles": 67,
+            "energy_ha": -20336.342228,
+            "stable": true,
+            "instability_found": false
+          },
+          "force": {
+            "normal": true,
+            "scf_not_converged": 0,
+            "scf_cycles": 4,
+            "energy_ha": -20336.342228,
+            "s2_after": 506.024
+          },
+          "force_link_reproduces_energy_ha": 0.0,
+          "s2_expected": 506.0,
+          "usable": true,
+          "note": null,
+          "energy_ev": -553380.0631967041,
+          "force_rms_ev_a": {
+            "Fe": 0.15299446102738526,
+            "adsorbate": 0.33617907649936934,
+            "max_norm": 1.1356640662623205
+          }
+        }
+      },
+      "lowest_multiplicity": 49,
+      "spin_gaps_ev": {
+        "49": 0.0,
+        "47": 0.13398886579681596,
+        "45": 0.5813467768244276
+      }
+    },
+    {
+      "frame": "frame_0003",
+      "draft_job": "fe16coh2_017",
+      "why": "constructed control: CO bound through O",
+      "motif": "CO@O-top|H@H-hollow3|H@H-hollow3",
+      "links": 6,
+      "normal_terminations": 6,
+      "watchdog": null,
+      "seconds": 18642,
+      "states": {
+        "49": {
+          "stable_opt": {
+            "normal": true,
+            "scf_not_converged": 1,
+            "scf_cycles": 129,
+            "energy_ha": -20336.2978731,
+            "stable": true,
+            "instability_found": false
+          },
+          "force": {
+            "normal": true,
+            "scf_not_converged": 0,
+            "scf_cycles": 5,
+            "energy_ha": -20336.2978731,
+            "s2_after": 600.0114
+          },
+          "force_link_reproduces_energy_ha": 0.0,
+          "s2_expected": 600.0,
+          "usable": true,
+          "note": "Stable=Opt SCF hit the cycle cap; energy and forces are taken from the converged Force link",
+          "energy_ev": -553378.8562383883,
+          "force_rms_ev_a": {
+            "Fe": 0.1933956860094394,
+            "adsorbate": 0.31250650590885076,
+            "max_norm": 0.7489939988971938
+          }
+        },
+        "47": {
+          "stable_opt": {
+            "normal": true,
+            "scf_not_converged": 0,
+            "scf_cycles": 60,
+            "energy_ha": -20336.2901164,
+            "stable": true,
+            "instability_found": false
+          },
+          "force": {
+            "normal": true,
+            "scf_not_converged": 0,
+            "scf_cycles": 3,
+            "energy_ha": -20336.2901164,
+            "s2_after": 552.0153
+          },
+          "force_link_reproduces_energy_ha": 0.0,
+          "s2_expected": 552.0,
+          "usable": true,
+          "note": null,
+          "energy_ev": -553378.6451678287,
+          "force_rms_ev_a": {
+            "Fe": 0.1568754546084189,
+            "adsorbate": 0.3216897971918757,
+            "max_norm": 0.8498544246020402
+          }
+        },
+        "45": {
+          "stable_opt": {
+            "normal": true,
+            "scf_not_converged": 0,
+            "scf_cycles": 77,
+            "energy_ha": -20336.2725078,
+            "stable": true,
+            "instability_found": false
+          },
+          "force": {
+            "normal": true,
+            "scf_not_converged": 0,
+            "scf_cycles": 4,
+            "energy_ha": -20336.2725078,
+            "s2_after": 506.0283
+          },
+          "force_link_reproduces_energy_ha": 0.0,
+          "s2_expected": 506.0,
+          "usable": true,
+          "note": null,
+          "energy_ev": -553378.1660134128,
+          "force_rms_ev_a": {
+            "Fe": 0.22182869074572845,
+            "adsorbate": 0.4507262977219903,
+            "max_norm": 1.2384023552573025
+          }
+        }
+      },
+      "lowest_multiplicity": 49,
+      "spin_gaps_ev": {
+        "49": 0.0,
+        "47": 0.211070559714794,
+        "45": 0.6902249755447017
+      }
+    }
+  ],
+  "models": {
+    "mace-mpa-0-medium.model": {
+      "relative_to_frame0_ev": [
+        0.0,
+        0.0223388671875,
+        0.0123291015625,
+        2.322296142578125
+      ],
+      "forces_vs_ubpw91": {
+        "49": {
+          "Fe": {
+            "model_rmse_ev_a": 0.2160308850232586,
+            "zero_baseline_rmse_ev_a": 0.2144711549553494,
+            "frames": 4
+          },
+          "adsorbate": {
+            "model_rmse_ev_a": 0.4854295979927877,
+            "zero_baseline_rmse_ev_a": 0.43507088733310845,
+            "frames": 4
+          }
+        },
+        "47": {
+          "Fe": {
+            "model_rmse_ev_a": 0.2472649946833732,
+            "zero_baseline_rmse_ev_a": 0.13399405770518885,
+            "frames": 4
+          },
+          "adsorbate": {
+            "model_rmse_ev_a": 0.4476265132112404,
+            "zero_baseline_rmse_ev_a": 0.37417288997670134,
+            "frames": 4
+          }
+        },
+        "45": {
+          "Fe": {
+            "model_rmse_ev_a": 0.2942367794668552,
+            "zero_baseline_rmse_ev_a": 0.1754583923275379,
+            "frames": 4
+          },
+          "adsorbate": {
+            "model_rmse_ev_a": 0.46311460219720363,
+            "zero_baseline_rmse_ev_a": 0.3534113760030092,
+            "frames": 4
+          }
+        }
+      }
+    },
+    "MACE-matpes-r2scan-omat-ft.model": {
+      "relative_to_frame0_ev": [
+        0.0,
+        1.78363037109375,
+        -0.124969482421875,
+        2.3040008544921875
+      ],
+      "forces_vs_ubpw91": {
+        "49": {
+          "Fe": {
+            "model_rmse_ev_a": 0.2694795895002818,
+            "zero_baseline_rmse_ev_a": 0.2144711549553494,
+            "frames": 4
+          },
+          "adsorbate": {
+            "model_rmse_ev_a": 0.770600380746811,
+            "zero_baseline_rmse_ev_a": 0.43507088733310845,
+            "frames": 4
+          }
+        },
+        "47": {
+          "Fe": {
+            "model_rmse_ev_a": 0.3002513462721404,
+            "zero_baseline_rmse_ev_a": 0.13399405770518885,
+            "frames": 4
+          },
+          "adsorbate": {
+            "model_rmse_ev_a": 0.8119090779074896,
+            "zero_baseline_rmse_ev_a": 0.37417288997670134,
+            "frames": 4
+          }
+        },
+        "45": {
+          "Fe": {
+            "model_rmse_ev_a": 0.3263877006990124,
+            "zero_baseline_rmse_ev_a": 0.1754583923275379,
+            "frames": 4
+          },
+          "adsorbate": {
+            "model_rmse_ev_a": 0.8479009201651975,
+            "zero_baseline_rmse_ev_a": 0.3534113760030092,
+            "frames": 4
+          }
+        }
+      }
+    }
+  },
+  "ubpw91_relative_to_frame0_ev": {
+    "49": [
+      0.0,
+      1.541805308079347,
+      0.15853625745512545,
+      1.9468413500580937
+    ],
+    "47": [
+      0.0,
+      1.7449627966852859,
+      0.14556186844129115,
+      2.0109486549627036
+    ],
+    "45": [
+      0.0,
+      1.9428412762936205,
+      0.1674888035049662,
+      2.064672094886191
+    ]
+  },
+  "ubpw91_lowest_state_relative_to_frame0_ev": [
+    0.0,
+    1.541805308079347,
+    0.15853625745512545,
+    1.9468413500580937
+  ]
+}

@@ -449,8 +449,72 @@ commit after it. The main checkout (`feat/irc-force-labels`, uncommitted work) w
 - Wall-time comparison is unusable (shared GPU).
 - The draft Gaussian inputs have not been run through the desk's package generator or its checks.
 
-**Next action (needs the user's approval):** submit the 4-input first batch of the reference panel
+**Next action (as written on 2026-11-09):** submit the 4-input first batch of the reference panel
 through the desk. Its result decides everything else: if UBPW91 binds CO by more than about 1 eV
 and orders the motifs differently from both models, the path is to label the remaining 16, add
 Fe16 + CO/H frames to the project's spin-aware MACE training set, and rerun this same comparison
-on that model.
+on that model. That batch has run; see section 11.
+
+## 11. First reference results (desk package 112, 2026-11-11)
+
+Four of the 20 shortlisted structures at UBPW91/6-311++G*, G09 D.01, fixed geometry, charge 0, ladder
+M = 49, 47, 45 (`Stable=Opt` then `Force`). Review script: `experiments/acat_fe16_co_h/review_reference_batch.py`;
+numbers in `experiments/acat_fe16_co_h/report/reference_batch1_review.json`.
+
+**Run quality.** All 4 tasks: 6 of 6 Normal terminations, no watchdog stop, 4.9 to 5.2 h on 12 cores.
+Every `Stable=Opt` reports a stable wavefunction; ⟨S²⟩ after annihilation is 600.01 / 552.01 / 506.02 to
+506.03 against 600 / 552 / 506. Two links are flagged "Convergence criterion not met" (M = 49 `Stable=Opt`
+of frames 1 and 3, 129 cycles); in both, the following `Force` link converged in 3 to 5 cycles to the
+same energy to 1e-7 Ha. Energies and forces are taken from the `Force` links only. All 12 states are usable.
+
+**Energies at M = 49, relative to the model minimum (eV).** Fixed model geometries, not UBPW91 minima.
+
+| Frame | Structure | UBPW91 | MACE-MPA-0 | MATPES-r2SCAN |
+|---|---|---|---|---|
+| 0 | model minimum: CO on top through C, 2 H in hollows | 0 | 0 | 0 |
+| 1 | CO desorbed (about 9 Å away), 2 H on the cluster | +1.54 | +0.02 | +1.78 |
+| 2 | near-degenerate competitor | +0.16 | +0.01 | −0.12 |
+| 3 | CO bound through O (control) | +1.95 | +2.32 | +2.30 |
+
+- **UBPW91 binds CO by about 1.5 eV here.** The near-degeneracy of desorbed and bound CO on MPA-0 is a
+  model artifact, as suspected in section 7. This is not a clean adsorption energy: the two H sit on
+  different sites in frames 0 and 1, the geometries are MPA-0's, and CO is at 9 Å, not at infinity.
+- **Neither model orders the two bound structures as UBPW91 does.** MPA-0 has them degenerate; r2SCAN
+  has the wrong sign.
+- Both models get the O-bound control roughly right.
+
+**Forces against UBPW91 (RMSE, eV/Å; zero-force baseline in brackets), 4 frames.**
+
+| M | MPA-0 Fe | MPA-0 adsorbate | r2SCAN Fe | r2SCAN adsorbate |
+|---|---|---|---|---|
+| 49 | 0.22 (0.21) | 0.49 (0.44) | 0.27 (0.21) | 0.77 (0.44) |
+| 47 | 0.25 (0.13) | 0.45 (0.37) | 0.30 (0.13) | 0.81 (0.37) |
+| 45 | 0.29 (0.18) | 0.46 (0.35) | 0.33 (0.18) | 0.85 (0.35) |
+
+Both models are again no better than predicting zero force. The gate verdict of section 5 stands, now on
+the target composition itself.
+
+**What the UBPW91 forces say about the search.** At MPA-0's minimum (frame 0, M = 49) the UBPW91 forces are
+large: up to 1.6 eV/Å on an adsorbate atom and 0.25 eV/Å RMS on Fe, on a cluster whose bare optimum had
+0.012 eV/Å. So the model's adsorbate positions are far from UBPW91 stationary points, and freezing Fe
+(Stage A) is not a small approximation once CO and H are on the surface.
+
+**Spin.** M = 49 is lowest in all four frames. The vertical 49 → 47 gap is 0.13 to 0.15 eV for the two
+bound structures, 0.21 eV for the O-bound control and 0.35 eV with CO desorbed, against 0.52 eV for bare
+Fe16 at the same Fe positions (package 91). Adsorption narrows the spin gap by a factor of about 3.5.
+For bare Fe16, relaxing at M = 47 gained 0.07 eV (package 99), so M = 47 could come within 0.1 eV of
+M = 49 for bound structures once geometries relax. A spin-blind model cannot represent that.
+
+**Consequences.**
+
+- The condition set on 2026-11-09 is met: CO binds by more than 1 eV and the models do not reproduce the
+  UBPW91 ordering. The remaining 16 inputs are worth sending. Measured cost: about 60 core-hours per
+  structure, so about 1,000 core-hours for 16 (ceiling 9,216 with the 48 h cap).
+- These labels are off-equilibrium by construction, which is what a correction model or a training set
+  needs; they are not UBPW91 minima. A constrained optimization of the two lowest structures at M = 49
+  and 47 is the cheapest way to get the first real minima and to test the narrowing spin gap.
+- Of the three routes in the roadmap, the spin result argues for carrying M: a Δ-model or fine-tune that
+  ignores M would have to be fitted per multiplicity.
+
+Limits: four structures, one composition, fixed model geometries. No statement about the ground state of
+Fe16 + CO + 2H follows from this.
