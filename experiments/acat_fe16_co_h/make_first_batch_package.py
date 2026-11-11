@@ -22,8 +22,8 @@ import subprocess
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-NAME = "clustermlip_fe16_coh_reference_batch1"
-JOB = "fe16-coh-ref1"
+NAME_BATCH1 = "clustermlip_fe16_coh_reference_batch1"
+NAME_BATCH2 = "clustermlip_fe16_coh_reference_batch2"
 PICKS = [("fe16coh2_000", "model minimum (MACE-MPA-0)"),
          ("fe16coh2_002", "desorbed CO: lowest such structure on the model"),
          ("fe16coh2_006", "near-degenerate competitor of the minimum"),
@@ -31,7 +31,54 @@ PICKS = [("fe16coh2_000", "model minimum (MACE-MPA-0)"),
 MULTIPLICITIES = [49, 47, 45]
 CORES, MEM, HOURS, LINK_LIMIT = 12, "24GB", 48, 12 * 3600
 
-README = """# {number}_{name}
+README_BATCH2 = """# {number}_{name}
+
+Second batch of the Fe16 + CO + 2H reference panel (ClusterMLIP, {date}). **16 G09 D.01 tasks.**
+Owner: ClusterMLIP. Generator: `experiments/acat_fe16_co_h/make_first_batch_package.py --batch 2` at commit
+`{commit}` (branch `{branch}`). Regenerate there, not here. `package.json` has every file's SHA-256.
+
+## Why
+
+The first batch (desk package 112) ran cleanly: 4 tasks, 6 of 6 Normal terminations each, no watchdog
+stop, 4.9 to 5.2 h per task. It showed that UBPW91 binds CO by about 1.5 eV where the search model has
+bound and desorbed CO degenerate, that neither foundation model orders the bound structures as UBPW91
+does, and that both are no better than a zero-force baseline. These are the other 16 shortlisted
+structures: the remaining motif minima, near-degenerate pairs, largest model disagreements, random
+controls and two constructed controls. They complete the panel used to judge any corrected model, and
+they are the first training labels for this composition.
+
+## Frames
+
+| frame | draft id | why | motif |
+|---|---|---|---|
+{rows}
+
+Every input is built exactly as in package 112: fixed geometry, charge 0, flip-down ladder M = 49, 47,
+45; per M one `Stable=Opt` link and one `Force` link (6 links), one checkpoint, `Guess=Read` after the
+first link; `IOP(5/13=1,5/36=1,8/11=1)` in every link and one job type per link (checked by the
+generator). Atoms 1 to 16 are the Fe16 `fe16-200-49-gf` M = 49 optimum, unchanged; atoms 17 to 20 are the
+adsorbates (`inputs/frames.csv`).
+
+## Run
+
+`sbatch run_gaussian.slurm` from this directory. QB4 `single`, {cores} cores, `%mem={mem}`, {hours} h cap per
+task, per-link cap {link_h} h, at most {su} SU. `run_gaussian.slurm` is package 99's with the job name and
+array range changed; `gaussian_watchdog.sh` is byte-identical to 99's. Both are the same as in 112.
+
+Expected from package 112: about 5 h per task, so about 1,000 core-hours for the 16. Structures further
+from the model minimum may take longer in the SCF.
+
+## Done
+
+`outputs/frame_*.log`, `.seconds` and `.watchdog`, plus `logs/`. Report the watchdog reasons and the
+number of Normal terminations per frame (6 = full run).
+
+An unconverged SCF or a watchdog stop is a result, not a package failure. Never resubmit with a longer
+limit without asking. ClusterMLIP screens every link for unconverged SCFs ("Convergence criterion not
+met") and takes energies and forces only from links whose own SCF converged.
+"""
+
+README_BATCH1 = """# {number}_{name}
 
 First batch of the Fe16 + CO + 2H reference panel (ClusterMLIP, {date}). **4 G09 D.01 tasks.**
 Owner: ClusterMLIP. Generator: `experiments/acat_fe16_co_h/make_first_batch_package.py` at commit
@@ -114,9 +161,16 @@ def main() -> None:
     ap.add_argument("draft", type=Path)
     ap.add_argument("template", type=Path)
     ap.add_argument("out", type=Path)
-    ap.add_argument("--number", type=int, default=112)
+    ap.add_argument("--number", type=int, default=None, help="proposed package number (the desk decides)")
+    ap.add_argument("--batch", type=int, choices=[1, 2], default=1,
+                    help="1 = the four timing/sanity structures (desk package 112); 2 = the other 16 drafts")
     ap.add_argument("--date", required=True)
     args = ap.parse_args()
+    if args.number is None:
+        args.number = {1: 112, 2: 115}[args.batch]
+    NAME = NAME_BATCH1 if args.batch == 1 else NAME_BATCH2
+    JOB = "fe16-coh-ref1" if args.batch == 1 else "fe16-coh-ref2"
+    README = README_BATCH1 if args.batch == 1 else README_BATCH2
     pkg = args.out / f"{args.number}_{NAME}"
     if pkg.exists():
         raise SystemExit(f"{pkg} exists; a staged package is never overwritten (send the desk a revision note)")
@@ -127,9 +181,17 @@ def main() -> None:
     with open(args.draft / "frames.csv", newline="", encoding="utf-8") as fh:
         drafts = {row["job"]: row for row in csv.DictReader(fh)}
 
+    if args.batch == 1:
+        picks = list(PICKS)
+    else:  # every draft not in batch 1, in draft order, with the shortlist's own reason
+        first = {job for job, _ in PICKS}
+        picks = [(job, d["reason"].replace("_", " ")) for job, d in drafts.items() if job not in first]
+        if len(picks) + len(first) != len(drafts):
+            raise SystemExit("draft manifest does not contain the batch-1 jobs")
+
     files: dict[str, bytes] = {}
     table, rows = [], []
-    for i, (job, why) in enumerate(PICKS):
+    for i, (job, why) in enumerate(picks):
         data = (args.draft / "inputs" / f"{job}.gjf").read_bytes()
         if b"\r" in data:
             raise SystemExit(f"{job}: CRLF line endings")
@@ -151,7 +213,7 @@ def main() -> None:
     files["gaussian_watchdog.sh"] = watchdog
     slurm = (args.template / "run_gaussian.slurm").read_text(encoding="utf-8")
     for pattern, new in ((r"#SBATCH --job-name=\S+", f"#SBATCH --job-name={JOB}"),
-                         (r"#SBATCH --array=\S+", f"#SBATCH --array=0-{len(PICKS) - 1}")):
+                         (r"#SBATCH --array=\S+", f"#SBATCH --array=0-{len(picks) - 1}")):
         slurm, n = re.subn(pattern, new, slurm)
         if n != 1:
             raise SystemExit(f"template Slurm script: {pattern} matched {n} times")
@@ -171,7 +233,7 @@ def main() -> None:
     if "logs/*" not in export:
         export.append("logs/*")
     files["export.list"] = "".join(line + chr(10) for line in export).encode("utf-8")
-    su = len(PICKS) * CORES * HOURS
+    su = len(picks) * CORES * HOURS
     files["README.md"] = README.format(number=args.number, name=NAME, date=args.date, commit=commit, branch=branch,
                                        rows="\n".join(rows), cores=CORES, mem=MEM, hours=HOURS,
                                        link_h=LINK_LIMIT // 3600, su=su).encode("utf-8")
