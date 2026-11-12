@@ -518,3 +518,100 @@ M = 49 for bound structures once geometries relax. A spin-blind model cannot rep
 
 Limits: four structures, one composition, fixed model geometries. No statement about the ground state of
 Fe16 + CO + 2H follows from this.
+
+## 12. The full 20-structure reference panel (desk packages 112 and 116, 2026-11-12)
+
+The other 16 shortlisted structures ran as package 116, built exactly as 112. Scripts:
+`review_reference_batch.py` per package, `combine_reference_panel.py` for the panel. Numbers:
+`experiments/acat_fe16_co_h/report/reference_panel.csv` and `.json`.
+
+**Run quality.** 16 of 16 tasks: 6 of 6 Normal terminations, no watchdog stop, 4.7 to 6.8 h each. Every
+`Stable=Opt` reports a stable wavefunction. The whole panel cost 1,264 core-hours.
+
+**One state is excluded.** Frame 0 of package 116 (`fe16coh2_001`) at M = 49: both the `Stable=Opt` link and
+the following `Force` link stopped at 129 cycles with "Convergence criterion not met" (RMSDP 1e-5, MaxDP
+2e-3, gap 0.001 Ha). `IOP(5/13=1)` let the job continue, so the log holds an energy and forces from an
+unconverged density. They are not used. The desk's summary counted this link as converged; it is not. The
+other three flagged links (112 frames 1 and 3, 116 frames 6 and 15) were followed by a converged `Force`
+link with the same energy and are used. Usable states: 19 at M = 49, 20 at M = 47, 20 at M = 45.
+
+**UBPW91 energies at M = 49, relative to the lowest structure (eV), with both models on the same geometries.**
+
+| Structure (draft id) | Motif | UBPW91 | MPA-0 | r2SCAN | 49 → 47 gap |
+|---|---|---|---|---|---|
+| 000 | CO top, H hollow + hollow | 0.00 | 0.00 | 0.13 | 0.15 |
+| 007 | CO top, H bridge + hollow | 0.02 | 0.01 | 0.06 | 0.24 |
+| 008 | CO top, H hollow + hollow | 0.07 | 0.02 | 0.15 | 0.13 |
+| 006 | CO top, H bridge + hollow | 0.16 | 0.01 | 0.00 | 0.13 |
+| 004 | CO bridge, H bridge + hollow | 0.17 | 0.07 | 0.12 | 0.25 |
+| 003 | CO bridge, H hollow + hollow | 0.18 | 0.06 | 0.19 | 0.12 |
+| 014 | CO top, H bridge + hollow | 0.22 | 0.10 | 0.17 | 0.19 |
+| 009 | CO top, H hollow + hollow | 0.26 | 0.02 | 0.19 | 0.04 |
+| 013 | CO top, H hollow + hollow | 0.44 | 0.14 | 0.25 | 0.12 |
+| 015 | CO top, H bridge + hollow | 0.45 | 0.13 | 0.23 | 0.08 |
+| 016 | CO bridge, H bridge + hollow | 0.48 | 0.51 | 0.69 | 0.03 |
+| 012 | CO bridge, H bridge + top | 0.92 | 1.15 | 0.74 | 0.08 |
+| 011 | CO hollow, H top + top | 1.17 | 1.55 | 1.12 | 0.25 |
+| 010 | CO bridge, H top + top | 1.51 | 1.67 | 1.14 | 0.12 |
+| 005 | CO desorbed, H hollow + hollow | 1.52 | 0.09 | 2.20 | 0.50 |
+| 002 | CO desorbed, H bridge + hollow | 1.54 | 0.02 | 1.91 | 0.35 |
+| 018 | CO side-on (control) | 1.89 | 4.40 | 1.82 | 0.09 |
+| 017 | CO through O (control) | 1.95 | 2.32 | 2.43 | 0.21 |
+| 019 | C + O dissociated (control) | 3.27 | 6.67 | 2.46 | −0.14 |
+| 001 | CO top, H bridge + hollow | excluded | 0.01 | 0.00 | n/a |
+
+Model columns are relative to each model's own lowest structure. For 001 the unconverged M = 49 energy
+would put it near +0.19 eV; its converged M = 47 state is 0.29 eV above the lowest structure.
+
+**What the panel shows.**
+
+- **Both desorbed-CO structures sit 1.5 eV up in UBPW91.** MPA-0 has them at 0.02 and 0.09 eV. The artifact
+  is systematic, not a one-off.
+- **MPA-0's pick of the lowest structure is confirmed** (000), and r2SCAN's is not (it picks 006, +0.16 eV).
+- **Among the 11 bound structures within 0.5 eV, both models rank fairly well:** MPA-0 orders 41 of 45
+  resolved pairs correctly (91 %), r2SCAN 39 of 45 (87 %); correlation with UBPW91 about 0.7. But MPA-0
+  compresses the scale: structures 0.16 to 0.45 eV up in UBPW91 appear within 0.14 eV.
+- **Over all usable structures:** MPA-0 mean absolute error 0.60 eV (worst 3.4 eV, the dissociated control);
+  r2SCAN 0.27 eV (worst 0.93 eV). MPA-0 is badly wrong wherever CO is not bound through C on Fe: desorbed,
+  side-on, dissociated.
+- **CO dissociation is 3.3 eV uphill at these fixed geometries.** Nothing was relaxed, so this is an upper
+  bound for that particular C and O placement, not a reaction energy.
+
+**Forces against UBPW91 on the 16 structures of package 116 (RMSE, eV/Å; zero baseline in brackets).**
+
+| M | MPA-0 Fe | MPA-0 adsorbate | r2SCAN Fe | r2SCAN adsorbate |
+|---|---|---|---|---|
+| 49 (15 structures) | 0.24 (0.28) | 1.22 (1.31) | 0.28 (0.28) | 0.64 (1.31) |
+| 47 | 0.25 (0.23) | 1.08 (1.22) | 0.28 (0.23) | 0.77 (1.22) |
+| 45 | 0.29 (0.21) | 1.02 (1.18) | 0.31 (0.21) | 0.86 (1.18) |
+
+This refines section 11. On these structures, which carry larger forces, r2SCAN halves the adsorbate force
+error against the zero baseline; MPA-0 barely improves on it. Neither model beats the zero baseline on Fe
+forces at any multiplicity. So the gate still fails, but the two models fail differently: MPA-0 ranks bound
+structures well and is wrong on forces and on unbound or broken CO; r2SCAN is better on forces and energies
+overall and worse at picking the minimum.
+
+**Spin.**
+
+- M = 49 is the lowest converged state in 18 of 20 structures. The dissociated control (019) is lowest at
+  M = 47, by 0.14 eV. For 001 only M = 47 and 45 are usable, so its lowest state is undetermined.
+- The 49 → 47 gap over 19 structures: median 0.13 eV, range −0.14 to 0.50 eV; six are below 0.10 eV, the
+  smallest among bound structures 0.03 eV (016). Bare Fe16: 0.52 eV.
+- The gap is largest with CO desorbed (0.35 and 0.50 eV, close to bare Fe16) and smallest for some bound
+  structures. Binding CO is what narrows it. A model without M as input cannot describe this.
+
+**Consequences.**
+
+- The search adapter's output was useful: the model's lowest structure is UBPW91's lowest of the 19, and
+  its near-degenerate set is the UBPW91 low-energy set. What the model cannot do is tell bound from
+  unbound CO, give forces, or handle spin.
+- The panel now holds 59 usable UBPW91 states (energies, forces, Hirshfeld spins) for Fe16 + CO + 2H. That
+  is enough to score any corrected model against, and a start for training; it is not enough to train on
+  alone, and every geometry is a model geometry.
+- Next reference step, if wanted: optimize the three lowest structures (000, 007, 008) at M = 49 and 47
+  with UBPW91, Fe frozen first. That gives the first real minima, tests whether M = 47 becomes competitive
+  after relaxation, and yields on-path frames with small forces, which the panel lacks. The excluded state
+  can be retried in the same package with a different SCF start.
+
+Limits: one composition, fixed model geometries, 20 structures chosen by the models' own ranking. The
+lowest structure here is the lowest of this panel, not a claim about the ground state.

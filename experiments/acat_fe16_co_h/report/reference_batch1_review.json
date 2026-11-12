@@ -400,6 +400,12 @@
   ],
   "models": {
     "mace-mpa-0-medium.model": {
+      "energies_ev": [
+        -131.08639526367188,
+        -131.06405639648438,
+        -131.07406616210938,
+        -128.76409912109375
+      ],
       "relative_to_frame0_ev": [
         0.0,
         0.0223388671875,
@@ -409,36 +415,36 @@
       "forces_vs_ubpw91": {
         "49": {
           "Fe": {
-            "model_rmse_ev_a": 0.2160308850232586,
+            "model_rmse_ev_a": 0.21603095602040875,
             "zero_baseline_rmse_ev_a": 0.2144711549553494,
             "frames": 4
           },
           "adsorbate": {
-            "model_rmse_ev_a": 0.4854295979927877,
+            "model_rmse_ev_a": 0.4854301913143083,
             "zero_baseline_rmse_ev_a": 0.43507088733310845,
             "frames": 4
           }
         },
         "47": {
           "Fe": {
-            "model_rmse_ev_a": 0.2472649946833732,
+            "model_rmse_ev_a": 0.24726505096001508,
             "zero_baseline_rmse_ev_a": 0.13399405770518885,
             "frames": 4
           },
           "adsorbate": {
-            "model_rmse_ev_a": 0.4476265132112404,
+            "model_rmse_ev_a": 0.4476269735591221,
             "zero_baseline_rmse_ev_a": 0.37417288997670134,
             "frames": 4
           }
         },
         "45": {
           "Fe": {
-            "model_rmse_ev_a": 0.2942367794668552,
+            "model_rmse_ev_a": 0.29423681977799926,
             "zero_baseline_rmse_ev_a": 0.1754583923275379,
             "frames": 4
           },
           "adsorbate": {
-            "model_rmse_ev_a": 0.46311460219720363,
+            "model_rmse_ev_a": 0.46311487855603034,
             "zero_baseline_rmse_ev_a": 0.3534113760030092,
             "frames": 4
           }
@@ -446,6 +452,12 @@
       }
     },
     "MACE-matpes-r2scan-omat-ft.model": {
+      "energies_ev": [
+        -234.33914184570312,
+        -232.55551147460938,
+        -234.464111328125,
+        -232.03514099121094
+      ],
       "relative_to_frame0_ev": [
         0.0,
         1.78363037109375,
@@ -455,36 +467,36 @@
       "forces_vs_ubpw91": {
         "49": {
           "Fe": {
-            "model_rmse_ev_a": 0.2694795895002818,
+            "model_rmse_ev_a": 0.2694796055981009,
             "zero_baseline_rmse_ev_a": 0.2144711549553494,
             "frames": 4
           },
           "adsorbate": {
-            "model_rmse_ev_a": 0.770600380746811,
+            "model_rmse_ev_a": 0.7706004046456636,
             "zero_baseline_rmse_ev_a": 0.43507088733310845,
             "frames": 4
           }
         },
         "47": {
           "Fe": {
-            "model_rmse_ev_a": 0.3002513462721404,
+            "model_rmse_ev_a": 0.30025135984973084,
             "zero_baseline_rmse_ev_a": 0.13399405770518885,
             "frames": 4
           },
           "adsorbate": {
-            "model_rmse_ev_a": 0.8119090779074896,
+            "model_rmse_ev_a": 0.811909046831964,
             "zero_baseline_rmse_ev_a": 0.37417288997670134,
             "frames": 4
           }
         },
         "45": {
           "Fe": {
-            "model_rmse_ev_a": 0.3263877006990124,
+            "model_rmse_ev_a": 0.32638773729006487,
             "zero_baseline_rmse_ev_a": 0.1754583923275379,
             "frames": 4
           },
           "adsorbate": {
-            "model_rmse_ev_a": 0.8479009201651975,
+            "model_rmse_ev_a": 0.8479007824445173,
             "zero_baseline_rmse_ev_a": 0.3534113760030092,
             "frames": 4
           }

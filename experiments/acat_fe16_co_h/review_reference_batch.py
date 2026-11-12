@@ -121,6 +121,9 @@ def main() -> None:
                      "usable": bool(ok and stab["stable"] and not stab["instability_found"]),
                      "note": "Stable=Opt SCF hit the cycle cap; energy and forces are taken from the converged Force link"
                      if stab["scf_not_converged"] and ok else None}
+            if not state["usable"] and force["energy_ha"] is not None:
+                # reported for orientation only; never used for forces, ordering statistics or training
+                state["energy_ev_scf_not_converged"] = force["energy_ha"] * HARTREE_EV
             if state["usable"]:
                 state["energy_ev"] = force["energy_ha"] * HARTREE_EV
                 f = force["forces"]
@@ -151,7 +154,7 @@ def main() -> None:
             a.calc = calc
             energies.append(float(a.get_potential_energy()))
             forces.append(np.array(a.get_forces()))
-        entry = {"relative_to_frame0_ev": [e - energies[0] for e in energies], "forces_vs_ubpw91": {}}
+        entry = {"energies_ev": energies, "relative_to_frame0_ev": [e - energies[0] for e in energies], "forces_vs_ubpw91": {}}
         for m in mults_all:
             parts: dict[str, list] = {"Fe": [], "adsorbate": []}
             zero: dict[str, list] = {"Fe": [], "adsorbate": []}
