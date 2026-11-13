@@ -615,3 +615,62 @@ overall and worse at picking the minimum.
 
 Limits: one composition, fixed model geometries, 20 structures chosen by the models' own ranking. The
 lowest structure here is the lowest of this panel, not a claim about the ground state.
+
+## 13. UBPW91 optimizations with Fe frozen (desk package 118, 2026-11-13)
+
+The three lowest panel structures (000, 007, 008) at M = 49 and M = 47: the 112 / 116 ladder to the target
+M, then `Opt=ModRedundant` with `X n F` on the 16 Fe atoms. A seventh task retried the excluded state.
+Review script: `experiments/acat_fe16_co_h/review_opt_package.py`; numbers in
+`report/opt_frozen_fe_review.json`, final geometries in `report/opt_frozen_fe_final.extxyz`.
+
+**Run quality.**
+
+- The `X n F` freeze form was accepted. Fe atoms moved at most 0.003 Å in every optimization.
+- Three optimizations reached "Stationary point found" (007 at M = 49; 008 at M = 49 and 47). Three were
+  stopped by the 12 h link cap while still running: 000 at M = 49 (23 steps), 000 at M = 47 (22 steps),
+  007 at M = 47 (13 steps). No Error termination. Tasks took 10.4 to 15.6 h.
+- One optimization step (007 at M = 47, not the last) had an unconverged SCF. No other step did.
+
+**Two of the three starting structures are the same minimum.** 000 and 008 relax to adsorbate positions
+0.008 Å apart at M = 49 (0.06 Å at M = 47) with energies within 1.4 meV. So the capped 000 runs add
+nothing that 008's converged runs do not already give, and need no restart. Only 007 at M = 47 is
+genuinely unfinished (energy still falling by 1 meV per step).
+
+**Relaxed energies (Fe frozen).**
+
+| Minimum | M = 49 (Ha) | M = 47 (Ha) | 49 → 47 gap | Relative at M = 49 | Gain from relaxing |
+|---|---|---|---|---|---|
+| A (from 000 and 008): CO on Fe3, both H in hollows | −20336.37722 (stationary) | −20336.37172 (stationary) | 0.150 eV | 0 | 0.21 to 0.28 eV |
+| B (from 007): CO on Fe7, H in bridge + hollow | −20336.37488 (stationary) | above −20336.36498 (unfinished) | at most 0.27 eV | +0.064 eV | 0.17 eV |
+
+- **Relaxing the adsorbates does not close the spin gap.** For minimum A the gap is 0.150 eV relaxed against
+  0.13 to 0.15 eV vertical. The suggestion in section 11 that M = 47 might come within 0.1 eV is not
+  supported with Fe frozen.
+- **A stays below B**, by 0.064 eV (0.02 eV before relaxation).
+
+**What moved.** CO stays on its top site, linear (Fe–C–O 178°), Fe–C 1.80 Å, C–O 1.174 Å, but leans towards
+a second Fe: that Fe–C distance shortens from 3.1 to 3.3 Å in the model geometry to 2.5 Å. C moves about
+0.9 Å and O about 1.5 Å; the H atoms barely move (under 0.1 Å). The search model places CO too upright.
+
+**The frozen cluster is under large forces.** At the relaxed minimum A, the UBPW91 forces on the frozen Fe
+atoms are 0.24 eV/Å RMS and up to 1.1 eV/Å at M = 49, and 0.15 eV/Å RMS, up to 0.44 eV/Å at M = 47. The
+bare cluster's optimum had 0.012 eV/Å. Relaxing the adsorbates did not reduce them. So these are minima of
+the adsorbates on a strained cluster, not minima of Fe16 + CO + 2H, and the Fe forces differ between the two
+multiplicities, so a full relaxation can change the gap in either direction. Stage A (Fe frozen) is good
+for ranking sites; it is not good enough for adsorption energies or spin gaps.
+
+**The retry failed.** For 001 at M = 49 all three links (`Stable=Opt`, `Force`, `Force`) again stopped at 129
+cycles with "Convergence criterion not met" (MaxDP about 1e-3). The energy is steady to 6e-6 Ha at
+−20336.36241 Ha, about 0.19 eV above the lowest structure, but the density is not converged and the state
+stays excluded. Repeating the same SCF does not help; it needs a different SCF strategy, which is a choice
+for the group's Gaussian practice and is low priority at this energy.
+
+**Consequences.**
+
+- No restart is needed for the capped runs: 000 is covered by 008. Restarting 007 at M = 47 would only
+  refine a state at least 0.2 eV up.
+- The next reference step that would change conclusions is a full relaxation (Fe free) of minimum A at
+  M = 49 and 47, restarted from the checkpoints kept on LONI. Package 99's bare-Fe16 optimizations needed 14
+  to 25 steps and hit the 12 h link cap, so this needs a longer link limit.
+- For training, this package adds about 120 optimization frames with energies and forces, the first for
+  this composition that lie along a relaxation path and end at small adsorbate forces.
