@@ -1,0 +1,215 @@
+{
+  "batch_independence": {
+    "batch1_vs_batch8": {
+      "all_status_equal": true,
+      "same_structure": 7,
+      "n": 8,
+      "max_abs_dE_eV": 0.01171875,
+      "max_position_diff_A": 0.2686985768377781,
+      "steps_a": [
+        70,
+        39,
+        44,
+        30,
+        24,
+        44,
+        17,
+        51
+      ],
+      "steps_b": [
+        68,
+        40,
+        46,
+        29,
+        24,
+        52,
+        17,
+        44
+      ]
+    },
+    "batch8_vs_reversed": {
+      "all_status_equal": true,
+      "same_structure": 8,
+      "n": 8,
+      "max_abs_dE_eV": 0.0019378662109375,
+      "max_position_diff_A": 0.1283128261566162,
+      "steps_a": [
+        68,
+        40,
+        46,
+        29,
+        24,
+        52,
+        17,
+        44
+      ],
+      "steps_b": [
+        70,
+        40,
+        46,
+        29,
+        24,
+        59,
+        17,
+        44
+      ]
+    },
+    "batch8_repeat": {
+      "all_status_equal": true,
+      "same_structure": 7,
+      "n": 8,
+      "max_abs_dE_eV": 0.012603759765625,
+      "max_position_diff_A": 0.31808872520923615,
+      "steps_a": [
+        68,
+        40,
+        46,
+        29,
+        24,
+        52,
+        17,
+        44
+      ],
+      "steps_b": [
+        68,
+        40,
+        51,
+        29,
+        24,
+        50,
+        17,
+        51
+      ]
+    }
+  },
+  "failure_isolation": {
+    "bad_input_status": "numerical_failure",
+    "bad_input_steps": 1,
+    "companions_vs_clean_batch": {
+      "all_status_equal": true,
+      "same_structure": 7,
+      "n": 8,
+      "max_abs_dE_eV": 0.011962890625,
+      "max_position_diff_A": 0.2800588607788086,
+      "steps_a": [
+        68,
+        40,
+        46,
+        29,
+        24,
+        52,
+        17,
+        44
+      ],
+      "steps_b": [
+        71,
+        39,
+        46,
+        29,
+        24,
+        52,
+        17,
+        51
+      ]
+    },
+    "outputs": 9,
+    "inputs": 9
+  },
+  "step_cap": {
+    "statuses": [
+      "step_cap",
+      "step_cap",
+      "step_cap",
+      "step_cap",
+      "step_cap",
+      "step_cap",
+      "step_cap",
+      "step_cap"
+    ],
+    "none_reported_converged_falsely": true
+  },
+  "frozen_atoms_every_step": {
+    "steps_checked": 40,
+    "max_move_A": 0.0,
+    "max_stored_force_on_frozen": 0.0
+  },
+  "mixed_sizes": {
+    "sizes": [
+      16,
+      18,
+      18,
+      20
+    ],
+    "names": [
+      "Fe16",
+      "Fe16+CO",
+      "Fe16+2H",
+      "Fe16+CO+2H"
+    ],
+    "statuses": [
+      "converged",
+      "converged",
+      "converged",
+      "converged"
+    ],
+    "solo_vs_mixed": {
+      "all_status_equal": true,
+      "same_structure": 4,
+      "n": 4,
+      "max_abs_dE_eV": 0.00604248046875,
+      "max_position_diff_A": 0.19430112838745117,
+      "steps_a": [
+        1,
+        13,
+        22,
+        39
+      ],
+      "steps_b": [
+        1,
+        13,
+        22,
+        47
+      ]
+    }
+  },
+  "search_integration": {
+    "proposals": 25,
+    "relaxed": 24,
+    "budget": 24,
+    "ledger_in_proposal_order": true,
+    "statuses": {
+      "relaxed": 24,
+      "invalid": 1,
+      "duplicate_start": 0
+    },
+    "converged": 24,
+    "composition_roles_catalyst_kept": true,
+    "same_start_structures_as_native_pilot": [
+      "d308cee080e1101a",
+      "4557078cab0ee516",
+      "1cf228180b85a54a",
+      "a250bcd1e07bb4e2",
+      "93084c4729adc872",
+      "eae7625abd367077",
+      "d5d07212167c3348",
+      "1535ce3b36f69e60"
+    ],
+    "evaluator_stats": {
+      "batch_steps": 158,
+      "system_steps": 1896,
+      "useful_system_steps": 900
+    },
+    "unique": 24,
+    "motifs": [
+      "CO@C-bridge|H@H-bridge|H@H-hollow3",
+      "CO@C-bridge|H@H-bridge|H@H-top",
+      "CO@C-bridge|H@H-hollow3|H@H-hollow3",
+      "CO@C-hollow3|H@H-bridge|H@H-hollow3",
+      "CO@C-hollow3|H@H-hollow3|H@H-hollow3",
+      "CO@C-top|H@H-bridge|H@H-hollow3",
+      "CO@C-top|H@H-hollow3|H@H-hollow3",
+      "CO@C-top|H@H-hollow3|H@H-top",
+      "CO@gas|H@H-top|H@H-top"
+    ]
+  }
+}

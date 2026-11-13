@@ -1,0 +1,371 @@
+{
+  "reference": "native",
+  "energy_tolerance_eV": 0.0001,
+  "runs": {
+    "alchemi_b1": {
+      "inputs": 128,
+      "outputs": 128,
+      "every_input_once": true,
+      "ids_match_reference": true,
+      "status": {
+        "converged": 128
+      },
+      "composition_and_roles_kept": true,
+      "max_catalyst_move_A": 1.1486816386963028e-07,
+      "converged_above_fmax_on_native_recompute": 0,
+      "max_abs_reported_minus_native_energy_eV": 3.0517578125e-05,
+      "steps_per_candidate_mean": 39.9375,
+      "topologies": {
+        "CO+H+H": 128
+      },
+      "flags": {
+        "co_o_bound": 6,
+        "desorbed_CO": 9
+      },
+      "motifs": {
+        "CO@C-top|H@H-hollow3|H@H-hollow3": 18,
+        "CO@C-bridge|H@H-bridge|H@H-hollow3": 23,
+        "CO@C-bridge|H@H-bridge|H@H-top": 4,
+        "CO@C-top|H@H-bridge|H@H-hollow3": 13,
+        "CO@C-hollow3|H@H-bridge|H@H-hollow3": 14,
+        "CO@C-bridge|H@H-hollow3|H@H-hollow3": 16,
+        "CO@C-hollow3|H@H-hollow3|H@H-hollow3": 16,
+        "CO@gas|H@H-top|H@H-top": 1,
+        "CO@C-top|H@H-hollow3|H@H-top": 3,
+        "CO@C-bridge|H@H-bridge|H@H-bridge": 3,
+        "CO@C-top|H@H-bridge|H@H-top": 1,
+        "CO@C-hollow3|H@H-bridge|H@H-bridge": 3,
+        "CO@gas|H@H-hollow3|H@H-hollow3": 5,
+        "CO@C-hollow3|H@H-bridge|H@H-top": 1,
+        "CO@gas|H@H-hollow3|H@H-top": 2,
+        "CO@gas|H@H-bridge|H@H-hollow3": 1,
+        "CO@C-bridge|H@H-hollow3|H@H-top": 3,
+        "CO@C-top|H@H-bridge|H@H-bridge": 1
+      },
+      "timings": [
+        {
+          "setup_s": 4.374384826980531,
+          "convert_s": 0.1773907628376037,
+          "step_s": 115.4605129705742,
+          "extract_s": 0.9420178770087659,
+          "batch_steps": 5112,
+          "system_steps": 5112,
+          "active_system_steps": 5112,
+          "run_s": 116.6065904579591,
+          "model_calls": 5112,
+          "total_s": 125.70132207195275,
+          "peak_vram_mb": 98.390625,
+          "converged": 128,
+          "candidates_per_hour_warm": 3951.749195223533
+        }
+      ],
+      "vs_reference": {
+        "both_converged": 128,
+        "same_structure": 84,
+        "same_motif": 100,
+        "different_minimum": 44,
+        "lower_energy_than_reference": 61,
+        "higher_energy_than_reference": 57,
+        "same_structure_abs_dE_eV": {
+          "max": 0.0087127685546875,
+          "median": 0.00049591064453125
+        },
+        "all_abs_dE_eV_median": 0.00095367431640625,
+        "ranking_pairs": {
+          "resolution_eV": 0.017425537109375,
+          "agree": 3387,
+          "disagree": 0,
+          "unresolved_within_tolerance": 99
+        },
+        "best_energy_minus_reference_best_eV": 0.0037078857421875
+      }
+    },
+    "alchemi_b16": {
+      "inputs": 128,
+      "outputs": 128,
+      "every_input_once": true,
+      "ids_match_reference": true,
+      "status": {
+        "converged": 128
+      },
+      "composition_and_roles_kept": true,
+      "max_catalyst_move_A": 1.1486816386963028e-07,
+      "converged_above_fmax_on_native_recompute": 0,
+      "max_abs_reported_minus_native_energy_eV": 1.52587890625e-05,
+      "steps_per_candidate_mean": 40.8203125,
+      "topologies": {
+        "CO+H+H": 128
+      },
+      "flags": {
+        "co_o_bound": 6,
+        "desorbed_CO": 9
+      },
+      "motifs": {
+        "CO@C-top|H@H-hollow3|H@H-hollow3": 18,
+        "CO@C-bridge|H@H-bridge|H@H-hollow3": 19,
+        "CO@C-bridge|H@H-bridge|H@H-top": 4,
+        "CO@C-top|H@H-bridge|H@H-hollow3": 11,
+        "CO@C-hollow3|H@H-bridge|H@H-hollow3": 16,
+        "CO@C-bridge|H@H-hollow3|H@H-hollow3": 21,
+        "CO@C-hollow3|H@H-hollow3|H@H-hollow3": 15,
+        "CO@gas|H@H-top|H@H-top": 1,
+        "CO@C-top|H@H-hollow3|H@H-top": 3,
+        "CO@C-bridge|H@H-bridge|H@H-bridge": 3,
+        "CO@C-top|H@H-bridge|H@H-top": 1,
+        "CO@C-hollow3|H@H-bridge|H@H-bridge": 3,
+        "CO@gas|H@H-hollow3|H@H-hollow3": 5,
+        "CO@C-hollow3|H@H-bridge|H@H-top": 1,
+        "CO@gas|H@H-hollow3|H@H-top": 2,
+        "CO@gas|H@H-bridge|H@H-hollow3": 1,
+        "CO@C-bridge|H@H-hollow3|H@H-top": 3,
+        "CO@C-top|H@H-bridge|H@H-bridge": 1
+      },
+      "timings": [
+        {
+          "setup_s": 17.148936402983963,
+          "convert_s": 0.06949679809622467,
+          "step_s": 21.844854956958443,
+          "extract_s": 0.5657671869266778,
+          "batch_steps": 624,
+          "system_steps": 9984,
+          "active_system_steps": 5177,
+          "run_s": 22.483133355155587,
+          "model_calls": 624,
+          "total_s": 47.73576552886516,
+          "peak_vram_mb": 665.29150390625,
+          "converged": 128,
+          "candidates_per_hour_warm": 20495.36391218061
+        },
+        {
+          "setup_s": 0.2548370910808444,
+          "convert_s": 0.06148071982897818,
+          "step_s": 18.337101965909824,
+          "extract_s": 0.528979838360101,
+          "batch_steps": 655,
+          "system_steps": 10480,
+          "active_system_steps": 5131,
+          "run_s": 18.930358428042382,
+          "model_calls": 655,
+          "total_s": 19.191235322039574,
+          "peak_vram_mb": 704.12353515625,
+          "converged": 128,
+          "candidates_per_hour_warm": 24341.85288945171
+        },
+        {
+          "setup_s": 0.2542482770513743,
+          "convert_s": 0.06146714393980801,
+          "step_s": 18.5042229432147,
+          "extract_s": 0.5355740708764642,
+          "batch_steps": 661,
+          "system_steps": 10576,
+          "active_system_steps": 5225,
+          "run_s": 19.10408084304072,
+          "model_calls": 661,
+          "total_s": 19.365235535195097,
+          "peak_vram_mb": 704.12353515625,
+          "converged": 128,
+          "candidates_per_hour_warm": 24120.50094353853
+        }
+      ],
+      "vs_reference": {
+        "both_converged": 128,
+        "same_structure": 84,
+        "same_motif": 97,
+        "different_minimum": 44,
+        "lower_energy_than_reference": 61,
+        "higher_energy_than_reference": 54,
+        "same_structure_abs_dE_eV": {
+          "max": 0.0084991455078125,
+          "median": 0.00054931640625
+        },
+        "all_abs_dE_eV_median": 0.00109100341796875,
+        "ranking_pairs": {
+          "resolution_eV": 0.016998291015625,
+          "agree": 3391,
+          "disagree": 0,
+          "unresolved_within_tolerance": 95
+        },
+        "best_energy_minus_reference_best_eV": -0.0012969970703125
+      }
+    },
+    "alchemi_b64": {
+      "inputs": 128,
+      "outputs": 128,
+      "every_input_once": true,
+      "ids_match_reference": true,
+      "status": {
+        "converged": 128
+      },
+      "composition_and_roles_kept": true,
+      "max_catalyst_move_A": 1.1486816386963028e-07,
+      "converged_above_fmax_on_native_recompute": 0,
+      "max_abs_reported_minus_native_energy_eV": 3.0517578125e-05,
+      "steps_per_candidate_mean": 39.2578125,
+      "topologies": {
+        "CO+H+H": 128
+      },
+      "flags": {
+        "co_o_bound": 7,
+        "desorbed_CO": 9
+      },
+      "motifs": {
+        "CO@C-top|H@H-hollow3|H@H-hollow3": 21,
+        "CO@C-bridge|H@H-bridge|H@H-hollow3": 21,
+        "CO@C-bridge|H@H-bridge|H@H-top": 4,
+        "CO@C-top|H@H-bridge|H@H-hollow3": 10,
+        "CO@C-hollow3|H@H-bridge|H@H-hollow3": 16,
+        "CO@C-bridge|H@H-hollow3|H@H-hollow3": 16,
+        "CO@C-hollow3|H@H-hollow3|H@H-hollow3": 15,
+        "CO@gas|H@H-top|H@H-top": 1,
+        "CO@C-top|H@H-hollow3|H@H-top": 3,
+        "CO@C-bridge|H@H-bridge|H@H-bridge": 3,
+        "CO@C-top|H@H-bridge|H@H-top": 1,
+        "CO@C-hollow3|H@H-bridge|H@H-bridge": 3,
+        "CO@gas|H@H-hollow3|H@H-hollow3": 5,
+        "CO@C-hollow3|H@H-bridge|H@H-top": 1,
+        "CO@gas|H@H-hollow3|H@H-top": 2,
+        "CO@gas|H@H-bridge|H@H-hollow3": 1,
+        "CO@C-hollow3|H@H-hollow3|H@H-top": 1,
+        "CO@C-bridge|H@H-hollow3|H@H-top": 3,
+        "CO@C-top|H@H-bridge|H@H-bridge": 1
+      },
+      "timings": [
+        {
+          "setup_s": 4.880146005889401,
+          "convert_s": 0.06470171082764864,
+          "step_s": 18.534010868752375,
+          "extract_s": 0.4697445738129318,
+          "batch_steps": 195,
+          "system_steps": 12480,
+          "active_system_steps": 5106,
+          "run_s": 19.069419607054442,
+          "model_calls": 195,
+          "total_s": 28.66278709890321,
+          "peak_vram_mb": 2479.447265625,
+          "converged": 128,
+          "candidates_per_hour_warm": 24164.343199492763
+        },
+        {
+          "setup_s": 0.2555183060467243,
+          "convert_s": 0.055347362300381064,
+          "step_s": 16.649427036289126,
+          "extract_s": 0.47430354612879455,
+          "batch_steps": 205,
+          "system_steps": 13120,
+          "active_system_steps": 5154,
+          "run_s": 17.179962693015113,
+          "model_calls": 205,
+          "total_s": 17.442245617043227,
+          "peak_vram_mb": 2517.46826171875,
+          "converged": 128,
+          "candidates_per_hour_warm": 26821.94415866504
+        },
+        {
+          "setup_s": 0.25345374410972,
+          "convert_s": 0.05546515015885234,
+          "step_s": 15.531662095105276,
+          "extract_s": 0.46031579398550093,
+          "batch_steps": 191,
+          "system_steps": 12224,
+          "active_system_steps": 5025,
+          "run_s": 16.04826897988096,
+          "model_calls": 191,
+          "total_s": 16.308212898904458,
+          "peak_vram_mb": 2517.46826171875,
+          "converged": 128,
+          "candidates_per_hour_warm": 28713.377160968925
+        }
+      ],
+      "vs_reference": {
+        "both_converged": 128,
+        "same_structure": 84,
+        "same_motif": 100,
+        "different_minimum": 44,
+        "lower_energy_than_reference": 58,
+        "higher_energy_than_reference": 60,
+        "same_structure_abs_dE_eV": {
+          "max": 0.00872802734375,
+          "median": 0.00058746337890625
+        },
+        "all_abs_dE_eV_median": 0.00109100341796875,
+        "ranking_pairs": {
+          "resolution_eV": 0.0174560546875,
+          "agree": 3384,
+          "disagree": 0,
+          "unresolved_within_tolerance": 102
+        },
+        "best_energy_minus_reference_best_eV": -0.0666046142578125
+      }
+    },
+    "native": {
+      "inputs": 128,
+      "outputs": 128,
+      "every_input_once": true,
+      "ids_match_reference": true,
+      "status": {
+        "converged": 128
+      },
+      "composition_and_roles_kept": true,
+      "max_catalyst_move_A": 0.0,
+      "converged_above_fmax_on_native_recompute": 0,
+      "max_abs_reported_minus_native_energy_eV": 1.52587890625e-05,
+      "steps_per_candidate_mean": 53.8828125,
+      "topologies": {
+        "CO+H+H": 128
+      },
+      "flags": {
+        "co_o_bound": 7,
+        "desorbed_CO": 9
+      },
+      "motifs": {
+        "CO@C-top|H@H-bridge|H@H-hollow3": 11,
+        "CO@C-hollow3|H@H-bridge|H@H-hollow3": 16,
+        "CO@C-bridge|H@H-bridge|H@H-top": 4,
+        "CO@C-top|H@H-hollow3|H@H-hollow3": 19,
+        "CO@C-bridge|H@H-bridge|H@H-hollow3": 20,
+        "CO@C-bridge|H@H-hollow3|H@H-hollow3": 17,
+        "CO@C-hollow3|H@H-hollow3|H@H-hollow3": 12,
+        "CO@gas|H@H-top|H@H-top": 1,
+        "CO@C-top|H@H-hollow3|H@H-top": 4,
+        "CO@C-bridge|H@H-bridge|H@H-bridge": 3,
+        "CO@C-top|H@H-bridge|H@H-top": 1,
+        "CO@C-hollow3|H@H-bridge|H@H-bridge": 4,
+        "CO@gas|H@H-hollow3|H@H-hollow3": 5,
+        "CO@C-hollow3|H@H-bridge|H@H-top": 1,
+        "CO@gas|H@H-hollow3|H@H-top": 2,
+        "CO@gas|H@H-bridge|H@H-hollow3": 1,
+        "CO@C-bridge|H@H-hollow3|H@H-top": 4,
+        "CO@C-top|H@H-bridge|H@H-bridge": 3
+      },
+      "timings": [
+        {
+          "setup_s": 0.709357026964426,
+          "run_s": 174.64886572700925,
+          "model_calls": 7274,
+          "total_s": 177.675682393834,
+          "peak_vram_mb": 98.3935546875,
+          "converged": 128,
+          "candidates_per_hour_warm": 2638.436831993337
+        },
+        {
+          "setup_s": 0.18176177982240915,
+          "run_s": 170.87245889892802,
+          "model_calls": 7139,
+          "total_s": 171.054875634145,
+          "peak_vram_mb": 152.36572265625,
+          "converged": 128,
+          "candidates_per_hour_warm": 2696.7482236125934
+        },
+        {
+          "setup_s": 0.18177217314951122,
+          "run_s": 166.20554076111875,
+          "model_calls": 7025,
+          "total_s": 166.38813011581078,
+          "peak_vram_mb": 189.93115234375,
+          "converged": 128,
+          "candidates_per_hour_warm": 2772.4707485070626
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,355 @@
+{
+  "reference": "native",
+  "energy_tolerance_eV": 0.0001,
+  "runs": {
+    "alchemi_b1": {
+      "inputs": 128,
+      "outputs": 128,
+      "every_input_once": true,
+      "ids_match_reference": true,
+      "status": {
+        "converged": 128
+      },
+      "composition_and_roles_kept": true,
+      "max_catalyst_move_A": 1.1486816386963028e-07,
+      "converged_above_fmax_on_native_recompute": 0,
+      "max_abs_reported_minus_native_energy_eV": 1.52587890625e-05,
+      "steps_per_candidate_mean": 40.65625,
+      "topologies": {
+        "CO+H+H": 128
+      },
+      "flags": {
+        "co_o_bound": 6,
+        "desorbed_CO": 9
+      },
+      "motifs": {
+        "CO@C-top|H@H-hollow3|H@H-hollow3": 20,
+        "CO@C-bridge|H@H-bridge|H@H-hollow3": 20,
+        "CO@C-bridge|H@H-bridge|H@H-top": 4,
+        "CO@C-top|H@H-bridge|H@H-hollow3": 12,
+        "CO@C-hollow3|H@H-bridge|H@H-hollow3": 16,
+        "CO@C-bridge|H@H-hollow3|H@H-hollow3": 18,
+        "CO@C-hollow3|H@H-hollow3|H@H-hollow3": 15,
+        "CO@gas|H@H-top|H@H-top": 1,
+        "CO@C-top|H@H-hollow3|H@H-top": 3,
+        "CO@C-bridge|H@H-bridge|H@H-bridge": 2,
+        "CO@C-top|H@H-bridge|H@H-top": 1,
+        "CO@C-hollow3|H@H-bridge|H@H-bridge": 3,
+        "CO@gas|H@H-hollow3|H@H-hollow3": 5,
+        "CO@C-hollow3|H@H-bridge|H@H-top": 1,
+        "CO@gas|H@H-hollow3|H@H-top": 2,
+        "CO@gas|H@H-bridge|H@H-hollow3": 1,
+        "CO@C-bridge|H@H-hollow3|H@H-top": 3,
+        "CO@C-top|H@H-bridge|H@H-bridge": 1
+      },
+      "timings": [
+        {
+          "setup_s": 2.1830234320368618,
+          "convert_s": 0.1690143544692546,
+          "step_s": 114.63195134606212,
+          "extract_s": 0.9199503131676465,
+          "batch_steps": 5204,
+          "system_steps": 5204,
+          "active_system_steps": 5204,
+          "run_s": 115.74538224306889,
+          "model_calls": 5204,
+          "total_s": 121.88756430684589,
+          "peak_vram_mb": 98.390625,
+          "converged": 128,
+          "candidates_per_hour_warm": 3981.152345519113
+        }
+      ],
+      "vs_reference": {
+        "both_converged": 128,
+        "same_structure": 90,
+        "same_motif": 104,
+        "different_minimum": 38,
+        "lower_energy_than_reference": 64,
+        "higher_energy_than_reference": 54,
+        "same_structure_abs_dE_eV": {
+          "max": 0.017059326171875,
+          "median": 0.000579833984375
+        },
+        "all_abs_dE_eV_median": 0.000946044921875,
+        "ranking_pairs": {
+          "resolution_eV": 0.03411865234375,
+          "agree": 3737,
+          "disagree": 0,
+          "unresolved_within_tolerance": 268
+        },
+        "best_energy_minus_reference_best_eV": -0.001434326171875
+      }
+    },
+    "alchemi_b16": {
+      "inputs": 128,
+      "outputs": 128,
+      "every_input_once": true,
+      "ids_match_reference": true,
+      "status": {
+        "converged": 128
+      },
+      "composition_and_roles_kept": true,
+      "max_catalyst_move_A": 1.1486816386963028e-07,
+      "converged_above_fmax_on_native_recompute": 0,
+      "max_abs_reported_minus_native_energy_eV": 3.0517578125e-05,
+      "steps_per_candidate_mean": 39.296875,
+      "topologies": {
+        "CO+H+H": 128
+      },
+      "flags": {
+        "co_o_bound": 6,
+        "desorbed_CO": 9
+      },
+      "motifs": {
+        "CO@C-top|H@H-hollow3|H@H-hollow3": 21,
+        "CO@C-bridge|H@H-bridge|H@H-hollow3": 20,
+        "CO@C-bridge|H@H-bridge|H@H-top": 4,
+        "CO@C-top|H@H-bridge|H@H-hollow3": 10,
+        "CO@C-hollow3|H@H-bridge|H@H-hollow3": 16,
+        "CO@C-bridge|H@H-hollow3|H@H-hollow3": 17,
+        "CO@C-hollow3|H@H-hollow3|H@H-hollow3": 15,
+        "CO@gas|H@H-top|H@H-top": 1,
+        "CO@C-top|H@H-hollow3|H@H-top": 3,
+        "CO@C-bridge|H@H-bridge|H@H-bridge": 2,
+        "CO@C-top|H@H-bridge|H@H-top": 1,
+        "CO@C-hollow3|H@H-bridge|H@H-bridge": 3,
+        "CO@gas|H@H-hollow3|H@H-hollow3": 4,
+        "CO@C-hollow3|H@H-bridge|H@H-top": 1,
+        "CO@gas|H@H-hollow3|H@H-top": 2,
+        "CO@gas|H@H-bridge|H@H-hollow3": 1,
+        "CO@C-hollow3|H@H-hollow3|H@H-top": 1,
+        "CO@gas|H@H-bridge|H@H-bridge": 1,
+        "CO@C-bridge|H@H-hollow3|H@H-top": 4,
+        "CO@C-top|H@H-bridge|H@H-bridge": 1
+      },
+      "timings": [
+        {
+          "setup_s": 2.1195442508906126,
+          "convert_s": 0.0676946472376585,
+          "step_s": 19.71775271440856,
+          "extract_s": 0.5230515499133617,
+          "batch_steps": 673,
+          "system_steps": 10768,
+          "active_system_steps": 5129,
+          "run_s": 20.31122639705427,
+          "model_calls": 673,
+          "total_s": 26.383997204946354,
+          "peak_vram_mb": 664.92578125,
+          "converged": 128,
+          "candidates_per_hour_warm": 22686.960944260347
+        },
+        {
+          "setup_s": 0.2507912761066109,
+          "convert_s": 0.06048902194015682,
+          "step_s": 16.758581692818552,
+          "extract_s": 0.5147838762495667,
+          "batch_steps": 607,
+          "system_steps": 9712,
+          "active_system_steps": 5099,
+          "run_s": 17.336375932907686,
+          "model_calls": 607,
+          "total_s": 17.59372005588375,
+          "peak_vram_mb": 664.546875,
+          "converged": 128,
+          "candidates_per_hour_warm": 26579.94968402337
+        },
+        {
+          "setup_s": 0.24814194394275546,
+          "convert_s": 0.06009247689507902,
+          "step_s": 15.26660559955053,
+          "extract_s": 0.4953671908006072,
+          "batch_steps": 552,
+          "system_steps": 8832,
+          "active_system_steps": 5030,
+          "run_s": 15.824402115074918,
+          "model_calls": 552,
+          "total_s": 16.080215372843668,
+          "peak_vram_mb": 664.546875,
+          "converged": 128,
+          "candidates_per_hour_warm": 29119.58358041374
+        }
+      ],
+      "vs_reference": {
+        "both_converged": 128,
+        "same_structure": 88,
+        "same_motif": 104,
+        "different_minimum": 40,
+        "lower_energy_than_reference": 57,
+        "higher_energy_than_reference": 57,
+        "same_structure_abs_dE_eV": {
+          "max": 0.017120361328125,
+          "median": 0.000579833984375
+        },
+        "all_abs_dE_eV_median": 0.0010986328125,
+        "ranking_pairs": {
+          "resolution_eV": 0.03424072265625,
+          "agree": 3578,
+          "disagree": 0,
+          "unresolved_within_tolerance": 250
+        },
+        "best_energy_minus_reference_best_eV": -0.001556396484375
+      }
+    },
+    "alchemi_b64": {
+      "inputs": 128,
+      "outputs": 128,
+      "every_input_once": true,
+      "ids_match_reference": true,
+      "status": {
+        "converged": 128
+      },
+      "composition_and_roles_kept": true,
+      "max_catalyst_move_A": 1.1486816386963028e-07,
+      "converged_above_fmax_on_native_recompute": 0,
+      "max_abs_reported_minus_native_energy_eV": 3.0517578125e-05,
+      "steps_per_candidate_mean": 40.0625,
+      "topologies": {
+        "CO+H+H": 128
+      },
+      "flags": {
+        "co_o_bound": 6,
+        "desorbed_CO": 9
+      },
+      "motifs": {
+        "CO@C-top|H@H-hollow3|H@H-hollow3": 22,
+        "CO@C-bridge|H@H-bridge|H@H-hollow3": 22,
+        "CO@C-bridge|H@H-bridge|H@H-top": 4,
+        "CO@C-top|H@H-bridge|H@H-hollow3": 10,
+        "CO@C-hollow3|H@H-bridge|H@H-hollow3": 15,
+        "CO@C-bridge|H@H-hollow3|H@H-hollow3": 16,
+        "CO@C-hollow3|H@H-hollow3|H@H-hollow3": 14,
+        "CO@gas|H@H-top|H@H-top": 1,
+        "CO@C-top|H@H-hollow3|H@H-top": 3,
+        "CO@C-bridge|H@H-bridge|H@H-bridge": 3,
+        "CO@C-top|H@H-bridge|H@H-top": 1,
+        "CO@C-hollow3|H@H-bridge|H@H-bridge": 3,
+        "CO@gas|H@H-hollow3|H@H-hollow3": 5,
+        "CO@C-hollow3|H@H-bridge|H@H-top": 1,
+        "CO@gas|H@H-hollow3|H@H-top": 2,
+        "CO@gas|H@H-bridge|H@H-hollow3": 1,
+        "CO@C-hollow3|H@H-hollow3|H@H-top": 1,
+        "CO@C-bridge|H@H-hollow3|H@H-top": 3,
+        "CO@C-top|H@H-bridge|H@H-bridge": 1
+      },
+      "timings": [
+        {
+          "setup_s": 2.1786751188337803,
+          "convert_s": 0.062284445157274604,
+          "step_s": 15.385852813487872,
+          "extract_s": 0.4687312291935086,
+          "batch_steps": 177,
+          "system_steps": 11328,
+          "active_system_steps": 5065,
+          "run_s": 15.917686986969784,
+          "model_calls": 177,
+          "total_s": 22.294762314064428,
+          "peak_vram_mb": 2480.1826171875,
+          "converged": 128,
+          "candidates_per_hour_warm": 28948.929601217238
+        },
+        {
+          "setup_s": 0.25276126409880817,
+          "convert_s": 0.05365180200897157,
+          "step_s": 16.25190575281158,
+          "extract_s": 0.4750765434000641,
+          "batch_steps": 201,
+          "system_steps": 12864,
+          "active_system_steps": 5126,
+          "run_s": 16.78148861695081,
+          "model_calls": 201,
+          "total_s": 17.040679443860427,
+          "peak_vram_mb": 2479.1376953125,
+          "converged": 128,
+          "candidates_per_hour_warm": 27458.82743289833
+        },
+        {
+          "setup_s": 0.24969911389052868,
+          "convert_s": 0.0538520582485944,
+          "step_s": 15.932246363721788,
+          "extract_s": 0.47489420627243817,
+          "batch_steps": 197,
+          "system_steps": 12608,
+          "active_system_steps": 5128,
+          "run_s": 16.46181269804947,
+          "model_calls": 197,
+          "total_s": 16.71863272204064,
+          "peak_vram_mb": 2479.1376953125,
+          "converged": 128,
+          "candidates_per_hour_warm": 27992.057038445062
+        }
+      ],
+      "vs_reference": {
+        "both_converged": 128,
+        "same_structure": 90,
+        "same_motif": 103,
+        "different_minimum": 38,
+        "lower_energy_than_reference": 59,
+        "higher_energy_than_reference": 57,
+        "same_structure_abs_dE_eV": {
+          "max": 0.0173797607421875,
+          "median": 0.00055694580078125
+        },
+        "all_abs_dE_eV_median": 0.0008392333984375,
+        "ranking_pairs": {
+          "resolution_eV": 0.034759521484375,
+          "agree": 3735,
+          "disagree": 0,
+          "unresolved_within_tolerance": 270
+        },
+        "best_energy_minus_reference_best_eV": -0.06610107421875
+      }
+    },
+    "native": {
+      "inputs": 128,
+      "outputs": 128,
+      "every_input_once": true,
+      "ids_match_reference": true,
+      "status": {
+        "converged": 128
+      },
+      "composition_and_roles_kept": true,
+      "max_catalyst_move_A": 0.0,
+      "converged_above_fmax_on_native_recompute": 0,
+      "max_abs_reported_minus_native_energy_eV": 1.52587890625e-05,
+      "steps_per_candidate_mean": 54.5859375,
+      "topologies": {
+        "CO+H+H": 128
+      },
+      "flags": {
+        "co_o_bound": 7,
+        "desorbed_CO": 9
+      },
+      "motifs": {
+        "CO@C-top|H@H-bridge|H@H-hollow3": 13,
+        "CO@C-bridge|H@H-bridge|H@H-top": 4,
+        "CO@C-hollow3|H@H-bridge|H@H-hollow3": 16,
+        "CO@C-bridge|H@H-bridge|H@H-hollow3": 19,
+        "CO@C-bridge|H@H-hollow3|H@H-hollow3": 17,
+        "CO@C-hollow3|H@H-hollow3|H@H-hollow3": 12,
+        "CO@gas|H@H-top|H@H-top": 1,
+        "CO@C-top|H@H-hollow3|H@H-top": 4,
+        "CO@C-bridge|H@H-bridge|H@H-bridge": 3,
+        "CO@C-top|H@H-hollow3|H@H-hollow3": 18,
+        "CO@C-top|H@H-bridge|H@H-top": 1,
+        "CO@C-hollow3|H@H-bridge|H@H-bridge": 4,
+        "CO@gas|H@H-hollow3|H@H-hollow3": 5,
+        "CO@C-hollow3|H@H-bridge|H@H-top": 1,
+        "CO@gas|H@H-hollow3|H@H-top": 2,
+        "CO@gas|H@H-bridge|H@H-hollow3": 1,
+        "CO@C-bridge|H@H-hollow3|H@H-top": 4,
+        "CO@C-top|H@H-bridge|H@H-bridge": 3
+      },
+      "timings": [
+        {
+          "setup_s": 0.7113257199525833,
+          "run_s": 170.63112587411888,
+          "model_calls": 7115,
+          "total_s": 173.70733328396454,
+          "peak_vram_mb": 98.3935546875,
+          "converged": 128,
+          "candidates_per_hour_warm": 2700.5623835591978
+        }
+      ]
+    }
+  }
+}
