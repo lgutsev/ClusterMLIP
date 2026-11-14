@@ -1,0 +1,1231 @@
+{
+  "structures": 20,
+  "pair_threshold_ev": 0.05,
+  "usable_states": {
+    "49": 19,
+    "47": 20,
+    "45": 20
+  },
+  "models": {
+    "mace-mpa-0-medium.model": {
+      "49": {
+        "mae_ev": 0.6016551421305752,
+        "max_abs_error_ev": 3.401501646148972,
+        "pairs_agree": 139,
+        "pairs_disagree": 19,
+        "pair_ordering_percent": 88.0,
+        "model_lowest_structure": "fe16coh2_000",
+        "ubpw91_lowest_structure": "fe16coh2_000",
+        "ubpw91_rel_of_model_lowest_ev": 0.0
+      },
+      "47": {
+        "mae_ev": 0.6244141367031262,
+        "max_abs_error_ev": 3.6868375211488456,
+        "pairs_agree": 155,
+        "pairs_disagree": 20,
+        "pair_ordering_percent": 88.6,
+        "model_lowest_structure": "fe16coh2_000",
+        "ubpw91_lowest_structure": "fe16coh2_000",
+        "ubpw91_rel_of_model_lowest_ev": 0.0
+      },
+      "45": {
+        "mae_ev": 0.6611367103352677,
+        "max_abs_error_ev": 3.9816003555897623,
+        "pairs_agree": 146,
+        "pairs_disagree": 27,
+        "pair_ordering_percent": 84.4,
+        "model_lowest_structure": "fe16coh2_000",
+        "ubpw91_lowest_structure": "fe16coh2_007",
+        "ubpw91_rel_of_model_lowest_ev": 0.016601666808128357
+      }
+    },
+    "MACE-matpes-r2scan-omat-ft.model": {
+      "49": {
+        "mae_ev": 0.266962386244957,
+        "max_abs_error_ev": 0.9337492083432153,
+        "pairs_agree": 150,
+        "pairs_disagree": 8,
+        "pair_ordering_percent": 94.9,
+        "model_lowest_structure": "fe16coh2_006",
+        "ubpw91_lowest_structure": "fe16coh2_000",
+        "ubpw91_rel_of_model_lowest_ev": 0.15853625745512545
+      },
+      "47": {
+        "mae_ev": 0.22473614352056756,
+        "max_abs_error_ev": 0.648413333343342,
+        "pairs_agree": 162,
+        "pairs_disagree": 13,
+        "pair_ordering_percent": 92.6,
+        "model_lowest_structure": "fe16coh2_006",
+        "ubpw91_lowest_structure": "fe16coh2_000",
+        "ubpw91_rel_of_model_lowest_ev": 0.14556186844129115
+      },
+      "45": {
+        "mae_ev": 0.1392407248786185,
+        "max_abs_error_ev": 0.33172607491724193,
+        "pairs_agree": 159,
+        "pairs_disagree": 14,
+        "pair_ordering_percent": 91.9,
+        "model_lowest_structure": "fe16coh2_006",
+        "ubpw91_lowest_structure": "fe16coh2_007",
+        "ubpw91_rel_of_model_lowest_ev": 0.18409047031309456
+      }
+    }
+  },
+  "spin": {
+    "lowest_multiplicity_counts": {
+      "49": 18,
+      "47": 2
+    },
+    "gap_49_to_47_ev": {
+      "n": 19,
+      "min": -0.13837262021843344,
+      "median": 0.1306717979023233,
+      "max": 0.4966540583409369,
+      "below_0p10": 6
+    }
+  },
+  "hours_per_task": {
+    "min": 4.67,
+    "max": 6.8,
+    "total_core_hours_12_cores": 1264
+  },
+  "rows": [
+    {
+      "package": "112",
+      "frame": "frame_0000",
+      "draft_job": "fe16coh2_000",
+      "why": "model minimum (MACE-MPA-0)",
+      "motif": "CO@C-top|H@H-hollow3|H@H-hollow3",
+      "hours": 4.86,
+      "lowest_multiplicity": 49,
+      "states": {
+        "49": {
+          "usable": true,
+          "energy_ev": -553380.8030797384,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.2512584277282227,
+            "adsorbate": 0.5907581854361795,
+            "max_norm": 1.5802974077046719
+          }
+        },
+        "47": {
+          "usable": true,
+          "energy_ev": -553380.6561164836,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.14636041741112546,
+            "adsorbate": 0.49965596872044654,
+            "max_norm": 1.449529395925856
+          }
+        },
+        "45": {
+          "usable": true,
+          "energy_ev": -553380.2306855076,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.15566792976998292,
+            "adsorbate": 0.42044606073387236,
+            "max_norm": 1.3174846770176174
+          }
+        }
+      },
+      "ubpw91_rel_ev": {
+        "49": 0.0,
+        "47": 0.0,
+        "45": 0.016601666808128357
+      },
+      "gap_49_to_47_ev": 0.1469632547814399,
+      "model_rel_ev": {
+        "mace-mpa-0-medium.model": 0.0,
+        "MACE-matpes-r2scan-omat-ft.model": 0.124969482421875
+      }
+    },
+    {
+      "package": "112",
+      "frame": "frame_0001",
+      "draft_job": "fe16coh2_002",
+      "why": "desorbed CO: lowest such structure on the model",
+      "motif": "CO@gas|H@H-bridge|H@H-hollow3",
+      "hours": 4.88,
+      "lowest_multiplicity": 49,
+      "states": {
+        "49": {
+          "usable": true,
+          "energy_ev": -553379.2612744303,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 1,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.16805401375288284,
+            "adsorbate": 0.08412196506594721,
+            "max_norm": 0.7433170592911666
+          }
+        },
+        "47": {
+          "usable": true,
+          "energy_ev": -553378.9111536869,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.07371627265741236,
+            "adsorbate": 0.0872309411085133,
+            "max_norm": 0.2186775169189767
+          }
+        },
+        "45": {
+          "usable": true,
+          "energy_ev": -553378.2878442314,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.16215675209734676,
+            "adsorbate": 0.0815655922101299,
+            "max_norm": 0.5937485445885604
+          }
+        }
+      },
+      "ubpw91_rel_ev": {
+        "49": 1.541805308079347,
+        "47": 1.7449627966852859,
+        "45": 1.9594429431017488
+      },
+      "gap_49_to_47_ev": 0.35012074338737875,
+      "model_rel_ev": {
+        "mace-mpa-0-medium.model": 0.0223388671875,
+        "MACE-matpes-r2scan-omat-ft.model": 1.908599853515625
+      }
+    },
+    {
+      "package": "112",
+      "frame": "frame_0002",
+      "draft_job": "fe16coh2_006",
+      "why": "near-degenerate competitor of the minimum",
+      "motif": "CO@C-top|H@H-bridge|H@H-hollow3",
+      "hours": 4.91,
+      "lowest_multiplicity": 49,
+      "states": {
+        "49": {
+          "usable": true,
+          "energy_ev": -553380.644543481,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.23498226490854934,
+            "adsorbate": 0.5508308752398606,
+            "max_norm": 1.5656761009801596
+          }
+        },
+        "47": {
+          "usable": true,
+          "energy_ev": -553380.5105546152,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.14266135111987058,
+            "adsorbate": 0.44639865209481955,
+            "max_norm": 1.3816485757418295
+          }
+        },
+        "45": {
+          "usable": true,
+          "energy_ev": -553380.0631967041,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.15299446102738526,
+            "adsorbate": 0.33617907649936934,
+            "max_norm": 1.1356640662623205
+          }
+        }
+      },
+      "ubpw91_rel_ev": {
+        "49": 0.15853625745512545,
+        "47": 0.14556186844129115,
+        "45": 0.18409047031309456
+      },
+      "gap_49_to_47_ev": 0.1339888657676056,
+      "model_rel_ev": {
+        "mace-mpa-0-medium.model": 0.0123291015625,
+        "MACE-matpes-r2scan-omat-ft.model": 0.0
+      }
+    },
+    {
+      "package": "112",
+      "frame": "frame_0003",
+      "draft_job": "fe16coh2_017",
+      "why": "constructed control: CO bound through O",
+      "motif": "CO@O-top|H@H-hollow3|H@H-hollow3",
+      "hours": 5.18,
+      "lowest_multiplicity": 49,
+      "states": {
+        "49": {
+          "usable": true,
+          "energy_ev": -553378.8562383883,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 1,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.1933956860094394,
+            "adsorbate": 0.31250650590885076,
+            "max_norm": 0.7489939988971938
+          }
+        },
+        "47": {
+          "usable": true,
+          "energy_ev": -553378.6451678287,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.1568754546084189,
+            "adsorbate": 0.3216897971918757,
+            "max_norm": 0.8498544246020402
+          }
+        },
+        "45": {
+          "usable": true,
+          "energy_ev": -553378.1660134128,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.22182869074572845,
+            "adsorbate": 0.4507262977219903,
+            "max_norm": 1.2384023552573025
+          }
+        }
+      },
+      "ubpw91_rel_ev": {
+        "49": 1.9468413500580937,
+        "47": 2.0109486549627036,
+        "45": 2.0812737616943195
+      },
+      "gap_49_to_47_ev": 0.21107055968604982,
+      "model_rel_ev": {
+        "mace-mpa-0-medium.model": 2.322296142578125,
+        "MACE-matpes-r2scan-omat-ft.model": 2.4289703369140625
+      }
+    },
+    {
+      "package": "116",
+      "frame": "frame_0000",
+      "draft_job": "fe16coh2_001",
+      "why": "lowest of motif",
+      "motif": "CO@C-top|H@H-bridge|H@H-hollow3",
+      "hours": 6.8,
+      "lowest_multiplicity": 47,
+      "states": {
+        "49": {
+          "usable": false,
+          "energy_ev": null,
+          "energy_ev_scf_not_converged": -553380.6122653347,
+          "scf_flag_stable_opt": 1,
+          "scf_flag_force": 1,
+          "force_rms": null
+        },
+        "47": {
+          "usable": true,
+          "energy_ev": -553380.5140594417,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.1481376311686628,
+            "adsorbate": 0.4432657560514228,
+            "max_norm": 1.3720249901449464
+          }
+        },
+        "45": {
+          "usable": true,
+          "energy_ev": -553380.039794912,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.16174792235370306,
+            "adsorbate": 0.3400944396267228,
+            "max_norm": 1.1517835026942553
+          }
+        }
+      },
+      "ubpw91_rel_ev": {
+        "49": null,
+        "47": 0.1420570418704301,
+        "45": 0.20749226247426122
+      },
+      "gap_49_to_47_ev": null,
+      "model_rel_ev": {
+        "mace-mpa-0-medium.model": 0.0107574462890625,
+        "MACE-matpes-r2scan-omat-ft.model": 0.00067138671875
+      }
+    },
+    {
+      "package": "116",
+      "frame": "frame_0001",
+      "draft_job": "fe16coh2_003",
+      "why": "lowest of motif",
+      "motif": "CO@C-bridge|H@H-hollow3|H@H-hollow3",
+      "hours": 5.29,
+      "lowest_multiplicity": 49,
+      "states": {
+        "49": {
+          "usable": true,
+          "energy_ev": -553380.6246927747,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.28430217725442775,
+            "adsorbate": 1.369864655562126,
+            "max_norm": 3.5792957971259396
+          }
+        },
+        "47": {
+          "usable": true,
+          "energy_ev": -553380.5005272194,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.23910702638531592,
+            "adsorbate": 1.211609682068793,
+            "max_norm": 3.3094248353607982
+          }
+        },
+        "45": {
+          "usable": true,
+          "energy_ev": -553380.1072519384,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.21309923695494778,
+            "adsorbate": 1.174294255137398,
+            "max_norm": 3.223660283522139
+          }
+        }
+      },
+      "ubpw91_rel_ev": {
+        "49": 0.17838696367107332,
+        "47": 0.15558926423545927,
+        "45": 0.1400352360215038
+      },
+      "gap_49_to_47_ev": 0.12416555534582585,
+      "model_rel_ev": {
+        "mace-mpa-0-medium.model": 0.060638427734375,
+        "MACE-matpes-r2scan-omat-ft.model": 0.193389892578125
+      }
+    },
+    {
+      "package": "116",
+      "frame": "frame_0002",
+      "draft_job": "fe16coh2_004",
+      "why": "lowest of motif",
+      "motif": "CO@C-bridge|H@H-bridge|H@H-hollow3",
+      "hours": 5.77,
+      "lowest_multiplicity": 49,
+      "states": {
+        "49": {
+          "usable": true,
+          "energy_ev": -553380.6329922476,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.2747279388551786,
+            "adsorbate": 1.3373897676842936,
+            "max_norm": 3.499077431500715
+          }
+        },
+        "47": {
+          "usable": true,
+          "energy_ev": -553380.3782065959,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.23350745494158429,
+            "adsorbate": 1.2920351679439281,
+            "max_norm": 3.4507412204874854
+          }
+        },
+        "45": {
+          "usable": true,
+          "energy_ev": -553380.0822011363,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.22469258938348102,
+            "adsorbate": 1.180628757089261,
+            "max_norm": 3.249551896611052
+          }
+        }
+      },
+      "ubpw91_rel_ev": {
+        "49": 0.17008749081287533,
+        "47": 0.27790988772176206,
+        "45": 0.16508603817783296
+      },
+      "gap_49_to_47_ev": 0.25478565169032663,
+      "model_rel_ev": {
+        "mace-mpa-0-medium.model": 0.0654144287109375,
+        "MACE-matpes-r2scan-omat-ft.model": 0.1240234375
+      }
+    },
+    {
+      "package": "116",
+      "frame": "frame_0003",
+      "draft_job": "fe16coh2_005",
+      "why": "lowest of motif",
+      "motif": "CO@gas|H@H-hollow3|H@H-hollow3",
+      "hours": 4.9,
+      "lowest_multiplicity": 49,
+      "states": {
+        "49": {
+          "usable": true,
+          "energy_ev": -553379.2839496785,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.16068831151402146,
+            "adsorbate": 0.10510863642010852,
+            "max_norm": 0.597169611754779
+          }
+        },
+        "47": {
+          "usable": true,
+          "energy_ev": -553378.7872956202,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.14992994579158156,
+            "adsorbate": 0.10372286995236873,
+            "max_norm": 0.4558654190918449
+          }
+        },
+        "45": {
+          "usable": true,
+          "energy_ev": -553378.1448756079,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.23286800902746566,
+            "adsorbate": 0.11795921759150772,
+            "max_norm": 0.6804746018256278
+          }
+        }
+      },
+      "ubpw91_rel_ev": {
+        "49": 1.519130059867166,
+        "47": 1.868820863426663,
+        "45": 2.102411566535011
+      },
+      "gap_49_to_47_ev": 0.4966540583409369,
+      "model_rel_ev": {
+        "mace-mpa-0-medium.model": 0.0855255126953125,
+        "MACE-matpes-r2scan-omat-ft.model": 2.198822021484375
+      }
+    },
+    {
+      "package": "116",
+      "frame": "frame_0004",
+      "draft_job": "fe16coh2_007",
+      "why": "near degenerate",
+      "motif": "CO@C-top|H@H-bridge|H@H-hollow3",
+      "hours": 5.34,
+      "lowest_multiplicity": 49,
+      "states": {
+        "49": {
+          "usable": true,
+          "energy_ev": -553380.7843310933,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.2269493119085715,
+            "adsorbate": 0.5523741839408511,
+            "max_norm": 1.4960230669213705
+          }
+        },
+        "47": {
+          "usable": true,
+          "energy_ev": -553380.543077664,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.14949896389432718,
+            "adsorbate": 0.45076573183620133,
+            "max_norm": 1.3494857121362556
+          }
+        },
+        "45": {
+          "usable": true,
+          "energy_ev": -553380.2472871745,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.15442886368069517,
+            "adsorbate": 0.3926526531736015,
+            "max_norm": 1.2473245731265445
+          }
+        }
+      },
+      "ubpw91_rel_ev": {
+        "49": 0.018748645088635385,
+        "47": 0.11303881963249296,
+        "45": 0.0
+      },
+      "gap_49_to_47_ev": 0.24125342932529747,
+      "model_rel_ev": {
+        "mace-mpa-0-medium.model": 0.012725830078125,
+        "MACE-matpes-r2scan-omat-ft.model": 0.05987548828125
+      }
+    },
+    {
+      "package": "116",
+      "frame": "frame_0005",
+      "draft_job": "fe16coh2_008",
+      "why": "near degenerate",
+      "motif": "CO@C-top|H@H-hollow3|H@H-hollow3",
+      "hours": 4.67,
+      "lowest_multiplicity": 49,
+      "states": {
+        "49": {
+          "usable": true,
+          "energy_ev": -553380.7328199391,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.2587036626565667,
+            "adsorbate": 0.5496807031631986,
+            "max_norm": 1.4942417331449325
+          }
+        },
+        "47": {
+          "usable": true,
+          "energy_ev": -553380.6021481412,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.16001792629306255,
+            "adsorbate": 0.46048566886281633,
+            "max_norm": 1.3632986404887935
+          }
+        },
+        "45": {
+          "usable": true,
+          "energy_ev": -553380.1557997727,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.1682808852543201,
+            "adsorbate": 0.3931574442750532,
+            "max_norm": 1.2442482815965654
+          }
+        }
+      },
+      "ubpw91_rel_ev": {
+        "49": 0.07025979924947023,
+        "47": 0.05396834237035364,
+        "45": 0.09148740174714476
+      },
+      "gap_49_to_47_ev": 0.1306717979023233,
+      "model_rel_ev": {
+        "mace-mpa-0-medium.model": 0.015869140625,
+        "MACE-matpes-r2scan-omat-ft.model": 0.1451873779296875
+      }
+    },
+    {
+      "package": "116",
+      "frame": "frame_0006",
+      "draft_job": "fe16coh2_009",
+      "why": "near degenerate",
+      "motif": "CO@C-top|H@H-hollow3|H@H-hollow3",
+      "hours": 5.48,
+      "lowest_multiplicity": 49,
+      "states": {
+        "49": {
+          "usable": true,
+          "energy_ev": -553380.5399674026,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 1,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.25105226612372106,
+            "adsorbate": 0.5678246647323313,
+            "max_norm": 1.6028781958661713
+          }
+        },
+        "47": {
+          "usable": true,
+          "energy_ev": -553380.4971557285,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.17793890923876826,
+            "adsorbate": 0.4525409138820014,
+            "max_norm": 1.4079813943171677
+          }
+        },
+        "45": {
+          "usable": true,
+          "energy_ev": -553380.1238209516,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.1635150237642197,
+            "adsorbate": 0.3540436036974939,
+            "max_norm": 1.1895536135494609
+          }
+        }
+      },
+      "ubpw91_rel_ev": {
+        "49": 0.2631123358150944,
+        "47": 0.15896075509954244,
+        "45": 0.12346622289624065
+      },
+      "gap_49_to_47_ev": 0.04281167406588793,
+      "model_rel_ev": {
+        "mace-mpa-0-medium.model": 0.016357421875,
+        "MACE-matpes-r2scan-omat-ft.model": 0.191864013671875
+      }
+    },
+    {
+      "package": "116",
+      "frame": "frame_0007",
+      "draft_job": "fe16coh2_010",
+      "why": "largest model disagreement",
+      "motif": "CO@C-bridge|H@H-top|H@H-top",
+      "hours": 5.99,
+      "lowest_multiplicity": 49,
+      "states": {
+        "49": {
+          "usable": true,
+          "energy_ev": -553379.2935362499,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.26879188502419815,
+            "adsorbate": 1.626437954879053,
+            "max_norm": 4.110336797112701
+          }
+        },
+        "47": {
+          "usable": true,
+          "energy_ev": -553379.1766823939,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.2107238157310894,
+            "adsorbate": 1.3827959396424456,
+            "max_norm": 3.440311939792059
+          }
+        },
+        "45": {
+          "usable": true,
+          "energy_ev": -553378.8520968152,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.1412697593761454,
+            "adsorbate": 1.2633076695947594,
+            "max_norm": 3.313407161769583
+          }
+        }
+      },
+      "ubpw91_rel_ev": {
+        "49": 1.5095434885006398,
+        "47": 1.4794340897351503,
+        "45": 1.3951903592096642
+      },
+      "gap_49_to_47_ev": 0.11685385601595044,
+      "model_rel_ev": {
+        "mace-mpa-0-medium.model": 1.6674652099609375,
+        "MACE-matpes-r2scan-omat-ft.model": 1.140380859375
+      }
+    },
+    {
+      "package": "116",
+      "frame": "frame_0008",
+      "draft_job": "fe16coh2_011",
+      "why": "largest model disagreement",
+      "motif": "CO@C-hollow3|H@H-top|H@H-top",
+      "hours": 5.17,
+      "lowest_multiplicity": 49,
+      "states": {
+        "49": {
+          "usable": true,
+          "energy_ev": -553379.6288757683,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.2563724613550775,
+            "adsorbate": 1.544599294825867,
+            "max_norm": 3.9226865034810543
+          }
+        },
+        "47": {
+          "usable": true,
+          "energy_ev": -553379.3777473269,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.20892135812418053,
+            "adsorbate": 1.505755557233727,
+            "max_norm": 3.8626289414262014
+          }
+        },
+        "45": {
+          "usable": true,
+          "energy_ev": -553378.9550266049,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.19150193274681848,
+            "adsorbate": 1.3743350342004903,
+            "max_norm": 3.683959427230563
+          }
+        }
+      },
+      "ubpw91_rel_ev": {
+        "49": 1.1742039701202884,
+        "47": 1.2783691567601636,
+        "45": 1.2922605695202947
+      },
+      "gap_49_to_47_ev": 0.2511284414213151,
+      "model_rel_ev": {
+        "mace-mpa-0-medium.model": 1.5464935302734375,
+        "MACE-matpes-r2scan-omat-ft.model": 1.11627197265625
+      }
+    },
+    {
+      "package": "116",
+      "frame": "frame_0009",
+      "draft_job": "fe16coh2_012",
+      "why": "largest model disagreement",
+      "motif": "CO@C-bridge|H@H-bridge|H@H-top",
+      "hours": 4.92,
+      "lowest_multiplicity": 49,
+      "states": {
+        "49": {
+          "usable": true,
+          "energy_ev": -553379.8838001981,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.2630153403525717,
+            "adsorbate": 1.5186907410824295,
+            "max_norm": 3.715598114332267
+          }
+        },
+        "47": {
+          "usable": true,
+          "energy_ev": -553379.8005796155,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.20292558390130377,
+            "adsorbate": 1.3066355015006317,
+            "max_norm": 3.3241230761314267
+          }
+        },
+        "45": {
+          "usable": true,
+          "energy_ev": -553379.4601815004,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.14433733559656098,
+            "adsorbate": 1.2039087597232256,
+            "max_norm": 3.23927582677034
+          }
+        }
+      },
+      "ubpw91_rel_ev": {
+        "49": 0.9192795403068885,
+        "47": 0.8555368680972606,
+        "45": 0.7871056740405038
+      },
+      "gap_49_to_47_ev": 0.08322058257181197,
+      "model_rel_ev": {
+        "mace-mpa-0-medium.model": 1.146484375,
+        "MACE-matpes-r2scan-omat-ft.model": 0.744049072265625
+      }
+    },
+    {
+      "package": "116",
+      "frame": "frame_0010",
+      "draft_job": "fe16coh2_013",
+      "why": "diverse random control",
+      "motif": "CO@C-top|H@H-hollow3|H@H-hollow3",
+      "hours": 5.18,
+      "lowest_multiplicity": 49,
+      "states": {
+        "49": {
+          "usable": true,
+          "energy_ev": -553380.364113819,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.2808887991056854,
+            "adsorbate": 0.5568780614084061,
+            "max_norm": 1.6040281027334757
+          }
+        },
+        "47": {
+          "usable": true,
+          "energy_ev": -553380.248419168,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.2540289929465714,
+            "adsorbate": 0.49069949542837915,
+            "max_norm": 1.5032112551800563
+          }
+        },
+        "45": {
+          "usable": true,
+          "energy_ev": -553379.8278671936,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.2875306280500495,
+            "adsorbate": 0.4676346427795362,
+            "max_norm": 1.6788399155474876
+          }
+        }
+      },
+      "ubpw91_rel_ev": {
+        "49": 0.4389659194275737,
+        "47": 0.4076973155606538,
+        "45": 0.4194199808407575
+      },
+      "gap_49_to_47_ev": 0.11569465091452003,
+      "model_rel_ev": {
+        "mace-mpa-0-medium.model": 0.14105224609375,
+        "MACE-matpes-r2scan-omat-ft.model": 0.246063232421875
+      }
+    },
+    {
+      "package": "116",
+      "frame": "frame_0011",
+      "draft_job": "fe16coh2_014",
+      "why": "diverse random control",
+      "motif": "CO@C-top|H@H-bridge|H@H-hollow3",
+      "hours": 4.97,
+      "lowest_multiplicity": 49,
+      "states": {
+        "49": {
+          "usable": true,
+          "energy_ev": -553380.5843328467,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.22203758082681152,
+            "adsorbate": 0.5883799377053739,
+            "max_norm": 1.679846192750741
+          }
+        },
+        "47": {
+          "usable": true,
+          "energy_ev": -553380.3924925737,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.2097187469984823,
+            "adsorbate": 0.46140778077144384,
+            "max_norm": 1.4266291825580952
+          }
+        },
+        "45": {
+          "usable": true,
+          "energy_ev": -553380.0490086874,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.2075366924672667,
+            "adsorbate": 0.4199905866424397,
+            "max_norm": 1.3209140091839033
+          }
+        }
+      },
+      "ubpw91_rel_ev": {
+        "49": 0.21874689171090722,
+        "47": 0.26362390990834683,
+        "45": 0.19827848707791418
+      },
+      "gap_49_to_47_ev": 0.1918402729788795,
+      "model_rel_ev": {
+        "mace-mpa-0-medium.model": 0.1021728515625,
+        "MACE-matpes-r2scan-omat-ft.model": 0.165069580078125
+      }
+    },
+    {
+      "package": "116",
+      "frame": "frame_0012",
+      "draft_job": "fe16coh2_015",
+      "why": "diverse random control",
+      "motif": "CO@C-top|H@H-bridge|H@H-hollow3",
+      "hours": 5.14,
+      "lowest_multiplicity": 49,
+      "states": {
+        "49": {
+          "usable": true,
+          "energy_ev": -553380.3559041437,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.23623583941471515,
+            "adsorbate": 0.5794926938562653,
+            "max_norm": 1.6718523888942598
+          }
+        },
+        "47": {
+          "usable": true,
+          "energy_ev": -553380.2805149981,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.1776643391560182,
+            "adsorbate": 0.44113240567095635,
+            "max_norm": 1.4083198607599754
+          }
+        },
+        "45": {
+          "usable": true,
+          "energy_ev": -553380.0206925188,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.14090605298737835,
+            "adsorbate": 0.36304303193503085,
+            "max_norm": 1.1724257318139242
+          }
+        }
+      },
+      "ubpw91_rel_ev": {
+        "49": 0.44717559474520385,
+        "47": 0.375601485488005,
+        "45": 0.22659465565811843
+      },
+      "gap_49_to_47_ev": 0.07538914552424103,
+      "model_rel_ev": {
+        "mace-mpa-0-medium.model": 0.133270263671875,
+        "MACE-matpes-r2scan-omat-ft.model": 0.230743408203125
+      }
+    },
+    {
+      "package": "116",
+      "frame": "frame_0013",
+      "draft_job": "fe16coh2_016",
+      "why": "diverse random control",
+      "motif": "CO@C-bridge|H@H-bridge|H@H-hollow3",
+      "hours": 5.58,
+      "lowest_multiplicity": 49,
+      "states": {
+        "49": {
+          "usable": true,
+          "energy_ev": -553380.3249457496,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.30321675281150234,
+            "adsorbate": 1.2982464528100532,
+            "max_norm": 3.242736934222939
+          }
+        },
+        "47": {
+          "usable": true,
+          "energy_ev": -553380.2949669653,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.3073497420513402,
+            "adsorbate": 1.1053401815840722,
+            "max_norm": 2.9184948427480046
+          }
+        },
+        "45": {
+          "usable": true,
+          "energy_ev": -553379.9494966478,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.2633638570091789,
+            "adsorbate": 0.9789079972266636,
+            "max_norm": 2.6630600095855863
+          }
+        }
+      },
+      "ubpw91_rel_ev": {
+        "49": 0.4781339887995273,
+        "47": 0.3611495182849467,
+        "45": 0.29779052664525807
+      },
+      "gap_49_to_47_ev": 0.029978784266859293,
+      "model_rel_ev": {
+        "mace-mpa-0-medium.model": 0.50836181640625,
+        "MACE-matpes-r2scan-omat-ft.model": 0.68939208984375
+      }
+    },
+    {
+      "package": "116",
+      "frame": "frame_0014",
+      "draft_job": "fe16coh2_018",
+      "why": "constructed control",
+      "motif": "CO@C-bridge|H@H-hollow3|H@H-hollow3",
+      "hours": 4.71,
+      "lowest_multiplicity": 49,
+      "states": {
+        "49": {
+          "usable": true,
+          "energy_ev": -553378.9172191048,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.3384177543695765,
+            "adsorbate": 3.2563724081412384,
+            "max_norm": 8.406723395440588
+          }
+        },
+        "47": {
+          "usable": true,
+          "energy_ev": -553378.8271113205,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.289131662192753,
+            "adsorbate": 3.4186344305603398,
+            "max_norm": 8.609988421633597
+          }
+        },
+        "45": {
+          "usable": true,
+          "energy_ev": -553378.510457861,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.25869360532480157,
+            "adsorbate": 3.475730045585444,
+            "max_norm": 8.737280842603298
+          }
+        }
+      },
+      "ubpw91_rel_ev": {
+        "49": 1.8858606335707009,
+        "47": 1.8290051631629467,
+        "45": 1.7368293134495616
+      },
+      "gap_49_to_47_ev": 0.09010778437368572,
+      "model_rel_ev": {
+        "mace-mpa-0-medium.model": 4.39544677734375,
+        "MACE-matpes-r2scan-omat-ft.model": 1.822052001953125
+      }
+    },
+    {
+      "package": "116",
+      "frame": "frame_0015",
+      "draft_job": "fe16coh2_019",
+      "why": "constructed control",
+      "motif": "C@C-hollow3|H@H-hollow3|H@H-hollow3|O@O-hollow3",
+      "hours": 5.56,
+      "lowest_multiplicity": 47,
+      "states": {
+        "49": {
+          "usable": true,
+          "energy_ev": -553377.5344153689,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 1,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.4545179038248676,
+            "adsorbate": 0.8237338674982636,
+            "max_norm": 1.9105159964797465
+          }
+        },
+        "47": {
+          "usable": true,
+          "energy_ev": -553377.6727879891,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.36753205433009306,
+            "adsorbate": 0.7603660777299427,
+            "max_norm": 2.070468227961521
+          }
+        },
+        "45": {
+          "usable": true,
+          "energy_ev": -553377.5714473445,
+          "energy_ev_scf_not_converged": null,
+          "scf_flag_stable_opt": 0,
+          "scf_flag_force": 0,
+          "force_rms": {
+            "Fe": 0.3144338377260087,
+            "adsorbate": 0.7252730877509971,
+            "max_norm": 2.171036039447746
+          }
+        }
+      },
+      "ubpw91_rel_ev": {
+        "49": 3.268664369476028,
+        "47": 2.9833284944761544,
+        "45": 2.6758398299571127
+      },
+      "gap_49_to_47_ev": -0.13837262021843344,
+      "model_rel_ev": {
+        "mace-mpa-0-medium.model": 6.670166015625,
+        "MACE-matpes-r2scan-omat-ft.model": 2.4598846435546875
+      }
+    }
+  ]
+}

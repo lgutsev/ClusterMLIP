@@ -1,0 +1,55 @@
+{
+  "model": "D:/MLIP_Work_Folder/Cluster_MLIP/fe16_v1/12_local_spin_mp/runs/long_B_s1/long_B_s1.model",
+  "embedding_specs": {
+    "total_spin": {
+      "type": "categorical",
+      "per": "graph",
+      "key": "spin",
+      "in_dim": 1,
+      "emb_dim": 128,
+      "num_classes": 101,
+      "offset": 0
+    },
+    "total_charge": {
+      "type": "categorical",
+      "per": "graph",
+      "key": "charge",
+      "in_dim": 1,
+      "emb_dim": 128,
+      "num_classes": 201,
+      "offset": 100
+    }
+  },
+  "elements": [
+    26
+  ],
+  "multiplicities": [
+    49,
+    47,
+    51,
+    53
+  ],
+  "native_energy_eV": {
+    "49": -550261.909668775,
+    "47": -550261.4589029581,
+    "51": -550262.391474829,
+    "53": -550262.3589470031
+  },
+  "native_spread_eV": 0.9325718709733337,
+  "builtin_wrapper": {
+    "status": "error",
+    "error": "KeyError: 'total_spin'"
+  },
+  "project_wrapper_mixed_M_batch": {
+    "energies_eV": [
+      -550261.909668775,
+      -550261.4589029581,
+      -550262.391474829,
+      -550262.3589470031
+    ],
+    "max_abs_dE_vs_native_eV": 0.0,
+    "max_force_component_diff_vs_native": 6.522560269672795e-16
+  },
+  "project_wrapper_reversed_order_max_abs_dE_eV": 0.0,
+  "project_wrapper_missing_input": "raised KeyError: \"model needs per-graph input 'total_spin'; the batch does not carry it\""
+}

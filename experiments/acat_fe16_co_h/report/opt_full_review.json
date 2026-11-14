@@ -1,0 +1,76 @@
+[
+  {
+    "frame": "frame_0000",
+    "draft_job": "fe16coh2_minA_m49",
+    "target_multiplicity": 49,
+    "links_expected": 3,
+    "normal_terminations": 3,
+    "error_terminations": 0,
+    "watchdog": null,
+    "hours": 11.88,
+    "opt_steps": 24,
+    "scf_evaluations": 24,
+    "scf_not_converged_steps": 0,
+    "stationary_point_found": true,
+    "last_step_tests": {
+      "max_force": 6.8e-05,
+      "max_force_ok": true,
+      "rms_force_ok": true,
+      "max_displacement": 0.001737,
+      "max_displacement_ok": true,
+      "rms_displacement": 0.000203,
+      "rms_displacement_ok": true
+    },
+    "first_energy_ha": -20336.3772187,
+    "last_energy_ha": -20336.3835378,
+    "last_scf_converged": true,
+    "lowest_converged_energy_ha": -20336.3835378,
+    "relaxation_ev": -0.17195147084980827,
+    "energy_change_last_step_ev": -2.721139545801521e-05,
+    "s2_after_last": 600.0106,
+    "max_fe_move_A": 0.13799945276703118,
+    "adsorbate_move_A": [
+      0.062,
+      0.15,
+      0.076,
+      0.023
+    ]
+  },
+  {
+    "frame": "frame_0001",
+    "draft_job": "fe16coh2_minA_m47",
+    "target_multiplicity": 47,
+    "links_expected": 5,
+    "normal_terminations": 5,
+    "error_terminations": 0,
+    "watchdog": null,
+    "hours": 14.91,
+    "opt_steps": 26,
+    "scf_evaluations": 26,
+    "scf_not_converged_steps": 0,
+    "stationary_point_found": true,
+    "last_step_tests": {
+      "max_force": 2.1e-05,
+      "max_force_ok": true,
+      "rms_force_ok": true,
+      "max_displacement": 0.001411,
+      "max_displacement_ok": true,
+      "rms_displacement": 0.000126,
+      "rms_displacement_ok": true
+    },
+    "first_energy_ha": -20336.3717235,
+    "last_energy_ha": -20336.3749175,
+    "last_scf_converged": true,
+    "lowest_converged_energy_ha": -20336.3749175,
+    "relaxation_ev": -0.08691316769154998,
+    "energy_change_last_step_ev": -1.088453838431679e-05,
+    "s2_after_last": 552.0134,
+    "max_fe_move_A": 0.11706865242668514,
+    "adsorbate_move_A": [
+      0.084,
+      0.141,
+      0.084,
+      0.017
+    ]
+  }
+]

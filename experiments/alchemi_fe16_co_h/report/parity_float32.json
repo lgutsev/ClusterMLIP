@@ -1,0 +1,190 @@
+{
+  "fixture": "D:\\MLIP_Work_Folder\\Cluster_MLIP\\alchemi_fe16_co_h\\pool\\fixture12.extxyz",
+  "ids": [
+    "F00_clean_fe16",
+    "F01_P0106",
+    "F02_P0372",
+    "F03_P0121",
+    "F04_P0856",
+    "F05_P0849",
+    "F06_P0956",
+    "F07_start_random-s0-00000",
+    "F08_start_random-s0-00001",
+    "F09_distorted_F01_P0106",
+    "F10_distorted_F02_P0372",
+    "F11_distorted_F03_P0121"
+  ],
+  "model": "~/.cache/mace/mace-mpa-0-medium.model",
+  "dtype": "float32",
+  "device": "cuda",
+  "cutoff_A": 6.0,
+  "n_structures": 12,
+  "atoms_per_structure": [
+    16,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20
+  ],
+  "repeatability": {
+    "native_vs_native": {
+      "max_abs_dE_eV": 1.52587890625e-05,
+      "max_force_component_diff_eV_per_A": 7.37607479095459e-06,
+      "rms_force_component_diff_eV_per_A": 9.886074032486916e-07
+    },
+    "batch1_vs_batch1": {
+      "max_abs_dE_eV": 1.52587890625e-05,
+      "max_force_component_diff_eV_per_A": 1.52587890625e-05,
+      "rms_force_component_diff_eV_per_A": 1.1497899448308709e-06
+    }
+  },
+  "native_vs_batch1": {
+    "max_abs_dE_eV": 1.52587890625e-05,
+    "max_force_component_diff_eV_per_A": 1.461803913116455e-05,
+    "rms_force_component_diff_eV_per_A": 1.3622754640832146e-06
+  },
+  "native_vs_batchN": {
+    "max_abs_dE_eV": 1.52587890625e-05,
+    "max_force_component_diff_eV_per_A": 9.059906005859375e-06,
+    "rms_force_component_diff_eV_per_A": 1.2104227854320148e-06
+  },
+  "batch1_vs_batchN": {
+    "max_abs_dE_eV": 1.52587890625e-05,
+    "max_force_component_diff_eV_per_A": 1.055002212524414e-05,
+    "rms_force_component_diff_eV_per_A": 1.2087150030847046e-06
+  },
+  "batchN_vs_permuted_order": {
+    "max_abs_dE_eV": 1.52587890625e-05,
+    "max_force_component_diff_eV_per_A": 1.1444091796875e-05,
+    "rms_force_component_diff_eV_per_A": 1.028887502238773e-06
+  },
+  "batchN_vs_other_companions": {
+    "max_abs_dE_eV": 1.52587890625e-05,
+    "max_force_component_diff_eV_per_A": 1.0773539543151855e-05,
+    "rms_force_component_diff_eV_per_A": 1.3977021671804787e-06
+  },
+  "atom_order_permutation": {
+    "max_abs_dE_eV": 1.52587890625e-05,
+    "max_force_component_diff_eV_per_A": 1.4543533325195312e-05,
+    "rms_force_component_diff_eV_per_A": 9.531595316804783e-07
+  },
+  "rigid_translation_rotation": {
+    "max_abs_dE_eV": 3.0517578125e-05,
+    "max_force_component_diff_eV_per_A": 3.8650931822398205e-05,
+    "rms_force_component_diff_eV_per_A": 4.304906783808932e-06
+  },
+  "relative_energy_max_diff_native_vs_batchN_eV": 3.0517578125e-05,
+  "per_atom_energy_max_diff_native_vs_batchN_eV": 7.62939453125e-07,
+  "edges": [
+    {
+      "ase": 240,
+      "batch1": 240,
+      "batchN": 240
+    },
+    {
+      "ase": 348,
+      "batch1": 348,
+      "batchN": 348
+    },
+    {
+      "ase": 344,
+      "batch1": 344,
+      "batchN": 344
+    },
+    {
+      "ase": 356,
+      "batch1": 356,
+      "batchN": 356
+    },
+    {
+      "ase": 356,
+      "batch1": 356,
+      "batchN": 356
+    },
+    {
+      "ase": 354,
+      "batch1": 354,
+      "batchN": 354
+    },
+    {
+      "ase": 346,
+      "batch1": 346,
+      "batchN": 346
+    },
+    {
+      "ase": 358,
+      "batch1": 358,
+      "batchN": 358
+    },
+    {
+      "ase": 358,
+      "batch1": 358,
+      "batchN": 358
+    },
+    {
+      "ase": 348,
+      "batch1": 348,
+      "batchN": 348
+    },
+    {
+      "ase": 344,
+      "batch1": 344,
+      "batchN": 344
+    },
+    {
+      "ase": 356,
+      "batch1": 356,
+      "batchN": 356
+    }
+  ],
+  "edge_counts_match_ase": true,
+  "cross_system_edges": 0,
+  "native_energies_eV": [
+    -108.96153259277344,
+    -131.08639526367188,
+    -131.07565307617188,
+    -131.0257568359375,
+    -131.02098083496094,
+    -129.41893005371094,
+    -129.53988647460938,
+    -129.19932556152344,
+    -128.8087921142578,
+    -131.02285766601562,
+    -130.99322509765625,
+    -130.95660400390625
+  ],
+  "ranking_native": [
+    "F01_P0106",
+    "F02_P0372",
+    "F03_P0121",
+    "F09_distorted_F01_P0106",
+    "F04_P0856",
+    "F10_distorted_F02_P0372",
+    "F11_distorted_F03_P0121",
+    "F06_P0956",
+    "F05_P0849",
+    "F07_start_random-s0-00000",
+    "F08_start_random-s0-00001"
+  ],
+  "ranking_batchN": [
+    "F01_P0106",
+    "F02_P0372",
+    "F03_P0121",
+    "F09_distorted_F01_P0106",
+    "F04_P0856",
+    "F10_distorted_F02_P0372",
+    "F11_distorted_F03_P0121",
+    "F06_P0956",
+    "F05_P0849",
+    "F07_start_random-s0-00000",
+    "F08_start_random-s0-00001"
+  ],
+  "ranking_identical": true
+}

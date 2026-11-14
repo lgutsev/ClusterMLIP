@@ -179,6 +179,64 @@ If separately authorized later, scope the branch as follows:
 
 This note authorizes **documentation only**. Do not create the proposed branch, launch structural searches, submit Gaussian jobs, mix empirical-potential energies/forces into the UBPW91 dataset, merge new code, or spend HPC resources without a separate implementation decision.
 
+## Fe16 + CO/H adsorbate search: mitigation leads (2026-11-10)
+
+Context: the fixed-catalyst adsorbate search (`docs/acat_cluster_feasibility.md`) and the batch backend
+(`docs/alchemi_cluster_feasibility.md`) work as tooling, but give no chemistry yet:
+
+- MACE-MPA-0 and MACE-MATPES-r2SCAN fail the UBPW91 gate for Fe with CO and H (forces worse than a zero
+  baseline; same-M ordering near chance on several panels). The search output is a candidate list only.
+- The project's spin MACE has no C, O or H, and the toolkit's MACE wrapper passes no charge or spin.
+- Only independent proposals can be batched: 50 of 200 evaluations in the evolutionary arm.
+
+The first UBPW91 labels for this composition are running as desk package 112 (4 structures, M = 49/47/45).
+**Nothing below starts before package 112 is reviewed.** Only search summaries of the cited work were read;
+read the primary sources and record their scope before adapting anything.
+
+Order of preference, with the gate each must pass:
+
+1. **Δ-model on the foundation model, trained inside the search loop** (first choice: fewest labels, the
+   foundation model stays untouched, plugs into the existing search).
+   - Leads: a Gaussian-process correction built on the foundation model's own embeddings
+     (https://arxiv.org/abs/2502.21179), and its use for global structure optimization with DFT labels taken
+     from the structures the search finds (https://doi.org/10.1039/D5CP04302F).
+   - Loop: search on MPA-0 → UBPW91 labels for a few picks → fit the correction → search again.
+   - Gate: on held-out UBPW91 frames the corrected model must beat the zero-force baseline and order
+     same-M pairs correctly, the same gate the foundation models failed.
+   - Open point: the correction is spin-blind unless M enters its features. Decide that before fitting.
+2. **Naive fine-tuning of the foundation model on the Fe16 + CO/H labels** (fallback if 1 fails the gate).
+   - Lead: a 2026 MACE fine-tuning benchmark reports naive fine-tuning converges best for a single system,
+     and that correct E0s and hyperparameters matter more than the strategy
+     (https://arxiv.org/abs/2606.12704). Multihead replay
+     (https://mace-docs.readthedocs.io/en/latest/guide/multihead_finetuning.html) is for keeping broad
+     coverage and costs several times more; not needed for one composition.
+   - Gate: as in 1. A fine-tuned foundation model is still spin-blind.
+3. **Add Fe16 + CO/H frames to the spin-aware MACE** (the long-term fix, and the only one that carries M).
+   - Support: a 2026 benchmark on transition-metal complexes found charge- and spin-embedded models the most
+     accurate for spin splittings (https://doi.org/10.1039/D5DD00571J). It is on complexes, not clusters.
+   - Needs C, O, H in the element set and enough labelled frames; size the label campaign from package 112's
+     cost per link. A new campaign needs separate authorization.
+   - AQCat25 (https://arxiv.org/abs/2510.22938), a spin-aware catalysis dataset, is a possible pretraining
+     source or sanity check only. It is not UBPW91 and must never be mixed into the reference labels.
+
+Independent of the model choice:
+
+4. **Keep the confirm-by-DFT rule.** A model minimum counts only after a UBPW91 calculation on that structure
+   (the AdsorbML practice, https://arxiv.org/abs/2211.16486). Never report an unconfirmed minimum as a ground
+   state.
+5. **Batch backend alternative.** TorchSim (https://arxiv.org/abs/2508.06628) has an in-flight autobatcher and
+   batched MACE relaxation. Check one thing first: whether it passes total charge and spin to MACE. If it
+   does, it removes the `SpinMACEWrapper` we would otherwise maintain against nvalchemi-toolkit. Otherwise
+   stay with the current adapter.
+6. **Make the guided arm batchable.** GOFEE in AGOX (https://arxiv.org/abs/2204.01451, code on GitLab) relaxes
+   many candidates on a surrogate and sends one per round to the expensive method, chosen by a
+   lower-confidence-bound rule. Adopting that pattern would batch every surrogate relaxation and spend DFT
+   only on the picks. This changes the algorithm, so it is a new arm to benchmark against the current two,
+   not a replacement.
+
+This section authorizes **documentation only**: no training, no new Gaussian or VASP jobs beyond the already
+approved packages 111 and 112, no new dependency, and no merge without a separate decision.
+
 ## Literature leads to verify before implementation
 
 These links are inherited research leads, not independently verified citations for this roadmap commit. Read the primary papers and record their exact scope and assumptions before adapting them.

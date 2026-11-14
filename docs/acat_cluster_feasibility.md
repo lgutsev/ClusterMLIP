@@ -449,8 +449,282 @@ commit after it. The main checkout (`feat/irc-force-labels`, uncommitted work) w
 - Wall-time comparison is unusable (shared GPU).
 - The draft Gaussian inputs have not been run through the desk's package generator or its checks.
 
-**Next action (needs the user's approval):** submit the 4-input first batch of the reference panel
+**Next action (as written on 2026-11-09):** submit the 4-input first batch of the reference panel
 through the desk. Its result decides everything else: if UBPW91 binds CO by more than about 1 eV
 and orders the motifs differently from both models, the path is to label the remaining 16, add
 Fe16 + CO/H frames to the project's spin-aware MACE training set, and rerun this same comparison
-on that model.
+on that model. That batch has run; see section 11.
+
+## 11. First reference results (desk package 112, 2026-11-11)
+
+Four of the 20 shortlisted structures at UBPW91/6-311++G*, G09 D.01, fixed geometry, charge 0, ladder
+M = 49, 47, 45 (`Stable=Opt` then `Force`). Review script: `experiments/acat_fe16_co_h/review_reference_batch.py`;
+numbers in `experiments/acat_fe16_co_h/report/reference_batch1_review.json`.
+
+**Run quality.** All 4 tasks: 6 of 6 Normal terminations, no watchdog stop, 4.9 to 5.2 h on 12 cores.
+Every `Stable=Opt` reports a stable wavefunction; ⟨S²⟩ after annihilation is 600.01 / 552.01 / 506.02 to
+506.03 against 600 / 552 / 506. Two links are flagged "Convergence criterion not met" (M = 49 `Stable=Opt`
+of frames 1 and 3, 129 cycles); in both, the following `Force` link converged in 3 to 5 cycles to the
+same energy to 1e-7 Ha. Energies and forces are taken from the `Force` links only. All 12 states are usable.
+
+**Energies at M = 49, relative to the model minimum (eV).** Fixed model geometries, not UBPW91 minima.
+
+| Frame | Structure | UBPW91 | MACE-MPA-0 | MATPES-r2SCAN |
+|---|---|---|---|---|
+| 0 | model minimum: CO on top through C, 2 H in hollows | 0 | 0 | 0 |
+| 1 | CO desorbed (about 9 Å away), 2 H on the cluster | +1.54 | +0.02 | +1.78 |
+| 2 | near-degenerate competitor | +0.16 | +0.01 | −0.12 |
+| 3 | CO bound through O (control) | +1.95 | +2.32 | +2.30 |
+
+- **UBPW91 binds CO by about 1.5 eV here.** The near-degeneracy of desorbed and bound CO on MPA-0 is a
+  model artifact, as suspected in section 7. This is not a clean adsorption energy: the two H sit on
+  different sites in frames 0 and 1, the geometries are MPA-0's, and CO is at 9 Å, not at infinity.
+- **Neither model orders the two bound structures as UBPW91 does.** MPA-0 has them degenerate; r2SCAN
+  has the wrong sign.
+- Both models get the O-bound control roughly right.
+
+**Forces against UBPW91 (RMSE, eV/Å; zero-force baseline in brackets), 4 frames.**
+
+| M | MPA-0 Fe | MPA-0 adsorbate | r2SCAN Fe | r2SCAN adsorbate |
+|---|---|---|---|---|
+| 49 | 0.22 (0.21) | 0.49 (0.44) | 0.27 (0.21) | 0.77 (0.44) |
+| 47 | 0.25 (0.13) | 0.45 (0.37) | 0.30 (0.13) | 0.81 (0.37) |
+| 45 | 0.29 (0.18) | 0.46 (0.35) | 0.33 (0.18) | 0.85 (0.35) |
+
+Both models are again no better than predicting zero force. The gate verdict of section 5 stands, now on
+the target composition itself.
+
+**What the UBPW91 forces say about the search.** At MPA-0's minimum (frame 0, M = 49) the UBPW91 forces are
+large: up to 1.6 eV/Å on an adsorbate atom and 0.25 eV/Å RMS on Fe, on a cluster whose bare optimum had
+0.012 eV/Å. So the model's adsorbate positions are far from UBPW91 stationary points, and freezing Fe
+(Stage A) is not a small approximation once CO and H are on the surface.
+
+**Spin.** M = 49 is lowest in all four frames. The vertical 49 → 47 gap is 0.13 to 0.15 eV for the two
+bound structures, 0.21 eV for the O-bound control and 0.35 eV with CO desorbed, against 0.52 eV for bare
+Fe16 at the same Fe positions (package 91). Adsorption narrows the spin gap by a factor of about 3.5.
+For bare Fe16, relaxing at M = 47 gained 0.07 eV (package 99), so M = 47 could come within 0.1 eV of
+M = 49 for bound structures once geometries relax. A spin-blind model cannot represent that.
+
+**Consequences.**
+
+- The condition set on 2026-11-09 is met: CO binds by more than 1 eV and the models do not reproduce the
+  UBPW91 ordering. The remaining 16 inputs are worth sending. Measured cost: about 60 core-hours per
+  structure, so about 1,000 core-hours for 16 (ceiling 9,216 with the 48 h cap).
+- These labels are off-equilibrium by construction, which is what a correction model or a training set
+  needs; they are not UBPW91 minima. A constrained optimization of the two lowest structures at M = 49
+  and 47 is the cheapest way to get the first real minima and to test the narrowing spin gap.
+- Of the three routes in the roadmap, the spin result argues for carrying M: a Δ-model or fine-tune that
+  ignores M would have to be fitted per multiplicity.
+
+Limits: four structures, one composition, fixed model geometries. No statement about the ground state of
+Fe16 + CO + 2H follows from this.
+
+## 12. The full 20-structure reference panel (desk packages 112 and 116, 2026-11-12)
+
+The other 16 shortlisted structures ran as package 116, built exactly as 112. Scripts:
+`review_reference_batch.py` per package, `combine_reference_panel.py` for the panel. Numbers:
+`experiments/acat_fe16_co_h/report/reference_panel.csv` and `.json`.
+
+**Run quality.** 16 of 16 tasks: 6 of 6 Normal terminations, no watchdog stop, 4.7 to 6.8 h each. Every
+`Stable=Opt` reports a stable wavefunction. The whole panel cost 1,264 core-hours.
+
+**One state is excluded.** Frame 0 of package 116 (`fe16coh2_001`) at M = 49: both the `Stable=Opt` link and
+the following `Force` link stopped at 129 cycles with "Convergence criterion not met" (RMSDP 1e-5, MaxDP
+2e-3, gap 0.001 Ha). `IOP(5/13=1)` let the job continue, so the log holds an energy and forces from an
+unconverged density. They are not used. The desk's summary counted this link as converged; it is not. The
+other three flagged links (112 frames 1 and 3, 116 frames 6 and 15) were followed by a converged `Force`
+link with the same energy and are used. Usable states: 19 at M = 49, 20 at M = 47, 20 at M = 45.
+
+**UBPW91 energies at M = 49, relative to the lowest structure (eV), with both models on the same geometries.**
+
+| Structure (draft id) | Motif | UBPW91 | MPA-0 | r2SCAN | 49 → 47 gap |
+|---|---|---|---|---|---|
+| 000 | CO top, H hollow + hollow | 0.00 | 0.00 | 0.13 | 0.15 |
+| 007 | CO top, H bridge + hollow | 0.02 | 0.01 | 0.06 | 0.24 |
+| 008 | CO top, H hollow + hollow | 0.07 | 0.02 | 0.15 | 0.13 |
+| 006 | CO top, H bridge + hollow | 0.16 | 0.01 | 0.00 | 0.13 |
+| 004 | CO bridge, H bridge + hollow | 0.17 | 0.07 | 0.12 | 0.25 |
+| 003 | CO bridge, H hollow + hollow | 0.18 | 0.06 | 0.19 | 0.12 |
+| 014 | CO top, H bridge + hollow | 0.22 | 0.10 | 0.17 | 0.19 |
+| 009 | CO top, H hollow + hollow | 0.26 | 0.02 | 0.19 | 0.04 |
+| 013 | CO top, H hollow + hollow | 0.44 | 0.14 | 0.25 | 0.12 |
+| 015 | CO top, H bridge + hollow | 0.45 | 0.13 | 0.23 | 0.08 |
+| 016 | CO bridge, H bridge + hollow | 0.48 | 0.51 | 0.69 | 0.03 |
+| 012 | CO bridge, H bridge + top | 0.92 | 1.15 | 0.74 | 0.08 |
+| 011 | CO hollow, H top + top | 1.17 | 1.55 | 1.12 | 0.25 |
+| 010 | CO bridge, H top + top | 1.51 | 1.67 | 1.14 | 0.12 |
+| 005 | CO desorbed, H hollow + hollow | 1.52 | 0.09 | 2.20 | 0.50 |
+| 002 | CO desorbed, H bridge + hollow | 1.54 | 0.02 | 1.91 | 0.35 |
+| 018 | CO side-on (control) | 1.89 | 4.40 | 1.82 | 0.09 |
+| 017 | CO through O (control) | 1.95 | 2.32 | 2.43 | 0.21 |
+| 019 | C + O dissociated (control) | 3.27 | 6.67 | 2.46 | −0.14 |
+| 001 | CO top, H bridge + hollow | excluded | 0.01 | 0.00 | n/a |
+
+Model columns are relative to each model's own lowest structure. For 001 the unconverged M = 49 energy
+would put it near +0.19 eV; its converged M = 47 state is 0.29 eV above the lowest structure.
+
+**What the panel shows.**
+
+- **Both desorbed-CO structures sit 1.5 eV up in UBPW91.** MPA-0 has them at 0.02 and 0.09 eV. The artifact
+  is systematic, not a one-off.
+- **MPA-0's pick of the lowest structure is confirmed** (000), and r2SCAN's is not (it picks 006, +0.16 eV).
+- **Among the 11 bound structures within 0.5 eV, both models rank fairly well:** MPA-0 orders 41 of 45
+  resolved pairs correctly (91 %), r2SCAN 39 of 45 (87 %); correlation with UBPW91 about 0.7. But MPA-0
+  compresses the scale: structures 0.16 to 0.45 eV up in UBPW91 appear within 0.14 eV.
+- **Over all usable structures:** MPA-0 mean absolute error 0.60 eV (worst 3.4 eV, the dissociated control);
+  r2SCAN 0.27 eV (worst 0.93 eV). MPA-0 is badly wrong wherever CO is not bound through C on Fe: desorbed,
+  side-on, dissociated.
+- **CO dissociation is 3.3 eV uphill at these fixed geometries.** Nothing was relaxed, so this is an upper
+  bound for that particular C and O placement, not a reaction energy.
+
+**Forces against UBPW91 on the 16 structures of package 116 (RMSE, eV/Å; zero baseline in brackets).**
+
+| M | MPA-0 Fe | MPA-0 adsorbate | r2SCAN Fe | r2SCAN adsorbate |
+|---|---|---|---|---|
+| 49 (15 structures) | 0.24 (0.28) | 1.22 (1.31) | 0.28 (0.28) | 0.64 (1.31) |
+| 47 | 0.25 (0.23) | 1.08 (1.22) | 0.28 (0.23) | 0.77 (1.22) |
+| 45 | 0.29 (0.21) | 1.02 (1.18) | 0.31 (0.21) | 0.86 (1.18) |
+
+This refines section 11. On these structures, which carry larger forces, r2SCAN halves the adsorbate force
+error against the zero baseline; MPA-0 barely improves on it. Neither model beats the zero baseline on Fe
+forces at any multiplicity. So the gate still fails, but the two models fail differently: MPA-0 ranks bound
+structures well and is wrong on forces and on unbound or broken CO; r2SCAN is better on forces and energies
+overall and worse at picking the minimum.
+
+**Spin.**
+
+- M = 49 is the lowest converged state in 18 of 20 structures. The dissociated control (019) is lowest at
+  M = 47, by 0.14 eV. For 001 only M = 47 and 45 are usable, so its lowest state is undetermined.
+- The 49 → 47 gap over 19 structures: median 0.13 eV, range −0.14 to 0.50 eV; six are below 0.10 eV, the
+  smallest among bound structures 0.03 eV (016). Bare Fe16: 0.52 eV.
+- The gap is largest with CO desorbed (0.35 and 0.50 eV, close to bare Fe16) and smallest for some bound
+  structures. Binding CO is what narrows it. A model without M as input cannot describe this.
+
+**Consequences.**
+
+- The search adapter's output was useful: the model's lowest structure is UBPW91's lowest of the 19, and
+  its near-degenerate set is the UBPW91 low-energy set. What the model cannot do is tell bound from
+  unbound CO, give forces, or handle spin.
+- The panel now holds 59 usable UBPW91 states (energies, forces, Hirshfeld spins) for Fe16 + CO + 2H. That
+  is enough to score any corrected model against, and a start for training; it is not enough to train on
+  alone, and every geometry is a model geometry.
+- Next reference step, if wanted: optimize the three lowest structures (000, 007, 008) at M = 49 and 47
+  with UBPW91, Fe frozen first. That gives the first real minima, tests whether M = 47 becomes competitive
+  after relaxation, and yields on-path frames with small forces, which the panel lacks. The excluded state
+  can be retried in the same package with a different SCF start.
+
+Limits: one composition, fixed model geometries, 20 structures chosen by the models' own ranking. The
+lowest structure here is the lowest of this panel, not a claim about the ground state.
+
+## 13. UBPW91 optimizations with Fe frozen (desk package 118, 2026-11-13)
+
+The three lowest panel structures (000, 007, 008) at M = 49 and M = 47: the 112 / 116 ladder to the target
+M, then `Opt=ModRedundant` with `X n F` on the 16 Fe atoms. A seventh task retried the excluded state.
+Review script: `experiments/acat_fe16_co_h/review_opt_package.py`; numbers in
+`report/opt_frozen_fe_review.json`, final geometries in `report/opt_frozen_fe_final.extxyz`.
+
+**Run quality.**
+
+- The `X n F` freeze form was accepted. Fe atoms moved at most 0.003 Å in every optimization.
+- Three optimizations reached "Stationary point found" (007 at M = 49; 008 at M = 49 and 47). Three were
+  stopped by the 12 h link cap while still running: 000 at M = 49 (23 steps), 000 at M = 47 (22 steps),
+  007 at M = 47 (13 steps). No Error termination. Tasks took 10.4 to 15.6 h.
+- One optimization step (007 at M = 47, not the last) had an unconverged SCF. No other step did.
+
+**Two of the three starting structures are the same minimum.** 000 and 008 relax to adsorbate positions
+0.008 Å apart at M = 49 (0.06 Å at M = 47) with energies within 1.4 meV. So the capped 000 runs add
+nothing that 008's converged runs do not already give, and need no restart. Only 007 at M = 47 is
+genuinely unfinished (energy still falling by 1 meV per step).
+
+**Relaxed energies (Fe frozen).**
+
+| Minimum | M = 49 (Ha) | M = 47 (Ha) | 49 → 47 gap | Relative at M = 49 | Gain from relaxing |
+|---|---|---|---|---|---|
+| A (from 000 and 008): CO on Fe3, both H in hollows | −20336.37722 (stationary) | −20336.37172 (stationary) | 0.150 eV | 0 | 0.21 to 0.28 eV |
+| B (from 007): CO on Fe7, H in bridge + hollow | −20336.37488 (stationary) | above −20336.36498 (unfinished) | at most 0.27 eV | +0.064 eV | 0.17 eV |
+
+- **Relaxing the adsorbates does not close the spin gap.** For minimum A the gap is 0.150 eV relaxed against
+  0.13 to 0.15 eV vertical. The suggestion in section 11 that M = 47 might come within 0.1 eV is not
+  supported with Fe frozen.
+- **A stays below B**, by 0.064 eV (0.02 eV before relaxation).
+
+**What moved.** CO stays on its top site, linear (Fe–C–O 178°), Fe–C 1.80 Å, C–O 1.174 Å, but leans towards
+a second Fe: that Fe–C distance shortens from 3.1 to 3.3 Å in the model geometry to 2.5 Å. C moves about
+0.9 Å and O about 1.5 Å; the H atoms barely move (under 0.1 Å). The search model places CO too upright.
+
+**The frozen cluster is under large forces.** At the relaxed minimum A, the UBPW91 forces on the frozen Fe
+atoms are 0.24 eV/Å RMS and up to 1.1 eV/Å at M = 49, and 0.15 eV/Å RMS, up to 0.44 eV/Å at M = 47. The
+bare cluster's optimum had 0.012 eV/Å. Relaxing the adsorbates did not reduce them. So these are minima of
+the adsorbates on a strained cluster, not minima of Fe16 + CO + 2H, and the Fe forces differ between the two
+multiplicities, so a full relaxation can change the gap in either direction. Stage A (Fe frozen) is good
+for ranking sites; it is not good enough for adsorption energies or spin gaps.
+
+**The retry failed.** For 001 at M = 49 all three links (`Stable=Opt`, `Force`, `Force`) again stopped at 129
+cycles with "Convergence criterion not met" (MaxDP about 1e-3). The energy is steady to 6e-6 Ha at
+−20336.36241 Ha, about 0.19 eV above the lowest structure, but the density is not converged and the state
+stays excluded. Repeating the same SCF does not help; it needs a different SCF strategy, which is a choice
+for the group's Gaussian practice and is low priority at this energy.
+
+**Consequences.**
+
+- No restart is needed for the capped runs: 000 is covered by 008. Restarting 007 at M = 47 would only
+  refine a state at least 0.2 eV up.
+- The next reference step that would change conclusions is a full relaxation (Fe free) of minimum A at
+  M = 49 and 47, restarted from the checkpoints kept on LONI. Package 99's bare-Fe16 optimizations needed 14
+  to 25 steps and hit the 12 h link cap, so this needs a longer link limit.
+- For training, this package adds about 120 optimization frames with energies and forces, the first for
+  this composition that lie along a relaxation path and end at small adsorbate forces.
+
+## 14. Full UBPW91 optimization of the lowest minimum (desk package 124, 2026-11-14)
+
+Minimum A of section 13 with all atoms free, at M = 49 and at M = 47. Each task started from package 118's
+stationary geometry at that M (written explicitly; no checkpoint from 118 was read), rebuilt the state with
+the ladder, then ran one unconstrained `Opt` link. Review: `review_opt_package.py`; numbers in
+`report/opt_full_review.json`, final geometries in `report/opt_full_final.extxyz`.
+
+**Run quality.** Both tasks: all links end in Normal termination (3 and 5), no "Convergence criterion not met"
+in any link or optimization step, no watchdog stop, every `Stable=Opt` reports a stable wavefunction, also
+at the relaxed geometries. Both optimizations reached "Stationary point found", after 24 steps (M = 49,
+11.9 h) and 26 steps (M = 47, 14.9 h). The ladder reproduced package 118's energies at the start geometry
+to all printed digits, so the same electronic states were continued. ⟨S²⟩ after annihilation: 600.01 and
+552.01. No frequency calculation was run, so these are stationary points, not proven minima.
+
+**Energies.**
+
+| State | Fe frozen (118) | All atoms free (124) | Gain |
+|---|---|---|---|
+| M = 49 | −20336.37722 Ha | −20336.38354 Ha | 0.172 eV |
+| M = 47 | −20336.37172 Ha | −20336.37492 Ha | 0.087 eV |
+| 49 → 47 gap | 0.150 eV | **0.235 eV** | |
+
+- **Relaxing Fe widens the spin gap** from 0.150 to 0.235 eV, because the M = 49 state gains twice as much.
+  That matches the larger Fe forces it carried in the frozen geometry (section 13).
+- **M = 49 is the lowest state of this structure at every level of relaxation** (vertical 0.13 eV, adsorbates
+  relaxed 0.15 eV, all relaxed 0.23 eV).
+- **CO and two H roughly halve the adiabatic 49 → 47 gap of the cluster:** 0.45 eV for bare Fe16 (package 99),
+  0.23 eV here.
+
+**Geometry.** The Fe atoms move 0.07 to 0.08 Å RMS (largest 0.14 Å); Fe–Fe bond lengths change by −0.09 to
++0.13 Å. The adsorbates do not rearrange: CO stays on top of Fe3, linear, Fe–C 1.80 Å, C–O 1.174 Å, leaning
+to Fe2 (2.54 Å); both H stay in three-fold hollows. So freezing Fe gives the right adsorbate geometry but
+not the right energy or spin gap.
+
+**Co-adsorption energy.** E(Fe16·CO·2H) − E(Fe16) − E(CO) − E(H2) = **−3.09 eV** at M = 49, all relaxed
+(−2.91 eV with Fe frozen, −2.70 eV at the search model's geometry). References: Fe16 M = 49 optimum
+−20221.76009 Ha (package 91); CO −113.33635 Ha and H2 −1.17369 Ha from the warehouse's legacy
+UBPW91/6-311++G* records at their optimized bond lengths. No zero-point energy, no thermal terms, no
+basis-set superposition correction, and the integration grid of the two legacy molecular records was not
+checked against this package's `Int=UltraFine`. Treat the last digit as uncertain.
+
+**Where this leaves the pilot.**
+
+- There is now one fully relaxed UBPW91 stationary point for Fe16 + CO + 2H in two spin states, reached from
+  a structure the search adapter proposed. The adapter's job, proposing candidates worth DFT, worked.
+- The correction each cheaper level needs is now measured on one structure: model geometry → adsorbates
+  relaxed → all relaxed changes the energy by 0.21 and 0.17 eV and the spin gap by 0.02 and 0.09 eV.
+  A search with Fe frozen (Stage A) ranks sites but is off by about 0.2 eV in adsorption energy.
+- Labels available for a corrected model: 59 single-geometry states (sections 11, 12), about 120 frozen-Fe
+  optimization steps (section 13) and 50 full-optimization steps (this section), all with forces and all at
+  one composition.
+- Not done: the second minimum (B) with Fe free, a frequency check, any other coverage or composition, and
+  the one excluded state (structure 001 at M = 49).

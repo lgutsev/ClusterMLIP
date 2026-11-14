@@ -18,6 +18,7 @@ try:
         analyze,
         build_candidate,
         find_cluster_sites,
+        native_evaluator,
         observed_genes,
         same_structure,
         sites_from_list,
@@ -324,6 +325,32 @@ class SearchTests(unittest.TestCase):
         again.run()
         self.assertEqual([r["final_sha"] for r in again.records],
                          [r["final_sha"] for r in self.runs["evolutionary"].records])
+
+    def test_batched_evaluation_reproduces_the_sequential_ledger(self):
+        keys = ("candidate_id", "operator", "parent_ids", "status", "start_sha", "final_sha", "duplicate_of", "motif")
+        for arm, batch in (("random", 5), ("evolutionary", 4)):
+            cfg = SearchConfig(arm=arm, seed=3, budget=14, population=6, max_steps=80)
+            batched = AdsorbateSearch(self.cat, self.report.sites, ToyPairCalculator(), cfg)
+            sizes = []
+            evaluate = native_evaluator(ToyPairCalculator(), fmax=cfg.fmax, max_steps=cfg.max_steps)
+
+            def counting(structures, evaluate=evaluate, sizes=sizes):
+                sizes.append(len(structures))
+                return evaluate(structures)
+
+            batched.run_batched(counting, batch_size=batch)
+            sequential = self.runs[arm].records
+            self.assertEqual([[r[k] for k in keys] for r in batched.records], [[r[k] for k in keys] for r in sequential])
+            self.assertEqual(sum(r["calc_calls"] for r in batched.records), sum(r["calc_calls"] for r in sequential))
+            self.assertGreater(max(sizes), 1)  # something was really batched
+            if arm == "evolutionary":  # children are never batched: that would change the algorithm
+                self.assertEqual(sizes.count(1), 14 - 6)
+
+    def test_batch_evaluator_must_return_one_result_per_structure(self):
+        search = AdsorbateSearch(self.cat, self.report.sites, ToyPairCalculator(),
+                                 SearchConfig(arm="random", seed=3, budget=4, max_steps=10))
+        with self.assertRaises(RuntimeError):
+            search.run_batched(lambda structures: [], batch_size=4)
 
 
 if __name__ == "__main__":

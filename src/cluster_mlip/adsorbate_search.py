@@ -526,7 +526,7 @@ def fingerprint(atoms: Atoms, *, include_catalyst: bool = False) -> dict[str, np
 def fingerprint_distance(a: dict[str, np.ndarray], b: dict[str, np.ndarray]) -> float:
     if a.keys() != b.keys() or any(len(a[k]) != len(b[k]) for k in a):
         return float("inf")
-    return max(float(np.abs(a[k] - b[k]).max()) for k in a)
+    return max((float(np.abs(a[k] - b[k]).max()) for k in a), default=0.0)
 
 
 def fixed_frame_distance(a: Atoms, b: Atoms) -> float:
@@ -644,6 +644,26 @@ class SearchConfig:
     max_proposals_factor: int = 50  # stop after budget * factor proposals (guards against a stuck arm)
 
 
+# A batch evaluator relaxes a list of start structures (role/mol_id arrays set) and returns,
+# in the same order, the relaxed structure and its RelaxResult. It must apply the same
+# constraints and convergence rule as :func:`relax`.
+BatchEvaluator = Callable[[list[Atoms]], list[tuple[Atoms, RelaxResult]]]
+
+
+def native_evaluator(calculator: Any, *, fmax: float, max_steps: int, free_catalyst: bool = False) -> BatchEvaluator:
+    """The native fallback behind the batch contract: ASE BFGS, one structure at a time."""
+    counter = CallCounter(calculator)
+
+    def evaluate(structures: list[Atoms]) -> list[tuple[Atoms, RelaxResult]]:
+        out = []
+        for atoms in structures:
+            final = atoms.copy()
+            out.append((final, relax(final, counter, fmax=fmax, max_steps=max_steps, free_catalyst=free_catalyst)))
+        return out
+
+    return evaluate
+
+
 def geometry_sha(atoms: Atoms) -> str:
     text = ";".join(f"{s}:{x:.5f},{y:.5f},{z:.5f}" for s, (x, y, z) in zip(atoms.get_chemical_symbols(), atoms.positions))
     return hashlib.sha256(text.encode()).hexdigest()[:16]
@@ -677,6 +697,8 @@ class AdsorbateSearch:
                            for s in self.sites}
         self._clock = clock
         self._t0 = clock()
+        self._pending = 0  # proposals accepted for a batch but not yet recorded
+        self._external_calls = 0  # calculator calls made by a batch evaluator
 
     # ---- proposals
 
@@ -764,15 +786,17 @@ class AdsorbateSearch:
                 break
         self._population = kept
 
-    def step(self) -> dict[str, Any]:
+    def _propose(self) -> tuple[dict[str, Any], Atoms, list[Gene], bool]:
+        """Next proposal, validated and checked against earlier starts. The bool says
+        whether it should be relaxed; a rejected proposal is already in the ledger."""
         cfg = self.cfg
-        n_relaxed = sum(1 for r in self.records if r["status"] == "relaxed")
+        n_relaxed = sum(1 for r in self.records if r["status"] == "relaxed") + self._pending
         if cfg.arm == "random" or n_relaxed < cfg.population:
             genes, op = self.random_genes(), "random"
             parents: list[str] = []
         else:
             genes, op, parents = self.evolutionary_genes()
-        proposal = len(self.records)
+        proposal = len(self.records) + self._pending
         cid = f"{cfg.arm}-s{cfg.seed}-{proposal:05d}"
         rec: dict[str, Any] = {
             "candidate_id": cid, "arm": cfg.arm, "seed": cfg.seed, "proposal_index": proposal, "operator": op,
@@ -787,60 +811,118 @@ class AdsorbateSearch:
         start = build_candidate(self.catalyst, self.sites, genes)
         rec["start_sha"] = geometry_sha(start)
         problems = validate(start, self.catalyst, cfg.composition)
-        final: Atoms | None = None
         if problems:
             rec["status"], rec["reject_reasons"] = "invalid", problems
         elif any(same_structure(start, s, tol=0.05, frame=cfg.frame) for s in self._starts):
             rec["status"], rec["reject_reasons"] = "duplicate_start", ["duplicate_start"]
         else:
             self._starts.append(start)
-            final = start.copy()
-            res = relax(final, self.counter, fmax=cfg.fmax, max_steps=cfg.max_steps, free_catalyst=cfg.free_catalyst)
-            rec.update(status="relaxed", converged=res.converged, steps=res.steps, calc_calls=res.calls,
-                       energy=None if np.isnan(res.energy) else res.energy,
-                       fmax=None if np.isnan(res.fmax) else res.fmax)
-            if res.error:
-                rec["flags"], rec["failure"] = ["calculator_error"], True
-                rec["reject_reasons"] = [res.error]
-            else:
-                an = analyze(final, self.catalyst, self.sites)
-                rec.update(topology=an.topology, motif=an.motif, flags=an.flags, failure=an.failure,
-                           catalyst_max_disp=an.catalyst_max_disp, fragments=an.fragments,
-                           final_sha=geometry_sha(final))
-                if not res.converged:
-                    rec["flags"] = sorted(set(rec["flags"]) | {"not_converged"})
-                og = observed_genes(final, an, genes, self.sites)
-                rec["parent_genes"] = None if og is None else [asdict(g) for g in og]
-                include_cat = cfg.free_catalyst
-                fp = fingerprint(final, include_catalyst=include_cat) if cfg.frame != "fixed" and not any(final.pbc) else None
-                dists = []
-                for other_id, other, e_other in self._unique:
-                    if fp is not None:
-                        dist = fingerprint_distance(fp, fingerprint(other, include_catalyst=include_cat))
-                    else:
-                        dist = fixed_frame_distance(final, other)
-                    dists.append(dist)
-                    if dist < cfg.dedup_tol and abs(e_other - res.energy) < cfg.dedup_energy_tol:
-                        rec["duplicate_of"] = other_id
-                        break
-                finite = [d for d in dists if np.isfinite(d)]
-                rec["novelty"] = min(finite) if finite else None
-                if rec["duplicate_of"] is None:
-                    rec["unique"] = True
-                    self._unique.append((cid, final, res.energy))
-        rec["cum_relaxations"] = n_relaxed + (rec["status"] == "relaxed")
-        rec["cum_calc_calls"] = self.counter.calls
+            return rec, start, genes, True
+        self._close(rec, start, None)
+        return rec, start, genes, False
+
+    def _close(self, rec: dict[str, Any], start: Atoms, final: Atoms | None) -> None:
+        rec["cum_relaxations"] = sum(1 for r in self.records if r["status"] == "relaxed") + (rec["status"] == "relaxed")
+        rec["cum_calc_calls"] = self.counter.calls + self._external_calls
         rec["cum_wall_s"] = self._clock() - self._t0
         self.records.append(rec)
-        self.structures[cid] = (start, final)
+        self.structures[rec["candidate_id"]] = (start, final)
         if rec["unique"]:
             self._update_population()
+
+    def _finish(self, rec: dict[str, Any], start: Atoms, genes: list[Gene], final: Atoms, res: RelaxResult) -> None:
+        """Record one relaxation result: analysis, duplicate test, population update."""
+        cfg = self.cfg
+        cid = rec["candidate_id"]
+        rec.update(status="relaxed", converged=res.converged, steps=res.steps, calc_calls=res.calls,
+                   energy=None if np.isnan(res.energy) else res.energy,
+                   fmax=None if np.isnan(res.fmax) else res.fmax)
+        if res.error:
+            rec["flags"], rec["failure"] = ["calculator_error"], True
+            rec["reject_reasons"] = [res.error]
+        else:
+            an = analyze(final, self.catalyst, self.sites)
+            rec.update(topology=an.topology, motif=an.motif, flags=an.flags, failure=an.failure,
+                       catalyst_max_disp=an.catalyst_max_disp, fragments=an.fragments,
+                       final_sha=geometry_sha(final))
+            if not res.converged:
+                rec["flags"] = sorted(set(rec["flags"]) | {"not_converged"})
+            og = observed_genes(final, an, genes, self.sites)
+            rec["parent_genes"] = None if og is None else [asdict(g) for g in og]
+            include_cat = cfg.free_catalyst
+            fp = fingerprint(final, include_catalyst=include_cat) if cfg.frame != "fixed" and not any(final.pbc) else None
+            dists = []
+            for other_id, other, e_other in self._unique:
+                if fp is not None:
+                    dist = fingerprint_distance(fp, fingerprint(other, include_catalyst=include_cat))
+                else:
+                    dist = fixed_frame_distance(final, other)
+                dists.append(dist)
+                if dist < cfg.dedup_tol and abs(e_other - res.energy) < cfg.dedup_energy_tol:
+                    rec["duplicate_of"] = other_id
+                    break
+            finite = [d for d in dists if np.isfinite(d)]
+            rec["novelty"] = min(finite) if finite else None
+            if rec["duplicate_of"] is None:
+                rec["unique"] = True
+                self._unique.append((cid, final, res.energy))
+        self._close(rec, start, final)
+
+    def step(self) -> dict[str, Any]:
+        rec, start, genes, needs_relax = self._propose()
+        if needs_relax:
+            final = start.copy()
+            res = relax(final, self.counter, fmax=self.cfg.fmax, max_steps=self.cfg.max_steps,
+                        free_catalyst=self.cfg.free_catalyst)
+            self._finish(rec, start, genes, final, res)
         return rec
+
+    def _budget_left(self) -> int:
+        return self.cfg.budget - sum(1 for r in self.records if r["status"] == "relaxed")
 
     def run(self) -> list[dict[str, Any]]:
         limit = self.cfg.budget * self.cfg.max_proposals_factor
-        while sum(1 for r in self.records if r["status"] == "relaxed") < self.cfg.budget and len(self.records) < limit:
+        while self._budget_left() > 0 and len(self.records) < limit:
             self.step()
+        return self.records
+
+    def run_batched(self, evaluator: "BatchEvaluator", batch_size: int) -> list[dict[str, Any]]:
+        """Same search, with relaxations handed to ``evaluator`` in batches.
+
+        Only proposals that do not depend on earlier results are batched: all of the
+        random arm, and the random initial population of the evolutionary arm. They
+        are proposed, filtered and recorded in the same order as in :meth:`run`, so
+        with an evaluator that returns the same result per structure the ledger is
+        the same. Evolutionary children are still evaluated one at a time (through
+        the same evaluator), because each child is selected from the population the
+        previous child left; batching them would be a different algorithm.
+        """
+        cfg = self.cfg
+        limit = cfg.budget * cfg.max_proposals_factor
+        while self._budget_left() > 0 and len(self.records) < limit:
+            relaxed = cfg.budget - self._budget_left()
+            independent = cfg.arm == "random" or relaxed < cfg.population
+            room = self._budget_left() if cfg.arm == "random" else min(self._budget_left(), cfg.population - relaxed)
+            want = min(batch_size, room) if independent else 1
+            held: list[tuple[dict[str, Any], Atoms, list[Gene]]] = []
+            attempts = 0
+            while len(held) < want and attempts < 50 * want:
+                attempts += 1
+                rec, start, genes, needs_relax = self._propose()
+                if needs_relax:
+                    held.append((rec, start, genes))
+                    self._pending += 1
+            self._pending = 0
+            if not held:
+                break
+            # rejected proposals made while filling the batch were recorded first; keep ledger order by index
+            results = evaluator([start.copy() for _, start, _ in held])
+            if len(results) != len(held):
+                raise RuntimeError(f"evaluator returned {len(results)} results for {len(held)} structures")
+            for (rec, start, genes), (final, res) in zip(held, results):
+                self._external_calls += res.calls
+                self._finish(rec, start, genes, final, res)
+            self.records.sort(key=lambda r: r["proposal_index"])
         return self.records
 
     # ---- output
