@@ -95,7 +95,9 @@ class CollectFrameLabelTests(unittest.TestCase):
             (root / 'ladder.log').write_text(m3 + step * 2 + CONVERGED + NORMAL
                                              + text + step + CONVERGED + NORMAL)
             args = build_parser().parse_args(['collect', str(root), '-o', str(root / 'data'),
-                                              '--frames', 'all'])
+                                              '--frames', 'all',
+                                              # an IRC point run as Opt is a route mismatch
+                                              '--allow-route-mismatch'])
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(args.func(args), 0)
             frames = read_labeled_extxyz(root / 'data/all.extxyz')

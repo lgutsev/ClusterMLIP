@@ -14,7 +14,11 @@ from pathlib import Path
 from typing import TypedDict
 
 from .io import write_text_lf
-from .routes import checkpoint_stages_with_coordinates, drop_molecule_coordinates
+from .routes import (
+    checkpoint_stages_with_coordinates,
+    drop_molecule_coordinates,
+    stage_is_force_only,
+)
 from .spin import SPIN_MANIFEST_COLUMNS, SPIN_RESTART_COLUMNS, parse_spin_diagnostics
 
 
@@ -238,12 +242,21 @@ def prepare_spin_restarts(
             continue
         text = source_output.read_text(encoding="utf-8", errors="replace")
         diagnostics = parse_spin_diagnostics(text)
+        # A fixed-geometry Force stage is finished when it terminates
+        # normally; it has no optimization to converge, so requiring one
+        # would restart every force-only ladder from stage 0 forever.
+        input_text = (
+            source_input.read_text(encoding="utf-8", errors="replace")
+            if source_input.is_file() else ""
+        )
         unfinished_index = next((
             index for index, row in enumerate(rows)
             if not any(
                 item.charge == int(row["intended_charge"])
                 and item.multiplicity == int(row["intended_multiplicity"])
-                and item.normal_termination and item.optimized
+                and item.normal_termination
+                and (item.optimized
+                     or stage_is_force_only(input_text, int(row["stage_index"])))
                 for item in diagnostics
             )
         ), None)

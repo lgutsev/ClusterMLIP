@@ -11,8 +11,14 @@ from pathlib import Path
 from typing import Any
 
 from .gaussian import gaussian_job_complete, parse_final_force_frame
-from .route_audit import ladder_rows, resolve_config_type
-from .routes import FINDINGS, checkpoint_stages_with_coordinates, inspect_job
+from .route_audit import resolve_config_type, resolve_row_geometry, row_is_active
+from .routes import (
+    FINDINGS,
+    checkpoint_stages_with_coordinates,
+    inspect_job,
+    recorded_saddle_order,
+    running_search_route,
+)
 from .spin import parse_spin_diagnostics
 
 STATES = ('complete', 'failed', 'incomplete', 'activity_unconfirmed', 'not_started', 'missing_input')
@@ -73,11 +79,19 @@ def write_batch_progress(campaign: Path, destination: Path | None = None, *,
             if name in seen:
                 issue(batch_name, name, 'error', 'Input occurs in more than one selected batch/list entry')
             seen.add(name)
-            # One row per stage: a from-scratch rerun keeps its input path, so the
-            # retired generation of rows would otherwise double the ladder.
-            rows = ladder_rows(by_input.get(name, []))
-            if not rows:
+            all_rows = by_input.get(name, [])
+            # Stage counts, hashes and route intent describe the attempt that is
+            # listed to run *now*. A same-named input rerun in place keeps its
+            # archived attempt's rows (submission_active=false) for provenance
+            # and label collection; counting them here would double the stages
+            # and compare the current file against a superseded hash.
+            rows = [row for row in all_rows if row_is_active(row)]
+            if not all_rows:
                 issue(batch_name, name, 'error', 'Input is absent from the campaign manifest')
+            elif not rows:
+                issue(batch_name, name, 'error',
+                      'Listed input has only inactive (superseded) manifest rows; the batch '
+                      'would rerun an attempt the manifest no longer describes')
             inp = directory / name
             if inp.is_file() and not inp.resolve().is_relative_to(campaign):
                 issue(batch_name, name, 'error', 'Input link escapes campaign')
@@ -104,7 +118,16 @@ def write_batch_progress(campaign: Path, destination: Path | None = None, *,
                             status = ''
             diagnostics = parse_spin_diagnostics(text) if text else []
             config_type, label_source = resolve_config_type(rows[0] if rows else {}, name)
-            route_verdict = inspect_job(config_type, input_text, text)
+            geometry = resolve_row_geometry(
+                rows[0] if rows else {}, name, config_type,
+                running_route=running_search_route(input_text),
+            )
+            route_verdict = inspect_job(
+                config_type, input_text, text,
+                geometry_role=geometry['geometry_role'],
+                source_calculation_type=geometry['source_calculation_type'],
+                requested_saddle_order=recorded_saddle_order(rows[0]) if rows else None,
+            )
             if not inp.is_file():
                 state = 'missing_input'
                 issue(batch_name, name, 'error', 'Batch input is missing or its link is broken')
@@ -134,6 +157,8 @@ def write_batch_progress(campaign: Path, destination: Path | None = None, *,
                          output_bytes=output.stat().st_size if output.is_file() else 0,
                          output_updated_utc=datetime.fromtimestamp(output.stat().st_mtime, timezone.utc).isoformat()
                              if output.is_file() else '',
+                         geometry_role=geometry['geometry_role'],
+                         geometry_role_source=geometry['geometry_role_source'],
                          route_intent=route_verdict['intent'],
                          route_search_kind=route_verdict['search_kinds'],
                          route_severity=route_verdict['severity'],

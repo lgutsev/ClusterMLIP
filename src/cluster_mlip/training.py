@@ -33,11 +33,12 @@ import hashlib
 import json
 import re
 import shlex
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, TypedDict
 
 from .io import parse_extxyz_info_line, write_text_lf
+from .label_levels import route_label_level
 
 SCHEMA_VERSION = 1
 
@@ -109,6 +110,7 @@ class TrainingPlan(TypedDict):
     charge_range: list[int]
     multiplicity_range: list[int]
     label_routes: list[str]
+    label_levels: list[str]
     e0s: str
     seeds: list[int]
     seed_runs: list[SeedRun]
@@ -123,6 +125,9 @@ class DatasetFacts:
     multiplicities: set[int]
     label_routes: set[str]
     n_frames: int
+    # Normalized levels of theory behind label_routes (label_levels.py): the
+    # stage routes of one ladder differ as strings but not as a Hamiltonian.
+    label_levels: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -190,6 +195,7 @@ def scan_dataset(dataset_dir: Path) -> DatasetFacts:
     charges: set[int] = set()
     multiplicities: set[int] = set()
     label_routes: set[str] = set()
+    label_levels: set[str] = set()
     n_frames = 0
     unlabeled = 0
 
@@ -230,6 +236,7 @@ def scan_dataset(dataset_dir: Path) -> DatasetFacts:
                 route = str(meta.get("first_route") or meta.get("link1_route") or "").strip()
                 if route:
                     label_routes.add(route)
+                    label_levels.add(str(meta.get("label_level") or route_label_level(route).key))
                 else:
                     unlabeled += 1
             else:
@@ -247,7 +254,7 @@ def scan_dataset(dataset_dir: Path) -> DatasetFacts:
             "head on frames from different methods is unsound, and an absent route is not "
             "evidence that they match."
         )
-    return DatasetFacts(files, charges, multiplicities, label_routes, n_frames)
+    return DatasetFacts(files, charges, multiplicities, label_routes, n_frames, label_levels)
 
 
 def _foundation_family(foundation_model: str) -> str:
@@ -553,14 +560,14 @@ def write_training_campaign(config: TrainingConfig) -> TrainingPlan:
     """Scan the dataset, render one run script per seed, write the manifest."""
     facts = scan_dataset(config.dataset_dir)
 
-    if len(facts.label_routes) > 1 and not config.allow_mixed_method:
-        preview = "; ".join(sorted(facts.label_routes)[:3])
+    if len(facts.label_levels) > 1 and not config.allow_mixed_method:
+        preview = "; ".join(sorted(facts.label_levels)[:3])
         raise ValueError(
-            f"dataset mixes {len(facts.label_routes)} distinct force-label routes "
-            f"({preview}...). Training one MACE head on energies/forces from "
-            "different electronic-structure methods is unsound (see README "
-            "\"Prepare consistent Gaussian labels\"). Pass --allow-mixed-method "
-            "only if you are certain the routes are equivalent."
+            f"dataset mixes {len(facts.label_levels)} distinct force-label levels of theory "
+            f"({preview}...) from {len(facts.label_routes)} distinct force-label routes. Training one "
+            "MACE head on energies/forces from different electronic-structure methods is "
+            "unsound (see README \"Prepare consistent Gaussian labels\"). Pass "
+            "--allow-mixed-method only if you are certain the levels are equivalent."
         )
 
     output = config.output_dir.resolve()
@@ -615,6 +622,7 @@ def write_training_campaign(config: TrainingConfig) -> TrainingPlan:
         "charge_range": [min(facts.charges), max(facts.charges)],
         "multiplicity_range": [min(facts.multiplicities), max(facts.multiplicities)],
         "label_routes": sorted(facts.label_routes),
+        "label_levels": sorted(facts.label_levels),
         "e0s": config.e0s,
         "seeds": seeds,
         "seed_runs": seed_runs,

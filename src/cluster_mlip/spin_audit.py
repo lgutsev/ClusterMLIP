@@ -186,6 +186,14 @@ def write_csv(path, rows, fields):
         writer.writerows(rows)
 
 
+_BASE_PROPERTIES = "species:S:1:pos:R:3:REF_forces:R:3"
+_CLUSTERMLIP_PROPERTIES = {
+    _BASE_PROPERTIES: 7,
+    _BASE_PROPERTIES + ":mulliken_spin:R:1": 8,
+    _BASE_PROPERTIES + ":mulliken_spin:R:1:mulliken_charge:R:1": 9,
+}
+
+
 def validate_input(path):
     """Do not let the legacy reader silently assume state or column semantics."""
     lines = path.read_text().splitlines()
@@ -198,8 +206,10 @@ def validate_input(path):
         if n < 1 or i + n + 2 > len(lines):
             raise ValueError(f"Truncated/empty frame in {path} at line {i+1}")
         info = parse_extxyz_info_line(lines[i+1])
-        if info.get("Properties") != "species:S:1:pos:R:3:REF_forces:R:3":
+        # collect may append per-atom Mulliken provenance columns after the forces.
+        if info.get("Properties") not in _CLUSTERMLIP_PROPERTIES:
             raise ValueError(f"{path}: expected ClusterMLIP species/pos/REF_forces columns")
+        columns = _CLUSTERMLIP_PROPERTIES[info["Properties"]]
         if "charge" not in info or not ({"multiplicity", "spin"} & info.keys()):
             raise ValueError(f"{path}: explicit charge and multiplicity/spin required")
         multiplicity = int(info["multiplicity"] if "multiplicity" in info else info["spin"])
@@ -207,7 +217,7 @@ def validate_input(path):
             raise ValueError(f"{path}: invalid/inconsistent multiplicity")
         if any(v.lower() not in {"f", "false", "0"} for v in info.get("pbc", "F F F").split()):
             raise ValueError("This audit supports nonperiodic clusters only")
-        if any(len(line.split()) != 7 for line in lines[i+2:i+n+2]):
+        if any(len(line.split()) != columns for line in lines[i+2:i+n+2]):
             raise ValueError(f"{path}: malformed atom/force columns")
         i += n + 2
 
