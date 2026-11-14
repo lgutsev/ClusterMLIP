@@ -37,6 +37,7 @@ from .progress import write_campaign_progress
 from .relaunch import prepare_route_relaunch
 from .restart import prepare_spin_restarts
 from .route_audit import audit_campaign_routes, resolve_config_type
+from .saddle_modes import export_campaign_saddle_modes
 from .saddle_triage import RECOMMENDATIONS, triage_campaign_saddles
 from .input_repair import repair_checkpoint_inputs
 from .routes import (
@@ -249,6 +250,19 @@ def command_repair_checkpoint_inputs(args: argparse.Namespace) -> int:
         print("Dry run: nothing was written. Re-run without --dry-run to apply.")
     elif result["backup"]:
         print(f"Backup: {result['backup']}; plan appended to input_repair_plan.csv")
+    return 0
+
+
+def command_export_saddle_modes(args: argparse.Namespace) -> int:
+    summary = export_campaign_saddle_modes(
+        Path(args.campaign), Path(args.output), all_intents=args.all_intents,
+    )
+    print(f"Logs read: {summary['logs_read']}; frequency analyses with imaginary modes: "
+          f"{summary['analyses_with_imaginary_modes']}; records written: {summary['records']} "
+          f"({summary['first_order']} from first-order saddles)")
+    for note in summary["notes"]:
+        print(f"NOTE {note['output']}: {note['note']}", file=sys.stderr)
+    print(f"Wrote {Path(summary['destination']) / 'saddle_modes.extxyz'}")
     return 0
 
 
@@ -1309,6 +1323,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="also list saddles that converged with the expected imaginary-mode count",
     )
     triage_saddles.set_defaults(func=command_triage_saddles)
+
+    saddle_modes = sub.add_parser(
+        "export-saddle-modes",
+        help="write saddle geometries with their imaginary-mode displacement vectors "
+             "(extxyz + CSV) from the frequency analyses in finished logs (read-only)",
+    )
+    saddle_modes.add_argument("campaign", help="prepared Gaussian campaign")
+    saddle_modes.add_argument("-o", "--output", required=True, help="report directory")
+    saddle_modes.add_argument(
+        "--all-intents", action="store_true",
+        help="also report imaginary modes found in jobs labeled minimum or unconstrained",
+    )
+    saddle_modes.set_defaults(func=command_export_saddle_modes)
 
     repair_inputs = sub.add_parser(
         "repair-checkpoint-inputs",
