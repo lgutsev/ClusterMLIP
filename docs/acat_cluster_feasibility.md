@@ -674,3 +674,57 @@ for the group's Gaussian practice and is low priority at this energy.
   to 25 steps and hit the 12 h link cap, so this needs a longer link limit.
 - For training, this package adds about 120 optimization frames with energies and forces, the first for
   this composition that lie along a relaxation path and end at small adsorbate forces.
+
+## 14. Full UBPW91 optimization of the lowest minimum (desk package 124, 2026-11-14)
+
+Minimum A of section 13 with all atoms free, at M = 49 and at M = 47. Each task started from package 118's
+stationary geometry at that M (written explicitly; no checkpoint from 118 was read), rebuilt the state with
+the ladder, then ran one unconstrained `Opt` link. Review: `review_opt_package.py`; numbers in
+`report/opt_full_review.json`, final geometries in `report/opt_full_final.extxyz`.
+
+**Run quality.** Both tasks: all links end in Normal termination (3 and 5), no "Convergence criterion not met"
+in any link or optimization step, no watchdog stop, every `Stable=Opt` reports a stable wavefunction, also
+at the relaxed geometries. Both optimizations reached "Stationary point found", after 24 steps (M = 49,
+11.9 h) and 26 steps (M = 47, 14.9 h). The ladder reproduced package 118's energies at the start geometry
+to all printed digits, so the same electronic states were continued. ⟨S²⟩ after annihilation: 600.01 and
+552.01. No frequency calculation was run, so these are stationary points, not proven minima.
+
+**Energies.**
+
+| State | Fe frozen (118) | All atoms free (124) | Gain |
+|---|---|---|---|
+| M = 49 | −20336.37722 Ha | −20336.38354 Ha | 0.172 eV |
+| M = 47 | −20336.37172 Ha | −20336.37492 Ha | 0.087 eV |
+| 49 → 47 gap | 0.150 eV | **0.235 eV** | |
+
+- **Relaxing Fe widens the spin gap** from 0.150 to 0.235 eV, because the M = 49 state gains twice as much.
+  That matches the larger Fe forces it carried in the frozen geometry (section 13).
+- **M = 49 is the lowest state of this structure at every level of relaxation** (vertical 0.13 eV, adsorbates
+  relaxed 0.15 eV, all relaxed 0.23 eV).
+- **CO and two H roughly halve the adiabatic 49 → 47 gap of the cluster:** 0.45 eV for bare Fe16 (package 99),
+  0.23 eV here.
+
+**Geometry.** The Fe atoms move 0.07 to 0.08 Å RMS (largest 0.14 Å); Fe–Fe bond lengths change by −0.09 to
++0.13 Å. The adsorbates do not rearrange: CO stays on top of Fe3, linear, Fe–C 1.80 Å, C–O 1.174 Å, leaning
+to Fe2 (2.54 Å); both H stay in three-fold hollows. So freezing Fe gives the right adsorbate geometry but
+not the right energy or spin gap.
+
+**Co-adsorption energy.** E(Fe16·CO·2H) − E(Fe16) − E(CO) − E(H2) = **−3.09 eV** at M = 49, all relaxed
+(−2.91 eV with Fe frozen, −2.70 eV at the search model's geometry). References: Fe16 M = 49 optimum
+−20221.76009 Ha (package 91); CO −113.33635 Ha and H2 −1.17369 Ha from the warehouse's legacy
+UBPW91/6-311++G* records at their optimized bond lengths. No zero-point energy, no thermal terms, no
+basis-set superposition correction, and the integration grid of the two legacy molecular records was not
+checked against this package's `Int=UltraFine`. Treat the last digit as uncertain.
+
+**Where this leaves the pilot.**
+
+- There is now one fully relaxed UBPW91 stationary point for Fe16 + CO + 2H in two spin states, reached from
+  a structure the search adapter proposed. The adapter's job, proposing candidates worth DFT, worked.
+- The correction each cheaper level needs is now measured on one structure: model geometry → adsorbates
+  relaxed → all relaxed changes the energy by 0.21 and 0.17 eV and the spin gap by 0.02 and 0.09 eV.
+  A search with Fe frozen (Stage A) ranks sites but is off by about 0.2 eV in adsorption energy.
+- Labels available for a corrected model: 59 single-geometry states (sections 11, 12), about 120 frozen-Fe
+  optimization steps (section 13) and 50 full-optimization steps (this section), all with forces and all at
+  one composition.
+- Not done: the second minimum (B) with Fe free, a frequency check, any other coverage or composition, and
+  the one excluded state (structure 001 at M = 49).

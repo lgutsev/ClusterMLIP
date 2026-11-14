@@ -53,12 +53,12 @@ def main() -> None:
         text = (args.outputs / f"{row['frame']}.log").read_text(encoding="utf-8", errors="replace")
         ends = [m.end() for m in re.finditer(r"^ (Normal|Error) termination.*$", text, flags=re.M)]
         last = text[ends[-1]:] if ends and len(ends) < int(row["links"]) else (text[ends[-2]:] if len(ends) > 1 else text)
-        entry = {"frame": row["frame"], "draft_job": row["draft_job"], "target_multiplicity": int(row["target_multiplicity"]),
+        entry = {"frame": row["frame"], "draft_job": row.get("draft_job") or row.get("name"), "target_multiplicity": int(row["target_multiplicity"]),
                  "links_expected": int(row["links"]), "normal_terminations": text.count(" Normal termination"),
                  "error_terminations": text.count(" Error termination"),
                  "watchdog": (args.outputs / f"{row['frame']}.watchdog").read_text(encoding="utf-8").strip() or None,
                  "hours": round(int((args.outputs / f"{row['frame']}.seconds").read_text()) / 3600, 2)}
-        if "Opt=ModRedundant" in row["job_types"]:
+        if {"Opt", "Opt=ModRedundant"} & set(row["job_types"].split(";")):
             scf = [(float(e), int(n)) for e, n in re.findall(r"SCF Done:\s+E\(\S+\) =\s+(-?\d+\.\d+)\s+A\.U\. after\s+(\d+) cycles", last)]
             # an SCF flag belongs to the SCF Done line that follows it
             flags = [("Convergence criterion not met" in seg) for seg in re.split(r"SCF Done:", last)[:-1]]
@@ -102,9 +102,9 @@ def main() -> None:
         with open(args.xyz, "w", encoding="utf-8", newline="\n") as fh:
             for row, sym, xyz, entry in finals:
                 fh.write(f"{len(sym)}\n")
-                fh.write(f'Properties=species:S:1:pos:R:3 pbc="F F F" frame={row["frame"]} draft_job={row["draft_job"]} '
+                fh.write(f'Properties=species:S:1:pos:R:3 pbc="F F F" frame={row["frame"]} draft_job={row.get("draft_job") or row.get("name")} '
                          f'multiplicity={row["target_multiplicity"]} charge=0 energy_ha={entry["last_energy_ha"]} '
-                         f'stationary_point={entry["stationary_point_found"]} level=UBPW91/6-311++G* fe_frozen=T\n')
+                         f'stationary_point={entry["stationary_point_found"]} level=UBPW91/6-311++G* fe_frozen={"T" if row.get("frozen_atoms") else "F"}\n')
                 for s, p in zip(sym, xyz):
                     fh.write(f"{s:<2s} {p[0]:14.8f} {p[1]:14.8f} {p[2]:14.8f}\n")
     for e in report:
