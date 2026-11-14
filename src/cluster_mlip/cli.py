@@ -59,6 +59,7 @@ from .route_audit import (
 )
 from .saddle_modes import export_campaign_saddle_modes
 from .saddle_triage import RECOMMENDATIONS, triage_campaign_saddles
+from .hold import hold_inputs, read_input_list
 from .input_repair import repair_checkpoint_inputs
 from .routes import (
     FINDINGS,
@@ -271,6 +272,33 @@ def command_audit(args: argparse.Namespace) -> int:
             f"{selected['unique_geometry_state']} unique geometry/state entries"
         )
     print(f"Private audit: {output}")
+    return 0
+
+
+def command_hold_inputs(args: argparse.Namespace) -> int:
+    names = read_input_list(Path(args.list))
+    result = hold_inputs(
+        Path(args.campaign), names, reason=args.reason, release=args.release,
+        assume_stopped=args.assume_stopped, allow_empty_batches=args.allow_empty_batches,
+        dry_run=args.dry_run,
+    )
+    done = "release" if args.release else "hold"
+    verb = f"Would {done}" if args.dry_run else ("Released" if args.release else "Held")
+    print(f"{verb} {result['input_count']} of {len(names)} listed input(s) "
+          f"in {result['batches_touched']} batch(es)")
+    reasons: dict[str, int] = {}
+    for row in result["skipped"]:
+        reasons[row["reason"]] = reasons.get(row["reason"], 0) + 1
+        print(f"SKIPPED {row['batch'] or '-'} {row['input']}: {row['reason']}", file=sys.stderr)
+    for reason, count in sorted(reasons.items(), key=lambda item: -item[1]):
+        print(f"  skipped {count}: {reason}")
+    if result["empty_batches"]:
+        print("Batches with no inputs left (leave them out of submitted ranges): "
+              + ", ".join(result["empty_batches"]))
+    if args.dry_run:
+        print("Dry run: nothing was written. Re-run without --dry-run to apply.")
+    elif result["backup"]:
+        print(f"Backup: {result['backup']}; current holds in held_inputs.csv")
     return 0
 
 
@@ -1968,6 +1996,32 @@ def build_parser() -> argparse.ArgumentParser:
     )
     repair_inputs.add_argument("--dry-run", action="store_true")
     repair_inputs.set_defaults(func=command_repair_checkpoint_inputs)
+
+    hold = sub.add_parser(
+        "hold-inputs",
+        help="leave listed inputs out of their batches (duplicates, inputs awaiting a "
+             "decision) so a batch range can be submitted without them; --release undoes it",
+    )
+    hold.add_argument("campaign", help="prepared Gaussian campaign with slurm_batches/")
+    hold.add_argument(
+        "--list", required=True, metavar="FILE",
+        help="input names, one per line (first column of a TSV/CSV; # comments allowed)",
+    )
+    hold.add_argument("--reason", default="", help="why, recorded with each hold")
+    hold.add_argument("--release", action="store_true",
+                      help="put the listed held inputs back into their batches")
+    hold.add_argument(
+        "--assume-stopped", action="store_true",
+        help="also hold inputs left with an unmatched .started marker; pass only after "
+             "squeue is clear on every cluster that sees the campaign",
+    )
+    hold.add_argument(
+        "--allow-empty-batches", action="store_true",
+        help="allow holding every input of a batch; the launcher refuses a range that "
+             "contains an empty batch, so such batches must be left out when submitting",
+    )
+    hold.add_argument("--dry-run", action="store_true")
+    hold.set_defaults(func=command_hold_inputs)
 
     relaunch_routes = sub.add_parser(
         "relaunch-routes",
