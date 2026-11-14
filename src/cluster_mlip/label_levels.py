@@ -26,6 +26,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from .dataset import write_labeled_extxyz
 from .gaussian import (
@@ -461,7 +462,7 @@ def summarize_levels(
     by_class_kind: Counter = Counter()
     usable_by_class_kind: Counter = Counter()
     files_by_class: dict[str, set[str]] = {}
-    levels: dict[str, dict[str, object]] = {}
+    levels: dict[str, dict[str, Any]] = {}
     for row in rows:
         key = (str(row["level_class"]), str(row["calculation_kind"]))
         by_class_kind[key] += 1
@@ -505,7 +506,7 @@ def summarize_levels(
     }
 
 
-def render_levels_report(summary: dict[str, object]) -> str:
+def render_levels_report(summary: dict[str, Any]) -> str:
     lines = [
         "# Force-label level audit",
         "",

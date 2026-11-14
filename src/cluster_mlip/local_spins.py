@@ -104,7 +104,10 @@ def local_spin_rows(frame_id: str, record: Record) -> list[dict[str, object]]:
     spins = atomic_spin_values(record)
     if spins is None:
         return []
-    charges = atomic_charge_values(record) or [None] * len(spins)
+    known_charges = atomic_charge_values(record)
+    charges: list[float | None] = (
+        list(known_charges) if known_charges else [None] * len(spins)
+    )
     metadata = record.metadata
     return [
         {

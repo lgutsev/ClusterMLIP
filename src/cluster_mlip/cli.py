@@ -8,6 +8,7 @@ import re
 import shutil
 import sys
 from pathlib import Path
+from typing import Any
 
 from .active_learning import predict_committee_forces, write_next_batch
 from .analysis import write_analysis
@@ -56,6 +57,8 @@ from .route_audit import (
     resolve_row_geometry,
     row_is_active,
 )
+from .saddle_triage import RECOMMENDATIONS, triage_campaign_saddles
+from .input_repair import repair_checkpoint_inputs
 from .routes import (
     FINDINGS,
     force_only_route,
@@ -270,6 +273,25 @@ def command_audit(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_repair_checkpoint_inputs(args: argparse.Namespace) -> int:
+    result = repair_checkpoint_inputs(
+        Path(args.campaign), start=args.start, end=args.end,
+        assume_stopped=args.assume_stopped, dry_run=args.dry_run,
+    )
+    verb = "Would repair" if args.dry_run else "Repaired"
+    print(f"{verb} {result['input_count']} input(s)")
+    for row in result["plan"]:
+        print(f"  {row['batch']} {row['input']}: stage(s) {row['repaired_stages']}, "
+              f"{row['atom_lines_removed']} atom line(s) removed")
+    for row in result["skipped"]:
+        print(f"SKIPPED {row['batch']} {row['input']}: {row['reason']}", file=sys.stderr)
+    if args.dry_run:
+        print("Dry run: nothing was written. Re-run without --dry-run to apply.")
+    elif result["backup"]:
+        print(f"Backup: {result['backup']}; plan appended to input_repair_plan.csv")
+    return 0
+
+
 def command_audit_routes(args: argparse.Namespace) -> int:
     result = audit_campaign_routes(
         Path(args.campaign),
@@ -317,6 +339,28 @@ def command_audit_routes(args: argparse.Namespace) -> int:
         print(f"NOT AUDITED: {item['input']}: {item['reason']}", file=sys.stderr)
     print(f"Reports: {result['destination']}")
     return 2 if summary["must_relaunch"] else 0
+
+
+def command_triage_saddles(args: argparse.Namespace) -> int:
+    result = triage_campaign_saddles(
+        Path(args.campaign),
+        Path(args.output) if args.output else None,
+        include_converged=args.include_converged,
+    )
+    summary = result["summary"]
+    print(f"Saddle jobs started: {summary['saddles_started']} "
+          f"(not started: {summary['saddles_not_started']}); triaged: {summary['triaged']}")
+    if summary["by_termination"]:
+        print("How they ended: " + ", ".join(
+            f"{name}={count}" for name, count in
+            sorted(summary["by_termination"].items(), key=lambda item: -item[1])
+        ))
+    for name, count in sorted(summary["by_recommendation"].items(), key=lambda item: -item[1]):
+        print(f"  {count:5} {name}: {RECOMMENDATIONS[name]}")
+    for item in summary["unreadable"]:
+        print(f"NOT TRIAGED: {item['input']}: {item['reason']}", file=sys.stderr)
+    print(f"Reports: {result['destination'] / 'saddle_triage.csv'}")
+    return 0
 
 
 def command_relaunch_routes(args: argparse.Namespace) -> int:
@@ -679,7 +723,7 @@ def _write_dataset_summary(
     exact = {exact_keys[parent] for parent in parents if exact_keys.get(parent)}
     used_geometries = {parent: geometries[parent] for parent in parents if parent in geometries}
     used_exact = {parent: exact_keys[parent] for parent in parents if parent in exact_keys}
-    summary: dict[str, object] = {
+    summary: dict[str, Any] = {
         "frames": len(frames),
         "optimization_stages": len(stages),
         "source_records": len(parents),
@@ -1126,14 +1170,15 @@ def command_collect(args: argparse.Namespace) -> int:
             if current is None:
                 best[label_key] = frame
                 continue
-            keep, drop = (
+            kept_frame, dropped_frame = (
                 (frame, current)
                 if _attempt_rank(manifest.get(frame.record.record_id, {}))
                 > _attempt_rank(manifest.get(current.record.record_id, {}))
                 else (current, frame)
             )
-            best[label_key] = keep
-            superseded.append((str(drop.output_file), drop.record.record_id, keep.record.record_id))
+            best[label_key] = kept_frame
+            superseded.append((str(dropped_frame.output_file), dropped_frame.record.record_id,
+                               kept_frame.record.record_id))
         frames.extend(best.values())
     duplicate_aliases: dict[int, LabeledFrame] = {}
     if args.frames == "completed-stages":
@@ -1147,19 +1192,20 @@ def command_collect(args: argparse.Namespace) -> int:
 
         unique: dict[tuple, LabeledFrame] = {}
         for frame in frames:
-            key = (frame.record.formula, frame.record.charge, frame.record.multiplicity,
-                   geometry_signature(frame.record.atoms))
-            if key not in unique or keep_rank(frame) < keep_rank(unique[key]):
-                unique[key] = frame
+            state_key = (frame.record.formula, frame.record.charge, frame.record.multiplicity,
+                         geometry_signature(frame.record.atoms))
+            if state_key not in unique or keep_rank(frame) < keep_rank(unique[state_key]):
+                unique[state_key] = frame
         kept_ids = {id(frame) for frame in unique.values()}
         for frame in frames:
             if id(frame) not in kept_ids:
-                key = (frame.record.formula, frame.record.charge, frame.record.multiplicity,
-                       geometry_signature(frame.record.atoms))
-                duplicate_aliases[id(frame)] = unique[key]
+                state_key = (frame.record.formula, frame.record.charge,
+                             frame.record.multiplicity,
+                             geometry_signature(frame.record.atoms))
+                duplicate_aliases[id(frame)] = unique[state_key]
                 counts_out["frames_dropped_exact_duplicate"] += 1
                 superseded.append((str(frame.output_file), frame.record.record_id,
-                                   unique[key].record.record_id))
+                                   unique[state_key].record.record_id))
         frames = [frame for frame in frames if id(frame) in kept_ids]
     # Split by source geometry: records whose starting geometries coincide
     # (exact hash, or fingerprints within tolerance) form one group.
@@ -1191,8 +1237,8 @@ def command_collect(args: argparse.Namespace) -> int:
             handle.write(f"{name}\t{message}\n")
     with (destination / "superseded_labels.tsv").open("w", encoding="utf-8") as handle:
         handle.write("output\tdropped_job_id\tkept_job_id\n")
-        for name, dropped, kept in superseded:
-            handle.write(f"{name}\t{dropped}\t{kept}\n")
+        for name, dropped_id, kept_id in superseded:
+            handle.write(f"{name}\t{dropped_id}\t{kept_id}\n")
     with (destination / "unconverged_scf_frames.tsv").open("w", encoding="utf-8") as handle:
         handle.write("output\tparent_record_id\trecord_id\tforce_frame_index\n")
         for output, parent, record_id, frame_index in unconverged:
@@ -1215,8 +1261,9 @@ def command_collect(args: argparse.Namespace) -> int:
             f"(Convergence criterion not met) -- see {destination / 'unconverged_scf_frames.tsv'}"
         )
     elif allow_unconverged:
-        kept = sum(1 for frame in frames if frame.record.metadata.get("scf_unconverged"))
-        print(f"Kept {kept} frame(s) with an unconverged SCF (--allow-unconverged-scf; "
+        kept_unconverged = sum(
+            1 for frame in frames if frame.record.metadata.get("scf_unconverged"))
+        print(f"Kept {kept_unconverged} frame(s) with an unconverged SCF (--allow-unconverged-scf; "
               "flagged scf_unconverged=True)")
     print("Split: " + ", ".join(f"{name}={len(values)}" for name, values in splits.items()))
     print(
@@ -1861,6 +1908,39 @@ def build_parser() -> argparse.ArgumentParser:
              "IRC-derived rows that a legacy manifest records only by file name",
     )
     audit_routes.set_defaults(func=command_audit_routes)
+
+    triage_saddles = sub.add_parser(
+        "triage-saddles",
+        help="read every started saddle (TS) job, classify how it ended and how close it "
+             "came to a first-order saddle, and recommend a rescue (read-only)",
+    )
+    triage_saddles.add_argument(
+        "campaign", help="prepared Gaussian campaign containing jobs.csv or spin_jobs.csv"
+    )
+    triage_saddles.add_argument(
+        "-o", "--output", help="report directory (default: CAMPAIGN/monitoring)"
+    )
+    triage_saddles.add_argument(
+        "--include-converged", action="store_true",
+        help="also list saddles that converged with the expected imaginary-mode count",
+    )
+    triage_saddles.set_defaults(func=command_triage_saddles)
+
+    repair_inputs = sub.add_parser(
+        "repair-checkpoint-inputs",
+        help="drop atom lines left in Geom=Checkpoint stages of not-yet-run inputs "
+             "(restarts written before PR #22 die in l101); backs up and updates the manifest",
+    )
+    repair_inputs.add_argument("campaign", help="prepared Gaussian spin campaign")
+    repair_inputs.add_argument("--start", type=int, default=1, help="first batch (inclusive)")
+    repair_inputs.add_argument("--end", type=int, help="last batch (inclusive)")
+    repair_inputs.add_argument(
+        "--assume-stopped", action="store_true",
+        help="also repair inputs left with an unmatched .started marker; pass only after "
+             "squeue is clear on every cluster that sees the campaign",
+    )
+    repair_inputs.add_argument("--dry-run", action="store_true")
+    repair_inputs.set_defaults(func=command_repair_checkpoint_inputs)
 
     relaunch_routes = sub.add_parser(
         "relaunch-routes",

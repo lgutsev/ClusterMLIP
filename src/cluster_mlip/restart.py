@@ -127,7 +127,7 @@ def _rewrite_stage(section: str, *, oldchk: str, chk: str) -> str:
         route = _append_keyword(route, "Guess=Read")
     # Under Geom=Checkpoint the structure comes from the checkpoint; atom
     # lines left in the molecule specification -- stage 0 is the one stage
-    # that has them -- would be read as the next input section.
+    # that has them -- would be read as the next input section (l101).
     section = (
         section[:route_match.start()] + route
         + drop_molecule_coordinates(section[route_match.end():])

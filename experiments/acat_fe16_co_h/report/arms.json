@@ -1,0 +1,273 @@
+{
+  "pool_size": 991,
+  "pool_low_energy_entries": 451,
+  "low_window_ev": 0.3,
+  "pool_min_energy": -131.08639526367188,
+  "arms": {
+    "evolutionary": {
+      "seeds": [
+        0,
+        1,
+        2
+      ],
+      "best_e_rel_vs_relaxations": {
+        "50": [
+          0.0467,
+          0.052,
+          0.0236
+        ],
+        "100": [
+          0.0467,
+          0.0126,
+          0.0093
+        ],
+        "150": [
+          0.0,
+          0.0126,
+          0.0083
+        ],
+        "200": [
+          -0.0001,
+          0.0126,
+          0.0083
+        ]
+      },
+      "best_e_rel_vs_calc_calls": {
+        "1520": [
+          0.0975,
+          0.052,
+          0.0236
+        ],
+        "3040": [
+          0.0467,
+          0.0127,
+          0.0093
+        ],
+        "6080": [
+          -0.0001,
+          0.0126,
+          0.0083
+        ]
+      },
+      "best_e_rel_vs_wall_s": {
+        "99.6": [
+          0.0975,
+          0.0886,
+          0.0334
+        ],
+        "199.3": [
+          0.0467,
+          0.052,
+          0.0236
+        ],
+        "398.6": [
+          -0.0001,
+          0.0126,
+          0.0236
+        ]
+      },
+      "found_pool_minimum": [
+        true,
+        false,
+        false
+      ],
+      "relaxations_to_pool_minimum": [
+        125,
+        null,
+        null
+      ],
+      "low_energy_recall": [
+        0.222,
+        0.213,
+        0.213
+      ],
+      "unique_converged_valid": [
+        158,
+        156,
+        157
+      ],
+      "motifs": [
+        18,
+        13,
+        15
+      ],
+      "duplicate_rate_after_relax": [
+        0.205,
+        0.22,
+        0.215
+      ],
+      "rejected_before_relax": [
+        44,
+        28,
+        26
+      ],
+      "calc_calls": [
+        6898,
+        7651,
+        6080
+      ],
+      "wall_s": [
+        398.6,
+        579.0,
+        1729.6
+      ],
+      "motifs_within_low_window": [
+        9,
+        6,
+        7
+      ]
+    },
+    "random": {
+      "seeds": [
+        0,
+        1,
+        2
+      ],
+      "best_e_rel_vs_relaxations": {
+        "50": [
+          0.0855,
+          0.039,
+          0.0334
+        ],
+        "100": [
+          0.0569,
+          0.0359,
+          0.0334
+        ],
+        "150": [
+          0.0569,
+          0.0359,
+          0.0334
+        ],
+        "200": [
+          0.0569,
+          0.0359,
+          0.0334
+        ]
+      },
+      "best_e_rel_vs_calc_calls": {
+        "1520": [
+          0.0975,
+          0.0908,
+          0.0334
+        ],
+        "3040": [
+          0.0855,
+          0.039,
+          0.0334
+        ],
+        "6080": [
+          0.0569,
+          0.0359,
+          0.0334
+        ]
+      },
+      "best_e_rel_vs_wall_s": {
+        "99.6": [
+          0.0975,
+          0.0908,
+          0.0829
+        ],
+        "199.3": [
+          0.0792,
+          0.039,
+          0.0334
+        ],
+        "398.6": [
+          0.0569,
+          0.0359,
+          0.0334
+        ]
+      },
+      "found_pool_minimum": [
+        false,
+        false,
+        false
+      ],
+      "relaxations_to_pool_minimum": [
+        null,
+        null,
+        null
+      ],
+      "low_energy_recall": [
+        0.133,
+        0.153,
+        0.149
+      ],
+      "unique_converged_valid": [
+        200,
+        199,
+        199
+      ],
+      "motifs": [
+        20,
+        20,
+        24
+      ],
+      "duplicate_rate_after_relax": [
+        0.0,
+        0.005,
+        0.005
+      ],
+      "rejected_before_relax": [
+        16,
+        11,
+        13
+      ],
+      "calc_calls": [
+        10907,
+        11538,
+        10715
+      ],
+      "wall_s": [
+        713.0,
+        2285.0,
+        2860.4
+      ],
+      "motifs_within_low_window": [
+        8,
+        8,
+        10
+      ]
+    }
+  },
+  "low_energy_gaps_ev": {
+    "n": 450,
+    "median": 0.0004119873046875,
+    "min": 0.0
+  },
+  "pool_topologies": {
+    "CO+H+H": 991
+  },
+  "pool_flags": {
+    "co_o_bound": 33,
+    "desorbed_CO": 46
+  },
+  "motifs_low_window": {
+    "CO@C-top|H@H-hollow3|H@H-hollow3": 153,
+    "CO@C-top|H@H-bridge|H@H-hollow3": 152,
+    "CO@gas|H@H-bridge|H@H-hollow3": 19,
+    "CO@C-bridge|H@H-hollow3|H@H-hollow3": 43,
+    "CO@C-bridge|H@H-bridge|H@H-hollow3": 29,
+    "CO@gas|H@H-hollow3|H@H-hollow3": 13,
+    "CO@C-top|H@H-bridge|H@H-bridge": 34,
+    "CO@C-bridge|H@H-bridge|H@H-bridge": 4,
+    "CO@gas|H@H-bridge|H@H-bridge": 2,
+    "CO@C-hollow3|H@H-bridge|H@H-hollow3": 1,
+    "CO@C-hollow3|H@H-hollow3|H@H-hollow3": 1
+  },
+  "second_model": {
+    "spec": "mace:~/.cache/mace/MACE-matpes-r2scan-omat-ft.model",
+    "rank_of_first_model_minimum": 28,
+    "low_window_pairs_same_order": 62335,
+    "low_window_pairs": 86663,
+    "rel_energy_rms_difference_ev": 0.4337457599679577
+  },
+  "shortlist": {
+    "lowest_of_motif": 6,
+    "near_degenerate": 4,
+    "largest_model_disagreement": 3,
+    "diverse_random_control": 4,
+    "constructed_control": 3
+  }
+}

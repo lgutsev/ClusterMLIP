@@ -834,8 +834,9 @@ def checkpoint_stages_with_coordinates(text: str) -> list[int]:
 
     Under ``Geom=Checkpoint`` Gaussian takes the structure from the checkpoint
     and expects only the charge/multiplicity line before the terminating blank
-    line, so leftover atom lines are read as the *next* input section. No
-    generated input may contain such a stage.
+    line, so leftover atom lines are read as the *next* input section and the
+    job dies in l101 ("Atom specifications unexpectedly found in input
+    stream"). No generated input may contain such a stage.
     """
     return [
         index for index, section in enumerate(_LINK1_SPLIT_RE.split(text))

@@ -250,3 +250,90 @@ class SpinRestartTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StageZeroRestartTests(unittest.TestCase):
+    """A ladder interrupted in its first stage: the one stage carrying atoms.
+
+    The restart reads that stage's geometry from the checkpoint, so its atom
+    lines must go -- left in, Gaussian dies in l101 ("Atom specifications
+    unexpectedly found in input stream") before computing anything. W2 lost
+    16 saddle restarts this way.
+    """
+
+    _campaign = SpinRestartTests._campaign
+    ATOMS = "Fe 0.000000 0.000000 0.000000\nN 1.650000 0.000000 0.000000\n"
+
+    def _interrupted_in_stage_zero(self, root: Path, route_tail: str = "") -> Path:
+        campaign, log, _ = self._campaign(root)
+        source = campaign / "inputs" / "ladder.gjf"
+        text = source.read_text()
+        first, rest = text.split("\n--Link1--\n", 1)
+        first = first.replace("NoSymm Opt", f"NoSymm Opt{route_tail}")
+        first = first.replace("0 55\n", "0 55\n" + self.ATOMS + "\n")
+        source.write_text(first + "\n--Link1--\n" + rest)
+        batch = campaign / "slurm_batches" / "batch_0001"
+        if not (batch / "ladder.gjf").is_symlink():
+            shutil.copy2(source, batch / "ladder.gjf")
+        digest = hashlib.sha256(source.read_bytes()).hexdigest()
+        manifest = campaign / "spin_jobs.csv"
+        with manifest.open(newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        for row in rows:
+            row["input_sha256"] = digest
+        with manifest.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=SPIN_MANIFEST_COLUMNS)
+            writer.writeheader()
+            writer.writerows(rows)
+        log.write_text(" Charge = 0 Multiplicity = 55\n SCF Done: E(UHF) = -12.3\n")
+        (batch / "chain-s00-m55.chk").write_bytes(b"stage zero checkpoint")
+        return campaign
+
+    def _restart_text(self, campaign: Path) -> str:
+        result = prepare_spin_restarts(campaign)
+        self.assertEqual(result["input_count"], 1)
+        with (campaign / "spin_jobs.csv").open(newline="") as handle:
+            active = [row for row in csv.DictReader(handle)
+                      if row.get("submission_active") != "false"]
+        self.assertEqual([row["intended_multiplicity"] for row in active], ["55", "53", "51"])
+        return (campaign / active[0]["input"]).read_text()
+
+    def test_stage_zero_restart_drops_the_atom_lines(self):
+        from cluster_mlip.routes import checkpoint_stages_with_coordinates
+
+        with tempfile.TemporaryDirectory() as tmp:
+            text = self._restart_text(self._interrupted_in_stage_zero(Path(tmp)))
+            self.assertEqual(checkpoint_stages_with_coordinates(text), [])
+            self.assertNotIn("Fe 0.000000", text)
+            first = text.split("--Link1--")[0]
+            self.assertIn("Geom=Checkpoint", first)
+            self.assertIn("Guess=Read", first)
+            self.assertIn("%oldchk=chain-s00-m55-seed-r01.chk", first)
+            self.assertRegex(first, r"(?m)^0 55\s*$")
+            # The final charge/multiplicity section needs its terminating blank line.
+            self.assertTrue(text.endswith("\n\n"), repr(text[-20:]))
+
+    def test_added_keywords_keep_a_trailing_population_request_last(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign = self._interrupted_in_stage_zero(Path(tmp), " Pop=Regular")
+            first = self._restart_text(campaign).split("--Link1--")[0]
+            route = next(line for line in first.splitlines() if line.startswith("#"))
+            self.assertTrue(route.endswith("Geom=Checkpoint Guess=Read Pop=Regular"), route)
+
+
+class CoordinateHelperTests(unittest.TestCase):
+    def test_coordinate_removal_keeps_a_following_basis_block(self):
+        from cluster_mlip.routes import drop_molecule_coordinates
+
+        body = "\ntitle\n\n0 11\nFe 0.0 0.0 0.0\nO 1.6 0.0 0.0\n\nFe 0\nS 1 1.0\n 1.0 1.0\n****\n\n"
+        self.assertEqual(drop_molecule_coordinates(body),
+                         "\ntitle\n\n0 11\n\nFe 0\nS 1 1.0\n 1.0 1.0\n****\n\n")
+
+    def test_checkpoint_stage_with_atoms_is_detected(self):
+        from cluster_mlip.routes import checkpoint_stages_with_coordinates
+
+        good = "%chk=a.chk\n#p UBPW91/6-311++G* Opt\n\nt\n\n0 9\nFe 0 0 0\n\n"
+        bad = "%chk=b.chk\n#p UBPW91/6-311++G* Opt Geom=Checkpoint Guess=Read\n\nt\n\n0 7\nFe 0 0 0\n\n"
+        bare = "%chk=c.chk\n#p UBPW91/6-311++G* Opt Geom=Checkpoint Guess=Read\n\nt\n\n0 5\n\n"
+        text = "\n--Link1--\n".join([good, bad, bare])
+        self.assertEqual(checkpoint_stages_with_coordinates(text), [1])

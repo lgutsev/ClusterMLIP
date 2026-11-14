@@ -824,7 +824,8 @@ def _mulliken_blocks(
     Each row is (atom index, symbol, charge, spin); charge is None for the
     older spin-only table.
     """
-    blocks = []
+    blocks: list[tuple[int, list[tuple[int, str, float | None, float]]]] = []
+    rows: list[tuple[int, str, float | None, float]]
     for match in _MULLIKEN_SPIN_RE.finditer(text, start, end):
         rows = [
             (int(row.group(1)), row.group(2), _float(row.group(3)), _float(row.group(4)))

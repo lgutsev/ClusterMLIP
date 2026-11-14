@@ -5,7 +5,7 @@ import json
 import math
 import statistics
 from pathlib import Path
-from typing import Callable, TypedDict
+from typing import Any, Callable, TypedDict
 
 from .mace_glue import load_calculator, predict_forces_and_energy, require_mace
 from .models import LabeledFrame
@@ -192,7 +192,7 @@ def frame_prediction_rows(
 
 def spin_pair_errors(
     frames: list[LabeledFrame], predictions: list[Prediction]
-) -> list[dict[str, object]]:
+) -> list[dict[str, Any]]:
     """Vertical spin-flip gaps (child minus parent, same geometry) predicted
     vs DFT, for every verified pair whose two frames were both evaluated."""
     members: dict[str, dict[str, tuple[LabeledFrame, Prediction]]] = {}
