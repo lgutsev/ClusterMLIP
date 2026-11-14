@@ -234,6 +234,13 @@ Independent of the model choice:
    only on the picks. This changes the algorithm, so it is a new arm to benchmark against the current two,
    not a replacement.
 
+Status, 2026-11-14 (`docs/acat_cluster_feasibility.md`, sections 11 to 15): packages 112, 116, 118 and 124 gave
+218 labelled frames for Fe16 + CO + 2H. Route 1 was tested as published (energies only, per-element
+descriptors) with leave-one-structure-out scoring and **does not pass the gate**: it halves MACE-MPA-0's
+energy error and repairs the desorbed-CO artifact, but leaves 0.03 to 0.3 eV errors among bound structures
+and makes Fe forces worse than a zero-force guess. Next in order: a correction or fine-tune that also fits
+forces (route 2), then route 3.
+
 This section authorizes **documentation only**: no training, no new Gaussian or VASP jobs beyond the already
 approved packages 111 and 112, no new dependency, and no merge without a separate decision.
 

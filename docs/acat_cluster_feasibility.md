@@ -728,3 +728,53 @@ checked against this package's `Int=UltraFine`. Treat the last digit as uncertai
   one composition.
 - Not done: the second minimum (B) with Fe free, a frequency check, any other coverage or composition, and
   the one excluded state (structure 001 at M = 49).
+
+## 15. Labels collected, and a first corrected-model test (2026-11-14)
+
+**Labels.** `collect_coh_labels.py` reads the four packages (112, 116, 118, 124) with the project parser and
+writes 218 energy-and-force frames in `collect`'s extxyz format: 59 panel states, 107 frozen-Fe optimization
+steps and their 3 stationary points, 46 full-optimization steps and their 2 stationary points, and one extra
+ladder frame. Frames whose own SCF did not converge are dropped; duplicates are removed by multiplicity and
+geometry. Dataset: `D:\MLIP_Work_Folder\Cluster_MLIP\fe16_coh2_labels_v1` (table of frames in
+`report/fe16_coh2_labels_v1_frames.csv`). All frames are one composition; split by structure, never by frame.
+
+**Test.** The first route of the roadmap: a Δ-model on the foundation model, after Christiansen and Hammer
+(arXiv:2502.21179, there with CHGNet). A Gaussian process on the model's own invariant descriptors, averaged
+per element, is trained on E(UBPW91) − E(model). Energies only, as in the paper; forces of the corrected
+model come from automatic differentiation. Script: `delta_gp_test.py`. The paper leaves the kernel and its
+settings open; here an RBF kernel between same-element descriptors, with length scale and noise chosen by
+leave-one-group-out error inside the training set. The companion paper on using this inside a global search
+(PCCP 2026, 28, 912) could not be read (publisher access), so its loop is not reproduced.
+
+**Evaluation.** Leave one structure out: the model that predicts a structure saw no frame derived from it.
+Structures 000, 008 and the relaxed minimum count as one structure. Scored on the 19 (M = 49) or 20 (M = 47)
+panel structures. Training used all frames at that multiplicity; training on the panel frames alone gave the
+same picture (`report/delta_gp/`).
+
+| Model, M | Energy error, uncorrected → corrected (eV) | Pairs ordered | Fe force RMSE: zero / uncorrected / corrected | Adsorbate force RMSE: zero / uncorrected / corrected |
+|---|---|---|---|---|
+| MPA-0, 49 | 0.65 → 0.26 | 88 % → 86 % | 0.27 / 0.24 / 0.37 | 1.18 / 1.10 / 0.68 |
+| MPA-0, 47 | 0.66 → 0.16 | 89 % → 98 % | 0.21 / 0.25 / 0.49 | 1.11 / 0.99 / 0.55 |
+| r2SCAN, 49 | 0.22 → 0.21 | 95 % → 90 % | 0.27 / 0.27 / 0.47 | 1.18 / 0.67 / 0.72 |
+| r2SCAN, 47 | 0.18 → 0.16 | 93 % → 90 % | 0.21 / 0.28 / 0.39 | 1.11 / 0.78 / 0.64 |
+
+Energy error is the mean absolute error of relative energies; forces in eV/Å.
+
+**Verdict: the gate is not passed.**
+
+- **It repairs MPA-0's gross errors.** The two desorbed-CO structures go from 1.8 to 1.9 eV too low to within
+  0.25 to 0.37 eV, and the side-on control from 2.2 eV off to 0.5 eV. Mean error falls by more than half.
+- **It does not resolve the low-energy window.** Remaining errors on the bound structures are 0.03 to 0.3 eV,
+  as large as the energy differences between them. MPA-0's correct pick of the lowest structure is lost: the
+  corrected model picks 003, which is 0.18 eV up. The gate asks for 0.03 eV.
+- **It makes Fe forces worse than predicting zero**, for both models and both multiplicities. A correction
+  trained on energies alone has no reason to get forces right, and here it does not. Adsorbate forces improve
+  for MPA-0 and not for r2SCAN.
+- **For r2SCAN it buys almost nothing**: the model was already at 0.2 eV and the correction cannot do better
+  with 18 training structures.
+- The dissociated control stays 1.7 eV off: nothing like it is in the training set.
+
+**Reading.** Eighteen structures of energies are too few, and the unused information is in the forces: each
+frame carries 60 force components and only one energy. A correction that also fits forces, or a fine-tune of
+the foundation model (the roadmap's second route), uses about 60 times more data from the same frames. That
+is the next test. It needs the GPU for training, and one composition will still limit what a pass means.

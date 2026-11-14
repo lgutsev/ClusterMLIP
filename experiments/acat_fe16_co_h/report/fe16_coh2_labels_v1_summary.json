@@ -1,0 +1,22 @@
+{
+ "frames": 218,
+ "structures": 22,
+ "lowest_energy_ha": -20336.3835378,
+ "by_config_and_multiplicity": {
+  "ladder_at_relaxed_geometry|M49": 1,
+  "opt_all_free|M47": 24,
+  "opt_all_free|M49": 22,
+  "opt_fe_frozen|M47": 53,
+  "opt_fe_frozen|M49": 54,
+  "panel_fixed|M45": 20,
+  "panel_fixed|M47": 20,
+  "panel_fixed|M49": 19,
+  "stationary_all_free|M47": 1,
+  "stationary_all_free|M49": 1,
+  "stationary_fe_frozen|M47": 1,
+  "stationary_fe_frozen|M49": 2
+ },
+ "spin_states": [
+  "all_alpha"
+ ]
+}
