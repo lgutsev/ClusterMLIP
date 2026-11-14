@@ -800,6 +800,26 @@ checkpoint, add `--rerun-missing-checkpoints`. Their partial logs and markers
 are archived with manifest provenance, then the unchanged original inputs are
 reactivated from scratch. Preview this mode with `--dry-run` before submission.
 
+### Triage failed saddle (TS) searches
+
+`triage-saddles` reads every started saddle job in a prepared campaign
+(`jobs.csv` or `spin_jobs.csv`), classifies how it ended and how close it came
+to a first-order saddle, and recommends a rescue (restart from the best frame,
+Cartesian restart, mode displacement, MLIP TS guess, SCF rescue, regenerated
+input, or a frequency check). It is read-only and writes `saddle_triage.csv`
+and `saddle_triage.json` to `CAMPAIGN/monitoring` unless `-o` is given:
+
+```bash
+cluster-mlip triage-saddles gaussian_spin_jobs
+cluster-mlip triage-saddles gaussian_spin_jobs -o reports/triage --include-converged
+```
+
+On LONI, `scripts/run_triage_saddles_slurm.sh CAMPAIGN REPORT_DIR` runs the
+same triage as a batch job, and `scripts/run_route_relaunch_dryrun_slurm.sh
+CAMPAIGN REPORT_DIR [SEEDS.extxyz]` runs `audit-routes` followed by
+`relaunch-routes --dry-run`. Both leave the campaign untouched; set
+`CLUSTER_MLIP_REPO` and `CLUSTER_MLIP_PYTHON` first (see the script headers).
+
 ### Relaunch jobs that searched for the wrong stationary point
 
 When `audit-routes` reports jobs that must be relaunched, rebuild them in place:
