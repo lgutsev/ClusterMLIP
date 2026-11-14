@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import Any
 
 from .io import write_text_lf
-from .route_audit import audit_campaign_routes, find_manifest, read_manifest
+from .route_audit import audit_campaign_routes, find_manifest, ladder_rows, read_manifest
 from .routes import (
     corrected_cartesian_route,
     corrected_minimum_route,
@@ -511,7 +511,7 @@ def prepare_route_relaunch(
         elif final_batch:
             skip(row, "input is not listed in any batch inputs.txt")
             continue
-        manifest_group = rows_by_input.get(reference, [])
+        manifest_group = ladder_rows(rows_by_input.get(reference, []))
         # A first-order search is right for transition_state and
         # first_order_saddle. higher_order_saddle only means "more than one
         # imaginary mode", so its order has to come from somewhere real.
@@ -599,7 +599,7 @@ def prepare_route_relaunch(
                 skip(row, f"root ladder input carries no coordinates either: {lineage_root}")
                 continue
             rebuild_from, rebuild_text = root_path, root_text
-            rebuild_rows = rows_by_input.get(lineage_root) or group
+            rebuild_rows = ladder_rows(rows_by_input.get(lineage_root, [])) or group
         elif origin == "input_coordinates":
             rebuild_from, rebuild_text, rebuild_rows = source_input, active_text, group
         else:
