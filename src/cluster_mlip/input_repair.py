@@ -164,8 +164,8 @@ def repair_checkpoint_inputs(
     backup.mkdir(parents=True)
     shutil.copy2(manifest, backup / manifest.name)
     repaired_names: dict[str, str] = {}
-    for targets, new, after, plan_row in writes:
-        for real in targets:
+    for real_files, new, after, plan_row in writes:
+        for real in real_files:
             relative = real.relative_to(campaign) if real.is_relative_to(campaign) else Path(real.name)
             saved = backup / relative
             saved.parent.mkdir(parents=True, exist_ok=True)
