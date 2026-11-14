@@ -1,0 +1,32 @@
+# Proposal-agent handoff: GRACE audit, 2026-10-27
+
+**Delivered through `send_message_to_thread`; acknowledgment and proposal incorporation unverified.** Detailed tool status is recorded in `grace-seminar-audit-status-2026-10-27.md`. This technical handoff contains no copied proposal draft or private calculation data. User-authorized recipient: the existing final-white-paper chat, thread `01a17869-cbf9-7150-9241-3a7bdb279543`. Read-only review found DOE BES Catalysis Science white paper v1.9 and D-064 current; historical NSF folder naming must not determine the active proposal.
+
+## Recommendation to the proposal agent and PI
+
+Keep the current electronic-state-resolved ensemble hypothesis, N2/H2 Fe3–Fe6/theta-Al2O3 lead, water/OH Aim 2, dry/wet microkinetics and D-051 bounded nonadiabatic feasibility task. The seminar does not require a new aim, named production backend or expanded synthetic-label campaign. Add detailed transfer/distillation/UQ development only later, with resource and validation gates.
+
+One consistency issue deserves review: v1.9's planned archive-to-periodic fine-tuning must not imply that ClusterMLIP has authorized VASP absolute cluster labels in the gas-phase model or a shared trunk. Package 62 decided **delta only**. A separate periodic sampler/transfer study remains an unverified proposal recommendation requiring an explicit method/split/control design; do not silently reinterpret it as the established ClusterMLIP implementation. No proposal prose was changed here.
+
+## Verified claim/reference table
+
+| Statement and evidence category | Exact supporting location / short passage | Repository or controlled evidence; limit |
+|---|---|---|
+| External GRACE fine-tuning and distillation demonstrations | [GRACE paper](https://arxiv.org/abs/2508.17936v2), abstract: “fine-tuning and knowledge distillation” | Assessed in `grace-seminar-audit-2026-10-27.md`; not evidence of transfer on Fe/N/H supported clusters. |
+| External native-conditioned MACE candidate exists | [Official OMOL release](https://github.com/ACEsuit/mace-foundations/releases/tag/mace_omol_0), release description: “spin and charge embedding”; [recipe](https://raw.githubusercontent.com/ACEsuit/mace-foundations/main/mace_omol/mace-omol.sh), `total_charge_key`, `total_spin_key` and embedding flags | `src/cluster_mlip/training.py`, `_foundation_family` and `_build_argv`; generated plans only, checkpoint compatibility not validated here. |
+| External CALM is a feature-space extrapolation indicator | [CALM preprint](https://arxiv.org/html/2609.40060v1), sections 2.1 and 4.1, equations 4–9; per-element/cluster distance calibration | Current `active_learning.py` supplies a different committee baseline. Neither estimator proves chemical accuracy; no MACE CALM experiment completed. |
+| External magnetic Fe–O–H ACE demonstration is now verified | [Advanced Science e76709](https://doi.org/10.1002/advs.76709), abstract: “Ising-like”; indexed primary Figure 7 describes hematite/H2 reduction. [Author model deposit](https://zenodo.org/records/20793272), Description | Corrects the earlier controlled handoff's “paper not found.” Related surface/bulk Fe/O/H work, with no N/Al-supported cluster kinetics validation. Direct publisher/PMC retrieval was limited; author deposit and indexed primary text were checked. |
+| Completed local code audit, not a scientific result | `src/cluster_mlip/evaluate.py`: q/M, strata and spin-pair reporting; separate `.claude/worktrees/grace-seminar` adds element/zero-force and committee reports | Nine focused tests rerun successfully. Additions remain unmerged and are not claimed as current-root functionality. |
+| Completed archived selector diagnostic, narrowly qualified | `D:/MLIP_Work_Folder/Cluster_MLIP/fe16_v1/13_seminar_checks/calib_longB_heldout/calibration.csv` and `.json` | 90 frames, two models, rho 0.954875, top-nine recall 3/9; recalculated from archived CSV. Twin-heavy set is not independent target validation. No new inference run. |
+| Completed calibration decision, unpublished local evidence | `docs/gaussian-vasp-calibration.md`, Results package 62 and Consequence; controlled `gv_calibration_62/report.md` | VASP absolute cluster labels excluded even in a separate shared-trunk head. Preserve supported-cluster interaction correction. Cross-method force differences do not measure same-method label noise. |
+| Planned experiment / hypothesis | `experiments/foundation_transfer_pilot/PILOT_AUDIT_2026-10-27.md` and JSON configuration | Scratch versus native OMOL, matched updates, independent DFT tests; no claimed training or transfer result. |
+
+External literature demonstrations are [E] in the proposal's evidence scheme; identify CALM explicitly as a preprint. Completed repository diagnostics/calibration are [P] only within their documented scope. Pilot training, repeat labels, adsorption tests and uncertainty calibration are [C]. Improved transfer or latent detection of confidently shared errors remain [H]. Distillation beyond a validated teacher domain is a later development recommendation, not a completed capability.
+
+## Suggested wording for consideration
+
+“We will sample nuclear configurations within declared total-charge and spin-multiplicity sectors and validate each sampler against independent, state-resolved DFT configurations. Electronic-state assignment, charge partition, crossing locations and couplings remain electronic-structure tasks. Validation will emphasize spin gaps, adsorption/reaction energies and forces on the active atoms, with errors resolved by environment and state. Committee disagreement will guide selection and be calibrated against DFT errors; low disagreement will not be treated as proof of accuracy.”
+
+“Reference methods and label provenance will remain explicit. The gas-phase reference model and supported-cluster interaction correction will be validated separately. Any synthetic labels will retain teacher identity and domain limits, while independent DFT anchors test inherited teacher error. Magnetic-moment and charge-resolved coverage remains a target-specific data gap; total-charge/spin inputs alone do not establish local-spin dynamics, oxidation states or nonadiabatic transitions.”
+
+These are recommendations, not adopted scope decisions. Avoid claims that general MLIPs cannot represent magnetism, that global spin conditioning solves noncollinear dynamics, or that GRACE establishes N2/H2O byproduct selectivity or ammonia kinetics. The seminar supplies context, not novelty or completion evidence.

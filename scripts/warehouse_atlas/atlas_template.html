@@ -1,0 +1,835 @@
+<meta charset="utf-8">
+<title>/*TITLE*/</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a lab-notebook atlas. Sticky section rail on top, then stacked full-width panels;
+   the explorer is a three-pane linked view (filters | chemical-space map | structure card). */
+:root{
+  --bg:#eef1f4; --panel:#fbfcfd; --ink:#16202b; --muted:#5b6774; --line:#d5dbe2; --soft:#e3e8ee;
+  --accent:#1f4e8c; --accent-soft:#dbe5f3; --seq:#1f4e8c;
+  --ok:#2f8a4e; --warn:#c48a12; --bad:#c23b2e; --idle:#c9d0d8;
+  --f0:#3b6fb6; --f1:#cf5a36; --f2:#23998a; --f3:#8f5fc4; --f4:#cf9418; --f5:#5f8f2b; --f6:#c64f8b; --f7:#8a94a3;
+  --display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f141a; --panel:#161d25; --ink:#e4e9ef; --muted:#97a3b0; --line:#2a3440; --soft:#1f2832;
+  --accent:#7fa8e6; --accent-soft:#1d2d44; --seq:#8fb4ee;
+  --ok:#54b874; --warn:#e0a83a; --bad:#e76a5c; --idle:#33404d;
+  --f0:#6f9ae0; --f1:#e8805f; --f2:#4cc1b1; --f3:#b58ce6; --f4:#e8b545; --f5:#8cbd55; --f6:#e57bb0; --f7:#7d8896;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f141a; --panel:#161d25; --ink:#e4e9ef; --muted:#97a3b0; --line:#2a3440; --soft:#1f2832;
+  --accent:#7fa8e6; --accent-soft:#1d2d44; --seq:#8fb4ee;
+  --ok:#54b874; --warn:#e0a83a; --bad:#e76a5c; --idle:#33404d;
+  --f0:#6f9ae0; --f1:#e8805f; --f2:#4cc1b1; --f3:#b58ce6; --f4:#e8b545; --f5:#8cbd55; --f6:#e57bb0; --f7:#7d8896;
+  color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 var(--body);margin:0}
+.wrap{max-width:1320px;margin:0 auto;padding-inline:clamp(16px,3vw,32px);padding-block:0 64px}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0;letter-spacing:-.01em}
+h1{font-size:clamp(34px,5vw,54px);font-weight:700;line-height:1.02}
+h2{font-size:26px;font-weight:600}
+h3{font-size:17px;font-weight:600}
+p{margin:0}
+.lede{color:var(--muted);max-width:68ch;font-size:16px}
+.mono,.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.eyebrow{font:500 11.5px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+sub{font-size:.72em;line-height:0}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+nav.rail{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:color-mix(in srgb,var(--bg) 88%,transparent);
+  backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+nav.rail .wrap{display:flex;gap:4px 18px;align-items:center;flex-wrap:wrap;padding-block:10px}
+nav.rail b{font-family:var(--display);font-size:17px;margin-right:auto}
+nav.rail a{font:500 13px var(--body);color:var(--muted);text-decoration:none;padding:4px 0;border-bottom:2px solid transparent}
+nav.rail a:hover{color:var(--ink);border-color:var(--accent)}
+
+header.hero{display:grid;gap:14px;padding-block:40px 28px}
+section{margin-top:44px;display:grid;gap:16px}
+.sechead{display:flex;flex-wrap:wrap;align-items:end;gap:8px 24px;justify-content:space-between}
+.sechead > div{display:grid;gap:6px;min-width:0}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px;min-width:0}
+
+/* warehouse cards */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:16px}
+.card.slot{border-style:dashed;background:transparent;place-content:center;text-align:center;min-height:220px;color:var(--muted)}
+.card{display:grid;gap:12px;align-content:start}
+.card .tag{font:600 12px var(--mono);color:var(--accent);background:var(--accent-soft);padding:3px 8px;border-radius:4px;justify-self:start}
+.card h3{font-size:21px}
+.kv{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.kv div{display:grid;gap:2px}
+.kv .num{font-size:22px;font-weight:500}
+.kv .lbl{font-size:12px;color:var(--muted)}
+.stack{display:flex;height:12px;border-radius:3px;overflow:hidden;background:var(--soft)}
+.stack span{display:block;height:100%}
+.toplist{display:grid;gap:3px;font-size:13.5px}
+.toplist div{display:flex;justify-content:space-between;gap:10px}
+.toplist .num{color:var(--muted)}
+.note{font-size:13px;color:var(--muted)}
+
+.sechead > .legend{display:flex;flex:1 1 320px;justify-content:flex-end}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+
+/* explorer */
+.explorer{display:grid;grid-template-columns:230px minmax(0,1fr) 340px;gap:16px;align-items:start}
+@media (max-width:1100px){.explorer{grid-template-columns:minmax(0,1fr) 320px}.filters{grid-column:1/-1}}
+@media (max-width:760px){.explorer{grid-template-columns:minmax(0,1fr)}}
+.filters{display:grid;gap:16px;align-content:start}
+.filters fieldset{border:0;padding:0;margin:0;display:grid;gap:7px}
+.filters legend{padding:0;margin-bottom:4px}
+.chip{display:flex;align-items:center;gap:8px;font-size:13.5px;cursor:pointer;user-select:none;padding:3px 0}
+.chip input{accent-color:var(--accent);margin:0}
+.chip .sw{width:10px;height:10px;border-radius:2px;flex:none}
+.chip .ct{margin-left:auto;font:12px var(--mono);color:var(--muted)}
+input[type=search],select{font:14px var(--body);color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:7px 9px;width:100%}
+.axes{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.axes label{display:grid;gap:3px;font-size:12px;color:var(--muted)}
+button.btn{font:500 13px var(--body);color:var(--accent);background:transparent;border:1px solid var(--line);border-radius:6px;padding:6px 10px;cursor:pointer}
+button.btn:hover{border-color:var(--accent)}
+.status{font-size:13px;color:var(--muted)}
+.status b{color:var(--ink);font-weight:600}
+.elchip{display:inline-flex;gap:6px;align-items:center;background:var(--accent-soft);color:var(--accent);font:600 12.5px var(--mono);padding:2px 4px 2px 8px;border-radius:4px}
+.elchip button{border:0;background:none;color:inherit;cursor:pointer;font:inherit;padding:0 4px}
+#map{width:100%;display:block;touch-action:manipulation}
+#map .dot{cursor:pointer;stroke:var(--panel);stroke-width:.8}
+#map .dot.sel{stroke:var(--ink);stroke-width:2.2}
+.axis text{fill:var(--muted);font:11px var(--mono)}
+.axis path,.axis line{stroke:var(--line)}
+.grid line{stroke:var(--soft)}
+.axlbl{fill:var(--muted);font:12px var(--body)}
+
+.detail{display:grid;gap:12px;align-content:start;position:sticky;top:64px}
+.detail .ftitle{font:600 30px/1 var(--display)}
+#viewer{position:relative;width:100%;height:260px;border-radius:8px;background:var(--soft);overflow:hidden}
+.geo-cap{font:12px/1.45 var(--mono);color:var(--muted);word-break:break-all}
+.whrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(64px,1fr));gap:6px}
+.whrow div{background:var(--soft);border-radius:6px;padding:6px 8px;display:grid}
+.whrow .num{font-size:17px}
+.whrow .lbl{font-size:11.5px;color:var(--muted)}
+.minichart text{fill:var(--muted);font:10.5px var(--mono)}
+
+.tablewrap{overflow-x:auto;max-height:440px;overflow-y:auto;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;font-variant-numeric:tabular-nums}
+th,td{padding:6px 10px;text-align:left;border-bottom:1px solid var(--soft);white-space:nowrap}
+th{position:sticky;top:0;background:var(--panel);font:600 12px var(--body);color:var(--muted);cursor:pointer;user-select:none}
+th[aria-sort]{color:var(--ink)}
+td.n{text-align:right;font-family:var(--mono)} th.n{text-align:right}
+tbody tr{cursor:pointer}
+tbody tr:hover{background:var(--soft)}
+tbody tr.sel{background:var(--accent-soft)}
+
+/* periodic table */
+.ptable{display:grid;grid-template-columns:repeat(18,minmax(0,1fr));gap:3px;min-width:640px}
+.ptwrap{overflow-x:auto}
+.el{aspect-ratio:1/1.05;border-radius:4px;display:grid;place-content:center;text-align:center;font:600 13px var(--mono);
+  border:1px solid var(--line);color:var(--muted);background:var(--panel);cursor:default;position:relative;padding:0}
+.el small{display:block;font:400 9.5px var(--mono);opacity:.85}
+.el.has{cursor:pointer;color:var(--ink);border-color:transparent}
+.el.has.dark{color:#fff}
+.el.on{outline:2px solid var(--ink);outline-offset:1px}
+.el.gap{visibility:hidden}
+
+.two{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:16px}
+@media (max-width:900px){.two{grid-template-columns:minmax(0,1fr)}}
+.chartbox{width:100%;overflow-x:auto}
+.chartbox svg{display:block}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{font:500 13px var(--body);border:0;background:var(--panel);color:var(--muted);padding:6px 12px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--panel)}
+
+/* campaign */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:grid;gap:2px}
+.tile .num{font-size:24px}
+.tile .lbl{font-size:12.5px;color:var(--muted)}
+.tile.bad{border-left:3px solid var(--bad)} .tile.warn{border-left:3px solid var(--warn)} .tile.ok{border-left:3px solid var(--ok)}
+#jobgrid rect{cursor:pointer}
+.pipeline{display:flex;flex-wrap:wrap;gap:8px;align-items:stretch}
+.step{flex:1 1 130px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:grid;gap:2px;position:relative}
+.step .num{font-size:20px}
+.step .unit{font:11px var(--mono);color:var(--accent);text-transform:uppercase;letter-spacing:.06em}
+.step .lbl{font-size:12.5px;color:var(--muted)}
+
+.owners{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+.owner{display:grid;gap:8px;align-content:start;border-top:3px solid var(--oc)}
+.owner .num{font-size:22px}
+.owner a.go{font-weight:600;text-decoration:none}
+.owner a.go:hover{text-decoration:underline}
+.pending{display:flex;flex-wrap:wrap;gap:10px}
+.pend{border:1px dashed var(--line);border-radius:8px;padding:10px 14px;display:grid;gap:2px;min-width:150px}
+.pend b{font:600 18px var(--display)}
+.pend span{font-size:12.5px;color:var(--muted)}
+.crumb{font-size:13px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 14px}
+.qstrip{display:flex;gap:3px;flex-wrap:wrap}
+.qstrip span{font:500 11.5px var(--mono);padding:2px 6px;border-radius:4px;background:var(--soft);color:var(--muted)}
+.qstrip span.pos{background:color-mix(in srgb,var(--f6) 22%,var(--panel));color:var(--ink)}
+.qstrip span.neg{background:color-mix(in srgb,var(--f0) 22%,var(--panel));color:var(--ink)}
+#tip{position:fixed;z-index:50;pointer-events:none;background:var(--ink);color:var(--bg);font:12.5px/1.45 var(--body);
+  padding:8px 10px;border-radius:6px;max-width:340px;opacity:0;transition:opacity .08s}
+#tip b{font-weight:600}
+#tip .m{font-family:var(--mono);font-size:11.5px;opacity:.8}
+footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:13px;display:grid;gap:6px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<nav class="rail" aria-label="Sections"><div class="wrap">
+  <b id="navtitle">Warehouse Atlas</b>
+  <a href="#overview">Warehouses</a><a href="#explore">Explorer</a><a href="#elements">Elements</a>
+  <a href="#spin">Spin landscape</a><a href="#treemap">Treemap</a><a href="#campaign" id="nav-campaign">W2 campaign</a><a href="#dataset" id="nav-dataset">Labeled dataset</a>
+</div></nav>
+
+<div class="wrap">
+<header class="hero">
+  <div class="crumb" id="crumb"></div>
+  <span class="eyebrow" id="eyebrow">ClusterMLIP · Gaussian structure warehouses · UBPW91 lineage</span>
+  <h1 id="h1">Warehouse Atlas</h1>
+  <p class="lede" id="lede"></p>
+</header>
+
+<section id="overview">
+  <div class="sechead"><div><span class="eyebrow">01 · What is in each warehouse</span><h2>The warehouses at a glance</h2></div>
+    <div class="legend" id="famlegend"></div></div>
+  <div class="cards" id="cards"></div>
+  <div class="two">
+    <div class="panel" style="display:grid;gap:10px">
+      <h3>Exact-geometry overlap</h3>
+      <p class="note">Each unique structure (species + coordinates rounded to 10⁻⁴ Å + charge + multiplicity) is counted once, then grouped by the set of warehouses that hold it. Bar heights are on a log scale.</p>
+      <div class="chartbox" id="upset"></div>
+    </div>
+    <div class="panel" style="display:grid;gap:10px">
+      <h3>Repeats and redundancy</h3>
+      <div id="redund" class="toplist"></div>
+      <p class="note" id="redundnote"></p>
+    </div>
+  </div>
+</section>
+
+<section id="owners" hidden>
+  <div class="sechead"><div><span class="eyebrow">Ownership</span><h2>Sub-atlases</h2>
+    <p class="lede">Every seed belongs to exactly one sub-atlas, decided by the first rule it matches. Each sub-atlas has the same layout as this page, restricted to its own seeds.</p></div></div>
+  <div class="owners" id="ownercards"></div>
+</section>
+
+<section id="pendingsec" hidden>
+  <div class="sechead"><div><span class="eyebrow">Awaiting data</span><h2>Still being collected</h2>
+    <p class="lede" id="pendlede">These systems belong to this atlas but are not in any warehouse yet. They appear on the map automatically after the next rebuild.</p></div></div>
+  <div class="pending" id="pending"></div>
+</section>
+
+<section id="explore">
+  <div class="sechead"><div><span class="eyebrow">02 · Linked map and 3D structure viewer</span><h2>Chemical-space explorer</h2>
+    <p class="lede">Each dot is one chemical formula, sized by how many seed structures it has. Click a dot or a table row to see its lowest-energy geometry, spin states and configuration types.</p></div></div>
+  <div class="explorer">
+    <div class="panel filters">
+      <label style="display:grid;gap:4px"><span class="eyebrow">Search formula</span>
+        <input type="search" id="q" placeholder="e.g. Fe16N2, Ga, CFe2" autocomplete="off"></label>
+      <div id="elfilter"></div>
+      <fieldset><legend class="eyebrow">Warehouse</legend><div id="whf"></div></fieldset>
+      <fieldset><legend class="eyebrow">Chemistry family</legend><div id="famf"></div></fieldset>
+      <fieldset id="ownfs" hidden><legend class="eyebrow">Sub-atlas</legend><div id="ownf"></div></fieldset>
+      <div class="axes">
+        <label for="ax">X axis<select id="ax"></select></label>
+        <label for="ay">Y axis<select id="ay"></select></label>
+      </div>
+      <button class="btn" id="reset" type="button">Reset filters</button>
+    </div>
+    <div class="panel" style="display:grid;gap:8px;min-width:0">
+      <div class="status" id="status"></div>
+      <svg id="map" role="img" aria-label="Scatter map of formulas"></svg>
+    </div>
+    <div class="panel detail" id="detail"></div>
+  </div>
+  <div class="panel" style="display:grid;gap:10px">
+    <div class="sechead"><h3>Formula table</h3><span class="status" id="tstatus"></span></div>
+    <div class="tablewrap"><table id="ftable"><thead></thead><tbody></tbody></table></div>
+  </div>
+</section>
+
+<section id="elements">
+  <div class="sechead"><div><span class="eyebrow">03 · Element coverage</span><h2>Which elements the warehouses touch</h2>
+    <p class="lede">Shading is the number of seed structures that contain the element, on a log scale, for the warehouses selected in the explorer. Click an element to filter the explorer to formulas containing it.</p></div></div>
+  <div class="panel ptwrap"><div class="ptable" id="ptable"></div></div>
+</section>
+
+<section id="spin">
+  <div class="sechead"><div><span class="eyebrow">04 · Spin landscape</span><h2 id="spinh2">Unpaired electrons against cluster size</h2>
+    <p class="lede">Each cell counts seeds with a given number of Fe atoms and 2S = multiplicity − 1. Dashed lines mark 2, 3 and 4 unpaired electrons per Fe; the high-spin edge for neutral Fe clusters sits near 3 per Fe.</p></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap"><div class="seg" id="spinx" role="group" aria-label="X axis"></div><div class="seg" id="spinwh" role="group" aria-label="Warehouse"></div></div></div>
+  <div class="panel chartbox" id="spinchart"></div>
+</section>
+
+<section id="treemap">
+  <div class="sechead"><div><span class="eyebrow">05 · Where the volume sits</span><h2>Seeds by warehouse, family and formula</h2>
+    <p class="lede">Tile area is the seed count. Click a tile to open that formula in the explorer.</p></div></div>
+  <div class="panel chartbox" id="tree"></div>
+</section>
+
+<section id="campaign">
+  <div class="sechead"><div><span class="eyebrow">06 · FenOm_Warehouse2 · gaussian_spin_qb3_g09_v3</span><h2>Spin-ladder campaign, one square per job</h2>
+    <p class="lede" id="camplede"></p></div></div>
+  <div class="pipeline" id="pipeline"></div>
+  <div class="tiles" id="camptiles"></div>
+  <div class="panel" style="display:grid;gap:10px">
+    <div class="sechead">
+      <div class="legend" id="statelegend"></div>
+      <label style="display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted)">Configuration
+        <select id="ctf" style="width:auto"></select></label>
+    </div>
+    <div class="chartbox" id="jobgridbox"></div>
+    <p class="note">Ringed squares carry an audit finding (Link1 stage count differs from the spin manifest, or a saddle launched as a plain Opt). States are read from the logs on the dates shown, not live from Slurm.</p>
+  </div>
+</section>
+
+<section id="dataset">
+  <div class="sechead"><div><span class="eyebrow">07 · dataset_spin_v0</span><h2>Labeled frames ready for training</h2>
+    <p class="lede" id="dslede"></p></div></div>
+  <div class="two">
+    <div class="panel" style="display:grid;gap:8px"><h3>Force RMS per frame</h3>
+      <p class="note">log₁₀ of the RMS of REF_forces (eV/Å), stacked by split. The red line is the 5 eV/Å outlier threshold in label_report.</p>
+      <div class="chartbox" id="frms"></div></div>
+    <div class="panel" style="display:grid;gap:8px"><h3>Frames by multiplicity</h3>
+      <p class="note">Small Fe₂–Fe₈ species sit at low multiplicity; the Fe₁₆ ladders sit at 41–55.</p>
+      <div class="chartbox" id="dsmult"></div></div>
+  </div>
+  <div class="panel" style="display:grid;gap:8px"><h3>Most-labeled formulas</h3><div class="chartbox" id="dsform"></div></div>
+</section>
+
+<footer id="foot"></footer>
+</div>
+<div id="tip" role="tooltip"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/3Dmol/2.4.2/3Dmol-min.js"></script>
+<script>const DATA = /*DATA*/;</script>
+<script>
+(() => {
+const D = DATA;
+const WH = D.warehouses.map(w => w.key);
+const WHN = Object.fromEntries(D.warehouses.map(w => [w.key, w.name]));
+const SC = D.scope || {root: true, links: [], title: "Warehouse Atlas"};
+const MAX_WH = SC.root ? 4 : 0; // the root layout reserves room for four warehouses
+const OWN = (SC.root ? (SC.links || []) : []).map(l => l.id);
+const OWNC = ["var(--accent)", "var(--f6)", "var(--f7)", "var(--f2)", "var(--f4)"];
+const ownColor = id => OWNC[Math.max(0, OWN.indexOf(id)) % OWNC.length];
+// Colour keys. "fe" suits Fe-centred atlases; "metal" groups non-Fe material by its main metal;
+// "molecule" groups small organic molecules and ions by class. A scope picks one with "families".
+const NONMET = new Set(["H", "He", "B", "C", "N", "O", "F", "Ne", "Si", "P", "S", "Cl", "Ar", "As", "Se", "Br", "Kr", "Te", "I", "Xe"]);
+const SCHEMES = {
+  fe: {names: ["Bare Fe", "Iron oxides", "Iron nitrides", "H-bearing", "O + N", "C-bearing", "Fe + other elements", "No iron"],
+       of: f => famOf(f.fam)},
+  metal: {names: ["Mn clusters", "Cr, Mo, W", "Co, Ni, Ru", "Sc, Ti, V, Zr, La, Ce", "Cu, Zn, Cd", "Main-group metals (Ga, Al, Li…)", "Non-metal molecules, to place later"],
+          colors: [3, 5, 0, 2, 1, 4, 7],
+          of: f => {
+            const mets = Object.keys(f.comp).filter(e => !NONMET.has(e));
+            if (!mets.length) return 6;
+            const m = mets.reduce((a, b) => f.comp[b] > f.comp[a] ? b : a);
+            if (m === "Mn") return 0;
+            if (["Cr", "Mo", "W"].includes(m)) return 1;
+            if (["Co", "Ni", "Ru", "Rh", "Pd", "Pt", "Os", "Ir"].includes(m)) return 2;
+            if (["Sc", "Ti", "V", "Y", "Zr", "Nb", "Hf", "Ta", "La", "Ce"].includes(m)) return 3;
+            if (["Cu", "Zn", "Ag", "Cd", "Au", "Hg"].includes(m)) return 4;
+            return 5;
+          }},
+  molecule: {names: ["Nitroaromatics", "Nitroalkanes", "Hydrocarbon ions", "C–N ions", "Other"],
+             colors: [1, 6, 0, 2, 7],
+             of: f => {
+               const c = f.comp, ks = Object.keys(c);
+               const only = set => ks.every(e => set.includes(e));
+               if (c.C && c.N && c.O && only(["C", "H", "N", "O"])) return c.C >= 6 ? 0 : 1;
+               if (c.C && only(["C", "H"])) return 2;
+               if (c.C && c.N && only(["C", "H", "N"])) return 3;
+               return 4;
+             }},
+};
+const SCHEME = SCHEMES[SC.families] || SCHEMES.fe;
+const FAMS = SCHEME.names;
+const famVar = i => `var(--f${SCHEME.colors ? SCHEME.colors[i] : i})`;
+const fmt = d3.format(",");
+const sub = f => f.replace(/(\d+)/g, "<sub>$1</sub>");
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+function famOf(raw) {
+  if (raw === "Fe") return 0;
+  if (raw === "Fe–O") return 1;
+  if (raw === "Fe–N") return 2;
+  if (raw === "Fe–H" || raw === "Fe–OH") return 3;
+  if (raw === "Fe–ON") return 4;
+  if (raw.startsWith("Fe–") && raw.includes("C")) return 5;
+  if (raw === "no Fe") return 7;
+  return 6;
+}
+const F = D.formulas;
+F.forEach(f => {
+  f.fi = SCHEME.of(f);
+  const ms = Object.keys(f.mult).map(Number);
+  f.nm = ms.length; f.mmax = d3.max(ms); f.mmin = d3.min(ms);
+});
+const byName = new Map(F.map(f => [f.f, f]));
+
+// ---------- state ----------
+const AX0 = (SC.axes && SC.axes.length === 2) ? SC.axes : ["nFe", "nX"];
+const state = {wh: new Set(WH), fam: new Set(FAMS.map((_, i) => i)), own: new Set(OWN), q: "", el: null, sel: null, ax: AX0[0], ay: AX0[1], sort: ["n", -1]};
+try { const s = JSON.parse(localStorage.getItem("atlas-axes-" + (SC.id || "root")) || "null"); if (s) { state.ax = s.ax || state.ax; state.ay = s.ay || state.ay; } } catch (e) {}
+const cnt = f => WH.reduce((a, w) => a + (state.wh.has(w) ? (f.wh[w] || 0) : 0), 0);
+function filtered() {
+  const q = state.q.trim().toLowerCase();
+  const ownOK = f => !OWN.length || Object.keys(f.own || {}).some(o => state.own.has(o));
+  return F.filter(f => cnt(f) > 0 && state.fam.has(f.fi) && ownOK(f) && (!q || f.f.toLowerCase().includes(q)) && (!state.el || f.comp[state.el]));
+}
+
+// ---------- tooltip ----------
+const tip = document.getElementById("tip");
+function showTip(html, ev) {
+  tip.innerHTML = html; tip.style.opacity = 1;
+  const r = tip.getBoundingClientRect();
+  let x = ev.clientX + 14, y = ev.clientY + 14;
+  if (x + r.width > innerWidth - 8) x = ev.clientX - r.width - 14;
+  if (y + r.height > innerHeight - 8) y = ev.clientY - r.height - 14;
+  tip.style.left = Math.max(8, x) + "px"; tip.style.top = Math.max(8, y) + "px";
+}
+const hideTip = () => { tip.style.opacity = 0; };
+
+// ---------- overview ----------
+const totalSeeds = d3.sum(WH, w => D.seeds[w]);
+const uniqTotal = d3.sum(Object.values(D.overlap));
+document.getElementById("h1").textContent = SC.title;
+document.getElementById("navtitle").textContent = SC.title;
+if (SC.eyebrow) document.getElementById("eyebrow").textContent = SC.eyebrow;
+document.getElementById("crumb").innerHTML = SC.root ? "" :
+  [SC.root_url ? `<a href="${esc(SC.root_url)}">← Warehouse Atlas (root)</a>` : `<span>Part of the Warehouse Atlas</span>`,
+   ...(SC.links || []).filter(l => l.url).map(l => `<a href="${esc(l.url)}">${esc(l.title)}</a>`)].join("");
+document.getElementById("lede").innerHTML = SC.lede ? esc(SC.lede) + ` <span class="note" style="display:block;margin-top:6px">${fmt(totalSeeds)} seed structures, ${fmt(F.length)} formulas, ${fmt(uniqTotal)} distinct states.</span>` :
+  `${fmt(totalSeeds)} seed structures across ${fmt(F.length)} chemical formulas, extracted from ${WH.length} Gaussian archives on LONI. ` +
+  `After removing exact repeats, ${fmt(uniqTotal)} distinct geometry/charge/multiplicity states remain. ` +
+  `FenOm_Warehouse2 also carries a spin-ladder campaign and the first labeled training set (dataset_spin_v0).`;
+document.getElementById("famlegend").innerHTML = FAMS.map((n, i) => F.some(f => f.fi === i) ? `<span><i style="background:${famVar(i)}"></i>${n}</span>` : "").join("");
+
+const blurb = {
+  _default: "Gaussian structure archive extracted with cluster-mlip.",
+  W1: "FeₙOₘ ground-state library: geometries in .txt with charge and multiplicity read from filenames. No energies or job types are recorded.",
+  W2: "Reaction-path archive of Fe₂–Fe₁₆ with N₂, H₂, O and CO. Includes IRC paths, transition states and Fe₁₆N₂ adsorption. This is the source of the spin campaign.",
+  G: "Broad Gaussian archive from a single Oct9 folder. Mostly Fe-free main-group and Ga–As clusters, with minima confirmed by frequencies.",
+  L: "Legacy Gaussian .out library (33,131 files in 21 folders). Every optimization, TS and IRC step is a record, so counts are steps, not distinct structures. Routes, electronic roots and isotopes are not yet reviewed.",
+};
+const cards = document.getElementById("cards");
+WH.forEach(w => {
+  const fs = F.filter(f => f.wh[w]);
+  const famSeeds = FAMS.map((_, i) => d3.sum(fs.filter(f => f.fi === i), f => f.wh[w]));
+  const tot = d3.sum(famSeeds);
+  const top = [...fs].sort((a, b) => b.wh[w] - a.wh[w]).slice(0, 4);
+  const fi = D.files[w] || {};
+  const fiOK = fi || {}; const filesN = fiOK.status ? d3.sum(Object.values(fi.status)) : fi.source_files;
+  const cfg = Object.entries(D.cfg[w]).sort((a, b) => b[1] - a[1]);
+  const el = document.createElement("div");
+  el.className = "panel card";
+  el.innerHTML = `<span class="tag">${w}</span><h3>${WHN[w]}</h3><p class="note">${esc((SC.blurbs && SC.blurbs[w]) || (SC.root ? blurb[w] : "") || blurb._default)}</p>
+    <div class="kv"><div><span class="num">${fmt(D.seeds[w])}</span><span class="lbl">seed structures</span></div>
+    <div><span class="num">${fmt(fs.length)}</span><span class="lbl">formulas</span></div>
+    <div><span class="num">${fmt(filesN)}</span><span class="lbl">${fi.status ? "files inventoried" : "source files"}</span></div></div>
+    <div style="display:grid;gap:5px"><span class="eyebrow">Family mix (by seeds)</span>
+    <div class="stack">${famSeeds.map((v, i) => v ? `<span title="${FAMS[i]}: ${fmt(v)}" style="width:${100 * v / tot}%;background:${famVar(i)}"></span>` : "").join("")}</div></div>
+    <div style="display:grid;gap:5px"><span class="eyebrow">Charge states (seeds)</span><div class="qstrip">${Object.entries((D.chg || {})[w] || {}).sort((a, b) => a[0] - b[0]).map(([q, n]) => `<span class="${q > 0 ? "pos" : q < 0 ? "neg" : ""}" title="q=${q}: ${fmt(n)} seeds">${q > 0 ? "+" + q : q}: ${fmt(n)}</span>`).join("")}</div></div>
+    <div style="display:grid;gap:5px"><span class="eyebrow">Largest formulas</span><div class="toplist">
+    ${top.map(f => `<div><a href="#explore" data-f="${esc(f.f)}">${sub(f.f)}</a><span class="num">${fmt(f.wh[w])}</span></div>`).join("")}</div></div>
+    <div style="display:grid;gap:5px"><span class="eyebrow">Configuration types</span><div class="toplist">
+    ${cfg.slice(0, 4).map(([k, v]) => `<div><span>${k.replace(/_/g, " ")}</span><span class="num">${fmt(v)}</span></div>`).join("")}</div></div>`;
+  cards.appendChild(el);
+});
+for (let i = WH.length; i < MAX_WH; i++) {
+  const el = document.createElement("div");
+  el.className = "panel card slot";
+  el.innerHTML = `<span class="eyebrow">Slot ${i + 1}</span><h3 style="color:var(--muted)">Next warehouse</h3><p class="note">Add it to <span class="mono">WH</span> in build_atlas.py and rebuild. Every view picks it up.</p>`;
+  cards.appendChild(el);
+}
+cards.addEventListener("click", e => { const a = e.target.closest("[data-f]"); if (a) select(a.dataset.f); });
+if (SC.root && OWN.length) {
+  document.getElementById("owners").hidden = false;
+  document.getElementById("ownercards").innerHTML = SC.links.map(l => `<div class="panel owner" style="--oc:${ownColor(l.id)}">
+    <span class="eyebrow" style="color:${ownColor(l.id)}">${esc(l.id)}</span><h3>${esc(l.title)}</h3>
+    ${l.blurb ? `<p class="note">${esc(l.blurb)}</p>` : ""}
+    <div class="kv" style="grid-template-columns:1fr 1fr"><div><span class="num">${fmt(l.seeds)}</span><span class="lbl">seeds</span></div><div><span class="num">${fmt(l.formulas)}</span><span class="lbl">formulas</span></div></div>
+    ${l.url ? `<a class="go" href="${esc(l.url)}">Open ${esc(l.title)} →</a>` : `<span class="note">Not published yet.</span>`}</div>`).join("");
+}
+if (SC.pending && SC.pending.length) {
+  document.getElementById("pendingsec").hidden = false;
+  document.getElementById("pending").innerHTML = SC.pending.map(p => `<div class="pend" ${p.found ? 'style="border-style:solid;border-color:var(--ok)"' : ""}><b>${sub(esc(p.f))}</b><span>${esc(p.label || "")}</span><span>${p.found ? `<b style="font:600 12.5px var(--body);color:var(--ok)">${fmt(p.found)} seeds now in the atlas</b>` : "not in any warehouse yet"}</span></div>`).join("");
+}
+
+// UpSet-style overlap
+(function upset() {
+  const box = document.getElementById("upset");
+  const combos = Object.entries(D.overlap).map(([k, v]) => ({sets: k.split("+"), v})).sort((a, b) => b.v - a.v);
+  const W = Math.max(380, Math.min(box.clientWidth || 520, 640)), H = 230, left = 150, top = 14, barH = 120, rowH = 24;
+  const x = d3.scaleBand().domain(combos.map((_, i) => i)).range([left, W - 10]).padding(.35);
+  const y = d3.scaleLog().domain([1, d3.max(combos, c => c.v)]).range([top + barH, top]);
+  const svg = d3.select(box).append("svg").attr("width", W).attr("height", H).attr("role", "img").attr("aria-label", "Overlap of unique structures between warehouses");
+  svg.selectAll("rect.b").data(combos).join("rect").attr("x", (_, i) => x(i)).attr("width", x.bandwidth())
+    .attr("y", d => y(d.v)).attr("height", d => y(1) - y(d.v)).attr("rx", 2).style("fill", d => d.sets.length > 1 ? "var(--accent)" : "var(--f7)");
+  svg.selectAll("text.v").data(combos).join("text").attr("x", (_, i) => x(i) + x.bandwidth() / 2).attr("y", d => y(d.v) - 4)
+    .attr("text-anchor", "middle").style("fill", "var(--ink)").style("font", "500 11.5px var(--mono)").text(d => fmt(d.v));
+  WH.forEach((w, r) => {
+    const cy = top + barH + 20 + r * rowH;
+    svg.append("text").attr("x", left - 10).attr("y", cy + 4).attr("text-anchor", "end").style("fill", "var(--muted)").style("font", "12px var(--body)").text(WHN[w]);
+    combos.forEach((c, i) => svg.append("circle").attr("cx", x(i) + x.bandwidth() / 2).attr("cy", cy).attr("r", 5)
+      .style("fill", c.sets.includes(w) ? "var(--ink)" : "var(--soft)"));
+  });
+  combos.forEach((c, i) => {
+    const rows = c.sets.map(s => WH.indexOf(s)).sort();
+    if (rows.length > 1) svg.append("line").attr("x1", x(i) + x.bandwidth() / 2).attr("x2", x(i) + x.bandwidth() / 2)
+      .attr("y1", top + barH + 20 + rows[0] * rowH).attr("y2", top + barH + 20 + rows[rows.length - 1] * rowH).style("stroke", "var(--ink)").style("stroke-width", 2);
+  });
+})();
+(function redund() {
+  const u = w => d3.sum(Object.entries(D.overlap).filter(([k]) => k.split("+").includes(w)), ([, v]) => v);
+  const rows = WH.map(w => [w, D.seeds[w], u(w)]);
+  const rp = WH.filter(w => D.files[w] && D.files[w].records), rpR = d3.sum(rp, w => D.files[w].records), rpU = d3.sum(rp, w => D.files[w].unique);
+  document.getElementById("redund").innerHTML =
+    `<div class="eyebrow" style="display:grid;grid-template-columns:1fr 80px 80px 80px;gap:8px"><span>Warehouse</span><span style="text-align:right">seeds</span><span style="text-align:right">unique</span><span style="text-align:right">repeats</span></div>` +
+    rows.map(([w, s, uq]) => `<div style="display:grid;grid-template-columns:1fr 80px 80px 80px;gap:8px"><span>${WHN[w]}</span><span class="num" style="text-align:right">${fmt(s)}</span><span class="num" style="text-align:right">${fmt(uq)}</span><span class="num" style="text-align:right">${fmt(s - uq)}</span></div>`).join("") +
+    (rp.length ? `<div style="display:grid;grid-template-columns:1fr 80px 80px 80px;gap:8px;border-top:1px solid var(--line);padding-top:4px"><span>Raw parse, ${rp.map(w => w).join(" / ")} records.csv</span><span class="num" style="text-align:right">${fmt(rpR)}</span><span class="num" style="text-align:right">${fmt(rpU)}</span><span class="num" style="text-align:right">${fmt(rpR - rpU)}</span></div>` : "");
+  const g1 = D.overlap["G+W1"] || 0;
+  const shared = Object.entries(D.overlap).filter(([k]) => k.includes("+")).map(([k, v]) => `${k.replace(/\+/g, " and ")}: ${fmt(v)}`);
+  if (!(D.seeds.W1 && D.seeds.G)) { document.getElementById("redundnote").innerHTML = (shared.length ? `Structures shared between warehouses: ${shared.join("; ")}. ` : "") + `"Repeats" means the same state appears more than once inside one warehouse's seeds file.`; return; }
+  document.getElementById("redundnote").innerHTML =
+    `${fmt(g1)} of FenOm_Warehouse's ${fmt(D.seeds.W1)} structures (${Math.round(100 * g1 / D.seeds.W1)}%) also appear unchanged in General_Warehouse, so W1 adds only ${fmt(D.overlap.W1 || 0)} structures that exist nowhere else. ` +
+    `FenOm_Warehouse2 and General_Warehouse share only ${fmt(D.overlap["G+W2"] || 0)}. ` +
+    (D.seeds.L ? `Gutsev_Legacy_Warehouse shares ${fmt(d3.sum(Object.entries(D.overlap).filter(([k]) => k.includes("+") && k.split("+").includes("L")), ([, v]) => v))} exact states with the others; most of its repeats are neighbouring optimization steps and re-runs. ` : "") +
+    `"Repeats" means the same state appears more than once inside one warehouse's seeds file.`;
+})();
+
+// ---------- explorer controls ----------
+const AXES = {nFe: "Fe atoms", nX: "Non-Fe atoms", nAt: "Total atoms", n: "Seed structures", nm: "Distinct multiplicities", mmax: "Highest multiplicity"};
+const val = (f, k) => k === "n" ? cnt(f) : f[k];
+["ax", "ay"].forEach(id => {
+  const s = document.getElementById(id);
+  s.innerHTML = Object.entries(AXES).map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
+  s.value = state[id];
+  s.addEventListener("change", () => { state[id] = s.value; try { localStorage.setItem("atlas-axes-" + (SC.id || "root"), JSON.stringify({ax: state.ax, ay: state.ay})); } catch (e) {} renderMap(); });
+});
+function renderFilters() {
+  const base = F.filter(f => state.fam.has(f.fi));
+  document.getElementById("whf").innerHTML = WH.map(w =>
+    `<label class="chip"><input type="checkbox" data-wh="${w}" ${state.wh.has(w) ? "checked" : ""}><span>${WHN[w]}</span><span class="ct">${fmt(base.filter(f => f.wh[w]).length)}</span></label>`).join("");
+  document.getElementById("famf").innerHTML = FAMS.map((n, i) =>
+    `<label class="chip"><input type="checkbox" data-fam="${i}" ${state.fam.has(i) ? "checked" : ""}><span class="sw" style="background:${famVar(i)}"></span><span>${n}</span><span class="ct">${fmt(F.filter(f => f.fi === i && cnt(f) > 0).length)}</span></label>`).join("");
+  if (OWN.length) {
+    document.getElementById("ownfs").hidden = false;
+    document.getElementById("ownf").innerHTML = SC.links.map(l => `<label class="chip"><input type="checkbox" data-own="${esc(l.id)}" ${state.own.has(l.id) ? "checked" : ""}><span class="sw" style="background:${ownColor(l.id)}"></span><span>${esc(l.id)}</span><span class="ct">${fmt(F.filter(f => (f.own || {})[l.id]).length)}</span></label>`).join("");
+  }
+  document.getElementById("elfilter").innerHTML = state.el ? `<span class="elchip">contains ${state.el}<button type="button" aria-label="Clear element filter" id="clrel">×</button></span>` : "";
+  const c = document.getElementById("clrel"); if (c) c.onclick = () => { state.el = null; update(); };
+}
+document.getElementById("whf").addEventListener("change", e => { const w = e.target.dataset.wh; if (!w) return; e.target.checked ? state.wh.add(w) : state.wh.delete(w); update(); });
+document.getElementById("ownf").addEventListener("change", e => { const o = e.target.dataset.own; if (!o) return; e.target.checked ? state.own.add(o) : state.own.delete(o); update(); });
+document.getElementById("famf").addEventListener("change", e => { const i = +e.target.dataset.fam; if (isNaN(i)) return; e.target.checked ? state.fam.add(i) : state.fam.delete(i); update(); });
+let qT; document.getElementById("q").addEventListener("input", e => { clearTimeout(qT); qT = setTimeout(() => { state.q = e.target.value; update(); }, 120); });
+document.getElementById("reset").onclick = () => { state.own = new Set(OWN); state.wh = new Set(WH); state.fam = new Set(FAMS.map((_, i) => i)); state.q = ""; state.el = null; document.getElementById("q").value = ""; update(); };
+
+// ---------- map ----------
+const hashJ = s => { let h = 2166136261; for (const c of s) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h; };
+const jit = f => { const h = hashJ(f.f); return [((h & 1023) / 1023 - .5), (((h >>> 10) & 1023) / 1023 - .5)]; };
+function renderMap() {
+  const svg = d3.select("#map");
+  const box = svg.node().parentNode;
+  const W = Math.max(300, box.clientWidth - 36), H = Math.max(320, Math.min(560, W * .72));
+  const m = {l: 52, r: 14, t: 12, b: 42};
+  svg.attr("viewBox", `0 0 ${W} ${H}`).attr("height", H);
+  svg.selectAll("*").remove();
+  const data = filtered();
+  const all = F.filter(f => cnt(f) > 0);
+  const ext = k => [0, Math.max(1, d3.max(all, f => val(f, k)) || 1)];
+  const x = d3.scaleSymlog().constant(state.ax === "n" ? 10 : 2).domain(ext(state.ax)).range([m.l, W - m.r]).nice();
+  const y = d3.scaleSymlog().constant(state.ay === "n" ? 10 : 2).domain(ext(state.ay)).range([H - m.b, m.t]).nice();
+  const r = d3.scaleSqrt().domain([1, d3.max(all, cnt) || 1]).range([2.4, 17]);
+  const ticks = (s) => { const d = s.domain()[1]; const c = [0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 1000, 4000, 16000].filter(t => t <= d); return c; };
+  svg.append("g").attr("class", "grid").selectAll("line").data(ticks(y)).join("line").attr("x1", m.l).attr("x2", W - m.r).attr("y1", d => y(d)).attr("y2", d => y(d));
+  svg.append("g").attr("class", "axis").attr("transform", `translate(0,${H - m.b})`).call(d3.axisBottom(x).tickValues(ticks(x)).tickFormat(d3.format("~s")));
+  svg.append("g").attr("class", "axis").attr("transform", `translate(${m.l},0)`).call(d3.axisLeft(y).tickValues(ticks(y)).tickFormat(d3.format("~s")));
+  svg.append("text").attr("class", "axlbl").attr("x", W - m.r).attr("y", H - 6).attr("text-anchor", "end").text(AXES[state.ax] + " →");
+  svg.append("text").attr("class", "axlbl").attr("x", 4).attr("y", m.t + 2).attr("transform", `rotate(-90 4 ${m.t + 2})`).attr("text-anchor", "end").attr("dy", "1em").text(AXES[state.ay] + " →");
+  const pts = [...data].sort((a, b) => cnt(b) - cnt(a));
+  svg.append("g").selectAll("circle").data(pts, d => d.f).join("circle")
+    .attr("class", d => "dot" + (d.f === state.sel ? " sel" : ""))
+    .attr("cx", d => x(val(d, state.ax)) + jit(d)[0] * 12).attr("cy", d => y(val(d, state.ay)) + jit(d)[1] * 12)
+    .attr("r", d => r(cnt(d))).style("fill", d => famVar(d.fi)).style("fill-opacity", .78)
+    .on("mousemove", (ev, d) => showTip(`<b>${sub(d.f)}</b> · ${FAMS[d.fi]}<br><span class="m">${WH.filter(w => d.wh[w]).map(w => `${w} ${fmt(d.wh[w])}`).join(" · ")}<br>mult ${d.mmin}–${d.mmax} · ${d.nAt} atoms</span>`, ev))
+    .on("mouseleave", hideTip).on("click", (_, d) => select(d.f));
+  const seeds = d3.sum(data, cnt);
+  document.getElementById("status").innerHTML = `<b>${fmt(data.length)}</b> formulas · <b>${fmt(seeds)}</b> seed structures shown. Points are spread slightly so formulas that share a coordinate stay visible.`;
+}
+
+// ---------- detail ----------
+let viewer = null;
+function bars(obj, w, h, color, labelFn) {
+  const e = Object.entries(obj).map(([k, v]) => [k, v]);
+  const x = d3.scaleBand().domain(e.map(d => d[0])).range([4, w - 4]).padding(.15);
+  const y = d3.scaleLinear().domain([0, d3.max(e, d => d[1])]).range([h - 18, 4]);
+  const step = Math.ceil(e.length / Math.max(1, Math.floor(w / 26)));
+  return `<svg class="minichart" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img">` +
+    e.map(([k, v], i) => `<rect x="${x(k)}" width="${x.bandwidth()}" y="${y(v)}" height="${y(0) - y(v)}" rx="1.5" style="fill:${color}"><title>${labelFn(k)}: ${fmt(v)}</title></rect>` +
+      (i % step === 0 ? `<text x="${x(k) + x.bandwidth() / 2}" y="${h - 5}" text-anchor="middle">${k}</text>` : "")).join("") + `</svg>`;
+}
+const CFGC = {minimum: "var(--ok)", transition_state: "var(--bad)", first_order_saddle: "var(--f6)", higher_order_saddle: "var(--f3)",
+  irc_forward: "var(--f0)", irc_reverse: "var(--f2)", optimized_unverified: "var(--warn)", unknown: "var(--f7)", warehouse_structure: "var(--accent)", labeled: "var(--f5)"};
+function renderDetail() {
+  const el = document.getElementById("detail");
+  const f = byName.get(state.sel);
+  if (!f) { el.innerHTML = `<p class="note">Select a formula on the map.</p>`; return; }
+  const g = f.geo;
+  const cfgTot = d3.sum(Object.values(f.cfg));
+  const dsN = D.dataset ? (D.dataset.byFormula[f.f] || 0) : 0;
+  const w = Math.max(240, el.clientWidth - 36);
+  const spinPerFe = f.nFe ? `${((f.mmin - 1) / f.nFe).toFixed(2)}–${((f.mmax - 1) / f.nFe).toFixed(2)} unpaired e⁻ per Fe` : "";
+  el.innerHTML = `<div style="display:grid;gap:4px"><span class="eyebrow" style="color:${famVar(f.fi)}">${FAMS[f.fi]}</span>
+      <div class="ftitle">${sub(f.f)}</div><span class="note">${f.nAt} atoms · ${f.nm} multiplicities (${f.mmin}–${f.mmax}) ${spinPerFe ? "· " + spinPerFe : ""}</span></div>
+    ${OWN.length ? `<div class="legend">${Object.entries(f.own || {}).map(([o, n]) => `<span><i style="background:${ownColor(o)}"></i>${esc(o)} ${fmt(n)}</span>`).join("")}</div>` : ""}
+    <div class="whrow">${WH.map(w => `<div><span class="num">${fmt(f.wh[w] || 0)}</span><span class="lbl">${w} seeds</span></div>`).join("")}</div>
+    <div id="viewer" aria-label="3D structure of ${esc(f.f)}"></div>
+    <div class="geo-cap">${esc(g.src)}<br>q=${g.q} · mult=${g.m} · ${g.ct.replace(/_/g, " ")}${g.e != null ? ` · E=${g.e.toFixed(6)} Ha` : ""}</div>
+    <div style="display:grid;gap:4px"><span class="eyebrow">Seeds per multiplicity</span>${bars(f.mult, w, 92, famVar(f.fi), k => "mult " + k)}</div>
+    <div style="display:grid;gap:6px"><span class="eyebrow">Configuration types</span>
+      <div class="stack" style="height:14px">${Object.entries(f.cfg).map(([k, v]) => `<span title="${k}: ${fmt(v)}" style="width:${100 * v / cfgTot}%;background:${CFGC[k] || "var(--f7)"}"></span>`).join("")}</div>
+      <div class="legend">${Object.entries(f.cfg).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<span><i style="background:${CFGC[k] || "var(--f7)"}"></i>${k.replace(/_/g, " ")} ${fmt(v)}</span>`).join("")}</div></div>
+    <div style="display:grid;gap:4px"><span class="eyebrow">Source folders</span><div class="toplist">${Object.entries(f.folders).map(([k, v]) => `<div><span style="overflow:hidden;text-overflow:ellipsis">${esc(cleanFolder(k))}</span><span class="num">${fmt(v)}</span></div>`).join("")}</div></div>
+    ${D.dataset ? `<p class="note">${dsN ? `<b style="color:var(--ink)">${fmt(dsN)}</b> labeled frames in dataset_spin_v0.` : "Not in dataset_spin_v0 yet."}</p>` : ""}`;
+  const v = document.getElementById("viewer");
+  if (window.$3Dmol) {
+    try {
+      viewer = $3Dmol.createViewer(v, {backgroundColor: "white", backgroundAlpha: 0, antialias: true});
+      const xyz = `${g.sym.length}\n${f.f}\n` + g.sym.map((s, i) => `${s} ${g.pos[i].join(" ")}`).join("\n");
+      viewer.addModel(xyz, "xyz");
+      viewer.setStyle({}, {sphere: {scale: .3, colorscheme: "Jmol"}, stick: {radius: .11, colorscheme: "Jmol"}});
+      viewer.zoomTo(); viewer.render(); viewer.spin("y", .4);
+      if (matchMedia("(prefers-reduced-motion: reduce)").matches) viewer.spin(false);
+    } catch (err) { v.innerHTML = `<p class="note" style="padding:12px">The 3D viewer could not start in this browser.</p>`; }
+  } else v.innerHTML = `<p class="note" style="padding:12px">The 3D viewer library did not load.</p>`;
+}
+const cleanFolder = k => k.replace(/[\uE000-\uF8FF]/g, "").replace(":", " · ");
+
+// ---------- table ----------
+const COLS = [["f", "Formula"], ["fam", "Family"], ["nFe", "Fe", 1], ["nAt", "Atoms", 1], ...WH.map(w => [w, w, 1]), ["nm", "Mults", 1], ["mr", "Mult range"], ...(D.dataset ? [["ds", "Labeled", 1]] : []), ...(OWN.length ? [["own", "Sub-atlas"]] : [])];
+function colVal(f, k) { if (WH.includes(k)) return f.wh[k] || 0; if (k === "ds") return D.dataset.byFormula[f.f] || 0; if (k === "own") return Object.keys(f.own || {}).join(","); if (k === "fam") return FAMS[f.fi]; if (k === "mr") return f.mmax; if (k === "n") return cnt(f); return f[k]; }
+function renderTable() {
+  const [sk, sd] = state.sort;
+  const data = filtered().sort((a, b) => { const A = colVal(a, sk), B = colVal(b, sk); return (A > B ? 1 : A < B ? -1 : 0) * sd; });
+  const t = document.getElementById("ftable");
+  t.tHead.innerHTML = `<tr>${COLS.map(([k, l, n]) => `<th data-k="${k}" class="${n ? "n" : ""}" ${k === sk ? `aria-sort="${sd > 0 ? "ascending" : "descending"}"` : ""} tabindex="0">${l}${k === sk ? (sd > 0 ? " ↑" : " ↓") : ""}</th>`).join("")}</tr>`;
+  const rows = data.slice(0, 300);
+  t.tBodies[0].innerHTML = rows.map(f => `<tr data-f="${esc(f.f)}" class="${f.f === state.sel ? "sel" : ""}"><td>${sub(f.f)}</td><td><span class="sw" style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${famVar(f.fi)};margin-right:6px"></span>${FAMS[f.fi]}</td><td class="n">${f.nFe}</td><td class="n">${f.nAt}</td>` +
+    WH.map(w => `<td class="n" style="${state.wh.has(w) ? "" : "opacity:.35"}">${f.wh[w] ? fmt(f.wh[w]) : "·"}</td>`).join("") +
+    `<td class="n">${f.nm}</td><td class="n">${f.mmin === f.mmax ? f.mmin : f.mmin + "–" + f.mmax}</td>${D.dataset ? `<td class="n">${D.dataset.byFormula[f.f] ? fmt(D.dataset.byFormula[f.f]) : "·"}</td>` : ""}${OWN.length ? `<td>${Object.keys(f.own || {}).map(o => `<span class="sw" style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${ownColor(o)};margin-right:5px"></span>${esc(o)}`).join(" · ")}</td>` : ""}</tr>`).join("");
+  document.getElementById("tstatus").textContent = data.length > 300 ? `Showing the first 300 of ${fmt(data.length)} formulas. Narrow the filters to see the rest.` : `${fmt(data.length)} formulas`;
+}
+document.querySelector("#ftable thead").addEventListener("click", e => { const th = e.target.closest("th"); if (!th) return; const k = th.dataset.k; state.sort = [k, state.sort[0] === k ? -state.sort[1] : (["f", "fam"].includes(k) ? 1 : -1)]; renderTable(); });
+document.querySelector("#ftable thead").addEventListener("keydown", e => { if (e.key === "Enter") e.target.click(); });
+document.querySelector("#ftable tbody").addEventListener("click", e => { const tr = e.target.closest("tr"); if (tr) select(tr.dataset.f, false); });
+
+function select(name, scroll = true) {
+  state.sel = name; renderDetail(); renderTable();
+  d3.selectAll("#map .dot").classed("sel", d => d.f === name);
+  if (scroll) document.getElementById("explore").scrollIntoView({behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"});
+}
+
+// ---------- periodic table ----------
+const PT = [
+  "H,,,,,,,,,,,,,,,,,He", "Li,Be,,,,,,,,,,,B,C,N,O,F,Ne", "Na,Mg,,,,,,,,,,,Al,Si,P,S,Cl,Ar",
+  "K,Ca,Sc,Ti,V,Cr,Mn,Fe,Co,Ni,Cu,Zn,Ga,Ge,As,Se,Br,Kr", "Rb,Sr,Y,Zr,Nb,Mo,Tc,Ru,Rh,Pd,Ag,Cd,In,Sn,Sb,Te,I,Xe",
+  "Cs,Ba,La,Hf,Ta,W,Re,Os,Ir,Pt,Au,Hg,Tl,Pb,Bi,Po,At,Rn", "Fr,Ra,Ac,Rf,Db,Sg,Bh,Hs,Mt,Ds,Rg,Cn,Nh,Fl,Mc,Lv,Ts,Og",
+  ",,,Ce,Pr,Nd,Pm,Sm,Eu,Gd,Tb,Dy,Ho,Er,Tm,Yb,Lu,", ",,,Th,Pa,U,Np,Pu,Am,Cm,Bk,Cf,Es,Fm,Md,No,Lr,"];
+function renderPT() {
+  const c = {};
+  F.forEach(f => { const n = cnt(f); if (!n) return; for (const e in f.comp) c[e] = (c[e] || 0) + n; });
+  const mx = d3.max(Object.values(c)) || 1;
+  const a = d3.scaleLog().domain([1, mx]).range([.14, 1]);
+  document.getElementById("ptable").innerHTML = PT.map((row, ri) => row.split(",").map(s => {
+    if (!s) return `<div class="el gap"></div>`;
+    const n = c[s];
+    if (!n) return `<div class="el" style="${ri >= 7 ? "opacity:.6" : ""}">${s}</div>`;
+    const al = a(n);
+    return `<button type="button" class="el has ${al > .55 ? "dark" : ""} ${state.el === s ? "on" : ""}" data-el="${s}" style="background:color-mix(in srgb,var(--seq) ${Math.round(al * 100)}%,var(--panel))" title="${s}: ${fmt(n)} seeds">${s}<small>${d3.format(".2~s")(n)}</small></button>`;
+  }).join("")).join("") ;
+}
+document.getElementById("ptable").addEventListener("click", e => { const b = e.target.closest("[data-el]"); if (!b) return; state.el = state.el === b.dataset.el ? null : b.dataset.el; update(); document.getElementById("explore").scrollIntoView({behavior: "smooth"}); });
+
+// ---------- spin landscape ----------
+let spinSel = "all", spinX = SC.spinX || "fe";
+const sx = document.getElementById("spinx");
+sx.innerHTML = [["fe", "Fe atoms"], ["at", "All atoms"]].map(([k, l]) => `<button type="button" data-k="${k}" aria-pressed="${k === spinX}">${l}</button>`).join("");
+sx.addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; spinX = b.dataset.k; sx.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x.dataset.k === spinX)); renderSpin(); });
+const sw = document.getElementById("spinwh");
+sw.hidden = WH.length < 2;
+sw.innerHTML = [["all", "All"], ...WH.map(w => [w, w])].map(([k, l]) => `<button type="button" data-k="${k}" aria-pressed="${k === spinSel}">${l}</button>`).join("");
+sw.addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; spinSel = b.dataset.k; sw.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x.dataset.k === spinSel)); renderSpin(); });
+function renderSpin() {
+  const box = document.getElementById("spinchart"); box.innerHTML = "";
+  const agg = new Map();
+  const SRC = spinX === "fe" ? D.spin : D.spinAt;
+  (spinSel === "all" ? WH : [spinSel]).forEach(w => SRC[w].forEach(([fe, s, n]) => { const k = fe + "," + s; agg.set(k, (agg.get(k) || 0) + n); }));
+  const cells = [...agg].map(([k, n]) => { const [fe, s] = k.split(",").map(Number); return {fe, s, n}; }).filter(d => d.fe > 0);
+  const maxFe = Math.max(spinX === "fe" ? 17 : 8, d3.max(cells, d => d.fe) || 1), maxS = Math.max(4, d3.max(cells, d => d.s) || 1);
+  const W = Math.max(560, box.clientWidth - 36), H = 420, m = {l: 48, r: 90, t: 10, b: 40};
+  const x = d3.scaleBand().domain(d3.range(1, maxFe + 1)).range([m.l, W - m.r]).padding(.06);
+  const y = d3.scaleLinear().domain([-.5, maxS + .5]).range([H - m.b, m.t]);
+  const ch = Math.max(1.5, (y(0) - y(1)) * .9);
+  const op = d3.scaleLog().domain([1, d3.max(cells, d => d.n) || 1]).range([.18, 1]);
+  const svg = d3.select(box).append("svg").attr("width", W).attr("height", H).attr("role", "img").attr("aria-label", "Heatmap of seeds by Fe count and unpaired electrons");
+  svg.append("g").attr("class", "axis").attr("transform", `translate(0,${H - m.b})`).call(d3.axisBottom(x).tickValues(x.domain().filter(d => d === 1 || d % Math.max(2, Math.ceil(maxFe / 20) * 2) === 0)));
+  svg.append("g").attr("class", "axis").attr("transform", `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(8));
+  svg.append("text").attr("class", "axlbl").attr("x", W - m.r).attr("y", H - 6).attr("text-anchor", "end").text(spinX === "fe" ? "Fe atoms in cluster →" : "atoms in structure →");
+  svg.append("text").attr("class", "axlbl").attr("transform", `rotate(-90)`).attr("x", -m.t).attr("y", 12).attr("text-anchor", "end").text("unpaired electrons, 2S →");
+  svg.append("g").selectAll("rect").data(cells).join("rect").attr("x", d => x(d.fe)).attr("width", x.bandwidth())
+    .attr("y", d => y(d.s) - ch / 2).attr("height", ch).attr("rx", 1).style("fill", "var(--seq)").style("fill-opacity", d => op(d.n))
+    .on("mousemove", (ev, d) => showTip(`<b>${spinX === "fe" ? "Fe" + d.fe : d.fe + " atoms"}</b>, 2S = ${d.s} (mult ${d.s + 1})<br><span class="m">${fmt(d.n)} seeds · ${(d.s / d.fe).toFixed(2)} unpaired e⁻ per ${spinX === "fe" ? "Fe" : "atom"}</span>`, ev)).on("mouseleave", hideTip);
+  if (spinX === "fe") [2, 3, 4].forEach(k => {
+    const xe = Math.min(maxFe, maxS / k);
+    svg.append("line").attr("x1", x(1) + x.bandwidth() / 2).attr("y1", y(k)).attr("x2", x(Math.max(1, Math.floor(xe))) + x.bandwidth() / 2).attr("y2", y(Math.floor(xe) * k))
+      .style("stroke", "var(--f1)").style("stroke-dasharray", "4 4").style("stroke-width", 1.4);
+    svg.append("text").attr("x", x(Math.max(1, Math.floor(xe))) + x.bandwidth() / 2 + 6).attr("y", y(Math.floor(xe) * k) + 4).style("fill", "var(--f1)").style("font", "11px var(--mono)").text(`${k} per Fe`);
+  });
+  const nofe = d3.sum([...agg].filter(([k]) => k.startsWith("0,")), ([, n]) => n);
+  if (nofe && spinX === "fe") svg.append("text").attr("x", W - m.r + 8).attr("y", H - m.b - 4).style("fill", "var(--muted)").style("font", "11px var(--body)").text(`+${fmt(nofe)} Fe-free`);
+}
+
+// ---------- treemap ----------
+function renderTree() {
+  const box = document.getElementById("tree"); box.innerHTML = "";
+  const W = Math.max(560, box.clientWidth - 36), H = Math.round(Math.max(420, W * .5));
+  const root = d3.hierarchy({children: WH.filter(w => state.wh.has(w)).map(w => ({name: WHN[w], w, children: FAMS.map((n, i) => ({name: n, fi: i,
+    children: F.filter(f => f.fi === i && f.wh[w] && state.fam.has(i)).map(f => ({name: f.f, fi: i, f: f.f, value: f.wh[w], w}))})).filter(c => c.children.length)}))})
+    .sum(d => d.value || 0).sort((a, b) => b.value - a.value);
+  d3.treemap().size([W, H]).paddingTop(d => d.depth === 1 ? 20 : d.depth === 2 ? 0 : 0).paddingInner(d => d.depth === 0 ? 4 : 1).paddingOuter(d => d.depth === 1 ? 2 : 0).round(true)(root);
+  const svg = d3.select(box).append("svg").attr("width", W).attr("height", H).attr("role", "img").attr("aria-label", "Treemap of seeds");
+  svg.selectAll("g.w").data(root.children || []).join("g").each(function (d) {
+    const g = d3.select(this);
+    g.append("rect").attr("x", d.x0).attr("y", d.y0).attr("width", d.x1 - d.x0).attr("height", d.y1 - d.y0).style("fill", "var(--soft)");
+    g.append("text").attr("x", d.x0 + 6).attr("y", d.y0 + 14).style("fill", "var(--ink)").style("font", "600 12.5px var(--display)").text(d.x1 - d.x0 > 120 ? `${d.data.name} · ${fmt(d.value)}` : d.data.w);
+  });
+  const leaves = svg.selectAll("g.l").data(root.leaves()).join("g").attr("transform", d => `translate(${d.x0},${d.y0})`).style("cursor", "pointer")
+    .on("mousemove", (ev, d) => showTip(`<b>${sub(d.data.f)}</b><br><span class="m">${WHN[d.data.w]} · ${FAMS[d.data.fi]}<br>${fmt(d.value)} seeds</span>`, ev)).on("mouseleave", hideTip)
+    .on("click", (_, d) => select(d.data.f));
+  leaves.append("rect").attr("width", d => Math.max(0, d.x1 - d.x0)).attr("height", d => Math.max(0, d.y1 - d.y0)).style("fill", d => famVar(d.data.fi)).style("fill-opacity", .85);
+  leaves.filter(d => d.x1 - d.x0 > 46 && d.y1 - d.y0 > 26).append("text").attr("x", 4).attr("y", 14).style("fill", "#fff").style("font", "600 11.5px var(--mono)")
+    .html(d => d.data.f.replace(/(\d+)/g, '<tspan font-size="9" dy="2">$1</tspan><tspan dy="-2"></tspan>'));
+  leaves.filter(d => d.x1 - d.x0 > 46 && d.y1 - d.y0 > 40).append("text").attr("x", 4).attr("y", 28).style("fill", "#fff").style("fill-opacity", .85).style("font", "10.5px var(--mono)").text(d => fmt(d.value));
+}
+
+// ---------- campaign ----------
+if (!D.campaign) ["campaign", "nav-campaign"].forEach(id => { document.getElementById(id).hidden = true; });
+const CP = D.campaign || {jobs: [], spin_plan: {}};
+const ST = {complete: ["Complete", "var(--ok)"], incomplete: ["Incomplete", "var(--warn)"], failed: ["Failed", "var(--bad)"], not_started: ["Not started", "var(--idle)"]};
+const jobs = CP.jobs.sort((a, b) => a.b - b.b || a.n.localeCompare(b.n));
+const sc = d3.rollup(jobs, v => v.length, d => d.s);
+const lastBatch = d3.max(jobs, j => j.b) || 0;
+if (D.campaign) {
+document.getElementById("camplede").innerHTML = `${fmt(jobs.length)} spin-ladder inputs in ${lastBatch} Slurm batches. Each input walks down a ladder from the inferred high-spin state to its target multiplicity (for example m53 → m47 for Fe₁₆). Batches 6–130 use the Sep 23 campaign-status check; the rest use the Sep 10 route audit.`;
+const pipe = [
+  ["files", fmt(d3.sum(Object.values(CP.w2files.status))), "Files inventoried", `${fmt(CP.w2files.status.parsed)} parsed, ${fmt(CP.w2files.status.unsupported)} unsupported`],
+  ["records", fmt(CP.w2files.records), "Structure records", "Every geometry parsed, IRC points included"],
+  ["states", fmt(CP.w2files.unique), "Unique states", "geometry + q + mult"],
+  ["inputs", fmt(CP.spin_plan.planned), "Spin-ladder inputs", `${fmt(CP.spin_plan.skipped || 0)} seeds skipped`],
+  ["jobs", fmt(sc.get("complete") || 0), "Jobs complete", `as of last check, of ${fmt(jobs.length)}`],
+  ["frames", fmt(D.dataset.split.train + D.dataset.split.valid + D.dataset.split.test), "Labeled frames", "dataset_spin_v0"],
+];
+document.getElementById("pipeline").innerHTML = pipe.map(([u, n, l, s]) => `<div class="step"><span class="unit">${u}</span><span class="num">${n}</span><span class="lbl"><b style="color:var(--ink);font-weight:500">${l}</b><br>${s}</span></div>`).join("");
+const relaunch = jobs.filter(j => j.rl).length, link1 = jobs.filter(j => j.iss.some(i => i.startsWith("Number of Link1"))).length;
+document.getElementById("camptiles").innerHTML = [
+  ["ok", sc.get("complete") || 0, "jobs complete"], ["", sc.get("not_started") || 0, "not started at last check"],
+  ["bad", relaunch, "saddles launched as plain Opt (relaunch)"], ["warn", link1, "Link1 stage count differs from manifest"],
+  ["", CP.restart_plan, "restart attempts planned"], ["", CP.route_fix_plan, "route fixes written"],
+  ["warn", CP.failed_outputs, "logs skipped by collect as incomplete"],
+].map(([c, n, l]) => `<div class="tile ${c}"><span class="num">${fmt(n)}</span><span class="lbl">${l}</span></div>`).join("");
+document.getElementById("statelegend").innerHTML = Object.entries(ST).filter(([k]) => sc.get(k)).map(([k, [l, c]]) => `<span><i style="background:${c}"></i>${l} ${fmt(sc.get(k))}</span>`).join("") +
+  `<span><i style="background:transparent;outline:2px solid var(--bad);outline-offset:-2px"></i>audit finding</span>`;
+const cts = [...d3.rollup(jobs, v => v.length, d => d.ct)].sort((a, b) => b[1] - a[1]);
+const ctf = document.getElementById("ctf");
+ctf.innerHTML = `<option value="">All (${fmt(jobs.length)})</option>` + cts.map(([k, n]) => `<option value="${k}">${k.replace(/_/g, " ")} (${fmt(n)})</option>`).join("");
+ctf.addEventListener("change", renderJobs);
+}
+function renderJobs() {
+  if (!D.campaign) return;
+  const box = document.getElementById("jobgridbox"); box.innerHTML = "";
+  const W = Math.max(320, box.clientWidth), cs = W < 700 ? 7 : 9, gap = 2, per = Math.floor((W - 4) / (cs + gap));
+  const rows = Math.ceil(jobs.length / per), H = rows * (cs + gap) + 4;
+  const f = ctf.value;
+  const svg = d3.select(box).append("svg").attr("width", W).attr("height", H).attr("role", "img").attr("aria-label", "Grid of campaign jobs coloured by state");
+  svg.selectAll("rect").data(jobs).join("rect")
+    .attr("x", (_, i) => 2 + (i % per) * (cs + gap)).attr("y", (_, i) => 2 + Math.floor(i / per) * (cs + gap)).attr("width", cs).attr("height", cs).attr("rx", 1.5)
+    .style("fill", d => ST[d.s] ? ST[d.s][1] : "var(--f7)").style("opacity", d => !f || d.ct === f ? 1 : .12)
+    .style("stroke", d => d.iss.length || d.rl ? "var(--bad)" : "none").style("stroke-width", 1.6)
+    .on("mousemove", (ev, d) => showTip(`<b>${esc(d.n)}</b><br><span class="m">batch_${String(d.b).padStart(4, "0")} · ${d.fx} · ${d.ct.replace(/_/g, " ")}<br>ladder ${esc(d.lad)}<br>${ST[d.s] ? ST[d.s][0] : d.s} (${d.snap})${d.iss.length ? "<br>⚠ " + esc([...new Set(d.iss)].join("; ")) : ""}${d.rl ? "<br>⚠ must relaunch" : ""}</span>`, ev))
+    .on("mouseleave", hideTip);
+}
+
+// ---------- dataset ----------
+if (!D.dataset) ["dataset", "nav-dataset"].forEach(id => { document.getElementById(id).hidden = true; });
+const DS = D.dataset || {split: {train: 0, valid: 0, test: 0}, frms: [], byFormula: {}};
+const nFr = DS.split.train + DS.split.valid + DS.split.test;
+if (D.dataset) document.getElementById("dslede").innerHTML = `${fmt(nFr)} force-labeled frames from FenOm_Warehouse2 logs: ${fmt(DS.split.train)} train, ${fmt(DS.split.valid)} valid, ${fmt(DS.split.test)} test. Splits are grouped by parent record so that frames from one trajectory never land in two splits. ${fmt(Object.keys(DS.byFormula).length)} formulas are covered.`;
+const SPC = {t: "var(--accent)", v: "var(--f4)", e: "var(--f6)"}, SPN = {t: "train", v: "valid", e: "test"};
+function renderDS() {
+  if (!D.dataset) return;
+  { // force histogram
+    const box = document.getElementById("frms"); box.innerHTML = "";
+    const W = Math.max(420, box.clientWidth), H = 260, m = {l: 50, r: 12, t: 10, b: 36};
+    const x = d3.scaleLinear().domain([-4, 2.3]).range([m.l, W - m.r]);
+    const bins = d3.range(-4, 2.3, .1);
+    const tally = bins.map(b0 => ({b0, t: 0, v: 0, e: 0}));
+    DS.frms.forEach(([s, l]) => { const i = Math.min(bins.length - 1, Math.max(0, Math.floor((l + 4) / .1))); tally[i][s === "t" ? "t" : s === "v" ? "v" : "e"]++; });
+    const y = d3.scaleSymlog().constant(10).domain([0, d3.max(tally, d => d.t + d.v + d.e)]).range([H - m.b, m.t]);
+    const svg = d3.select(box).append("svg").attr("width", W).attr("height", H).attr("role", "img").attr("aria-label", "Histogram of force RMS");
+    svg.append("g").attr("class", "axis").attr("transform", `translate(0,${H - m.b})`).call(d3.axisBottom(x).tickValues([-4, -3, -2, -1, 0, 1, 2]).tickFormat(d => d3.format("~g")(Math.pow(10, d))));
+    svg.append("g").attr("class", "axis").attr("transform", `translate(${m.l},0)`).call(d3.axisLeft(y).tickValues([0, 10, 100, 1000, 3000]).tickFormat(d3.format("~s")));
+    svg.append("text").attr("class", "axlbl").attr("x", W - m.r).attr("y", H - 4).attr("text-anchor", "end").text("force RMS, eV/Å (log) →");
+    const bw = x(.1) - x(0) - 1;
+    tally.forEach(d => { let acc = 0; ["t", "v", "e"].forEach(k => { if (!d[k]) return; const y0 = y(acc), y1 = y(acc + d[k]); svg.append("rect").attr("x", x(d.b0)).attr("width", bw).attr("y", y1).attr("height", y0 - y1).style("fill", SPC[k]).append("title").text(`${SPN[k]}: ${d[k]} frames`); acc += d[k]; }); });
+    svg.append("line").attr("x1", x(Math.log10(5))).attr("x2", x(Math.log10(5))).attr("y1", m.t).attr("y2", H - m.b).style("stroke", "var(--bad)").style("stroke-width", 1.5);
+    const out = DS.frms.filter(d => d[1] > Math.log10(5)).length;
+    svg.append("text").attr("x", x(Math.log10(5)) + 5).attr("y", m.t + 12).style("fill", "var(--bad)").style("font", "11px var(--mono)").text(`${out} > 5`);
+    const lg = svg.append("g").attr("transform", `translate(${m.l + 8},${m.t + 4})`);
+    ["t", "v", "e"].forEach((k, i) => { lg.append("rect").attr("x", i * 62).attr("width", 10).attr("height", 10).attr("rx", 2).style("fill", SPC[k]); lg.append("text").attr("x", i * 62 + 14).attr("y", 9).style("fill", "var(--muted)").style("font", "11.5px var(--body)").text(SPN[k]); });
+  }
+  { // multiplicity
+    const box = document.getElementById("dsmult"); box.innerHTML = "";
+    const c = d3.rollup(DS.frms, v => v.length, d => d[2]);
+    const e = [...c].sort((a, b) => a[0] - b[0]);
+    const W = Math.max(320, box.clientWidth), H = 260, m = {l: 44, r: 8, t: 10, b: 36};
+    const x = d3.scaleBand().domain(e.map(d => d[0])).range([m.l, W - m.r]).padding(.18);
+    const y = d3.scaleLinear().domain([0, d3.max(e, d => d[1])]).nice().range([H - m.b, m.t]);
+    const svg = d3.select(box).append("svg").attr("width", W).attr("height", H).attr("role", "img").attr("aria-label", "Frames by multiplicity");
+    svg.append("g").attr("class", "axis").attr("transform", `translate(0,${H - m.b})`).call(d3.axisBottom(x).tickValues(x.domain().filter((_, i) => i % 2 === 0)));
+    svg.append("g").attr("class", "axis").attr("transform", `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(5).tickFormat(d3.format("~s")));
+    svg.append("text").attr("class", "axlbl").attr("x", W - m.r).attr("y", H - 4).attr("text-anchor", "end").text("multiplicity →");
+    svg.selectAll("rect").data(e).join("rect").attr("x", d => x(d[0])).attr("width", x.bandwidth()).attr("y", d => y(d[1])).attr("height", d => y(0) - y(d[1])).attr("rx", 1.5)
+      .style("fill", d => d[0] >= 40 ? "var(--f1)" : "var(--accent)").append("title").text(d => `mult ${d[0]}: ${fmt(d[1])} frames`);
+  }
+  { // top formulas
+    const box = document.getElementById("dsform"); box.innerHTML = "";
+    const e = Object.entries(DS.byFormula).slice(0, 24);
+    const W = Math.max(420, box.clientWidth), rh = 20, H = e.length * rh + 10, l = 96;
+    const x = d3.scaleLinear().domain([0, e[0][1]]).range([l, W - 60]);
+    const svg = d3.select(box).append("svg").attr("width", W).attr("height", H).attr("role", "img").attr("aria-label", "Labeled frames per formula");
+    const g = svg.selectAll("g").data(e).join("g").attr("transform", (_, i) => `translate(0,${i * rh + 4})`).style("cursor", "pointer").on("click", (_, d) => byName.has(d[0]) && select(d[0]));
+    g.append("text").attr("x", l - 8).attr("y", 13).attr("text-anchor", "end").style("fill", "var(--ink)").style("font", "12px var(--mono)").text(d => d[0]);
+    g.append("rect").attr("x", l).attr("height", rh - 6).attr("width", d => x(d[1]) - l).attr("rx", 2).style("fill", d => byName.has(d[0]) ? famVar(byName.get(d[0]).fi) : "var(--f7)");
+    g.append("text").attr("x", d => x(d[1]) + 6).attr("y", 13).style("fill", "var(--muted)").style("font", "11.5px var(--mono)").text(d => fmt(d[1]));
+  }
+}
+
+// ---------- footer ----------
+document.getElementById("foot").innerHTML = `<span>Built ${D.generated} from the local mirrors in <span class="mono">D:\\MLIP_Work_Folder\\Cluster_MLIP</span>: each warehouse's <span class="mono">seeds.extxyz</span>, <span class="mono">analysis/files.csv</span> and <span class="mono">records.csv</span>, and FenOm_Warehouse2's <span class="mono">monitoring/</span>, plan CSVs and <span class="mono">dataset_spin_v0/*.extxyz</span>.</span>
+  <span>Families are assigned by composition. "Representative geometry" is the lowest legacy energy seed for that formula, preferring confirmed minima. Formulas without any energy show the first seed instead. Campaign states are snapshots, so check Slurm for live status.</span>
+  ${SC.note ? `<span>${esc(SC.note)}</span>` : ""}
+  <span>Layout borrows from chemiscope (a map linked to a structure viewer) and Apple's Embedding Atlas (cross-filtering and search).</span>`;
+
+// ---------- orchestration ----------
+function update() { renderFilters(); renderMap(); renderTable(); renderPT(); renderTree(); if (state.sel && !filtered().some(f => f.f === state.sel)) {} }
+state.sel = byName.has("Fe16N2") ? "Fe16N2" : (F[0] && F[0].f);
+update(); renderDetail(); renderSpin(); renderJobs(); renderDS();
+let rT; addEventListener("resize", () => { clearTimeout(rT); rT = setTimeout(() => { renderMap(); renderSpin(); renderTree(); renderJobs(); renderDS(); }, 200); });
+})();
+</script>
