@@ -1,0 +1,29 @@
+{
+  "status": "specified_not_run",
+  "reference": "Gaussian UBPW91/6-311++G*: audited campaign level, converged same-geometry energies and forces",
+  "control": "compact scratch charge/multiplicity MACE",
+  "foundation_candidate": {
+    "family_alias": "mace-omol",
+    "release": "mace_omol_0",
+    "intended_asset": "MACE-omol-0-extra-large-1024.model",
+    "checkpoint_sha256": null,
+    "load_and_conditioning_verified": false
+  },
+  "seeds": [11, 23, 37],
+  "nested_training_group_fractions": [0.25, 0.5, 1.0],
+  "epochs": 100,
+  "patience": 101,
+  "batch_size": 8,
+  "dtype": "float64",
+  "energy_weight": 1,
+  "forces_weight": 10,
+  "stress_weight": 0,
+  "learning_rate": {"scratch": 0.001, "foundation": 0.0001},
+  "ema_decay": 0.99,
+  "independent_dft_test_labels_proposed": 60,
+  "separate_dft_calibration_labels_proposed": 30,
+  "matched_numerical_repeat_labels_proposed": 12,
+  "split_unit": "transitive parent/trajectory/geometry/spin-pair/teacher-sibling connected component",
+  "vasp_absolute_cluster_labels_allowed": false,
+  "larger_campaign_authorized_or_launched": false
+}

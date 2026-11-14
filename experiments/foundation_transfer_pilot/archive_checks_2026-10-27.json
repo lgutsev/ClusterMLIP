@@ -1,0 +1,45 @@
+{
+  "check_type": "archived_outputs_recalculated_no_inference",
+  "n_frames": 90,
+  "n_models_recorded": 2,
+  "top_n": 9,
+  "spearman_rho_from_rounded_csv": 0.9549591086455136,
+  "spearman_rho_recorded_unrounded": 0.9548750874593571,
+  "top_error_recall": 0.3333333333333333,
+  "dataset_frames_recorded": 1251,
+  "independent_source_geometry_groups_recorded": 10,
+  "dataset_splits_recorded": {
+    "test": {
+      "frames": 202,
+      "groups": 2,
+      "source_records": 6
+    },
+    "train": {
+      "frames": 846,
+      "groups": 6,
+      "source_records": 28
+    },
+    "valid": {
+      "frames": 203,
+      "groups": 2,
+      "source_records": 8
+    }
+  },
+  "training_manifest_dataset_hash_checks": {
+    "all.extxyz": true,
+    "test.extxyz": true,
+    "train.extxyz": true,
+    "valid.extxyz": true
+  },
+  "source_sha256": {
+    "D:\\MLIP_Work_Folder\\Cluster_MLIP\\fe16_v1\\13_seminar_checks\\calib_longB_heldout\\calibration.csv": "c15e67627224befbda6c3fe13fc889e25ac8f8b4e98306123014a59170e1fd06",
+    "D:\\MLIP_Work_Folder\\Cluster_MLIP\\fe16_v1\\13_seminar_checks\\calib_longB_heldout\\calibration.json": "01ed40ee53c0c27ffe0ee4df5c8c1fb6915deb94a2e1e6244debc59f3ff6ca78",
+    "D:\\MLIP_Work_Folder\\Cluster_MLIP\\fe16_v1\\02d_fe16_tol05\\dataset_summary.json": "033305755f970bcaddb14127995e4de745be26bd0fb1b47b4ecaaad314ade894"
+  },
+  "limitations": [
+    "Archived CSV reanalysis, not a fresh prediction run",
+    "Twin-heavy Fe16 diagnostic, not independent supported-cluster validation",
+    "Split counts read from archived summary; transitive split independence not certified",
+    "No novelty-class statistics recomputed"
+  ]
+}
