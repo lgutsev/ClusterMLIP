@@ -1,0 +1,6 @@
+{
+ "side_minus_end": {"A3_fe3n2_side": 1, "A3_fe3n2_end": -1},
+ "M9_minus_M11": {"A3_fe3_M9": 1, "A3_fe3_M11": -1},
+ "free_minus_M11": {"A3_fe3_free": 1, "A3_fe3_M11": -1},
+ "Fe3_slab_minus_slab": {"A3_fe3_M11": 1, "A3_slab_fix": -1}
+}

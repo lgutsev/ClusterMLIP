@@ -11,7 +11,12 @@ left as flags to get wrong:
 - ``--default_dtype=float64`` -- Gaussian energies are effectively exact;
   float32 would inject noise into the labels the model fits;
 - ``--stress_weight=0`` and no ``--compute_stress`` -- isolated clusters have
-  no cell; every training frame is asserted ``pbc="F F F"``;
+  no cell, and periodic `vasp-ingest` frames are mostly fixed-cell slabs whose
+  stress is not a training target;
+- a dataset is either all isolated clusters (``pbc="F F F"``) or all periodic
+  frames (from `vasp-ingest`), never a mix. A periodic frame's method is its
+  ``label_level`` and its electronic state must be declared: a released-spin
+  frame without a ``multiplicity`` is refused, not defaulted to M = 1;
 - ``--energy_key=REF_energy`` / ``--forces_key=REF_forces`` -- what `collect`
   writes;
 - graph-level total-charge and total-spin conditioning is always on (either as
@@ -109,6 +114,7 @@ class TrainingPlan(TypedDict):
     charge_range: list[int]
     multiplicity_range: list[int]
     label_routes: list[str]
+    periodic: bool
     e0s: str
     seeds: list[int]
     seed_runs: list[SeedRun]
@@ -123,6 +129,7 @@ class DatasetFacts:
     multiplicities: set[int]
     label_routes: set[str]
     n_frames: int
+    periodic: bool = False
 
 
 @dataclass
@@ -177,7 +184,9 @@ def scan_dataset(dataset_dir: Path) -> DatasetFacts:
 
     Collects the charge/multiplicity coverage (to size or validate the
     embedding), the distinct force-label routes (to enforce method
-    consistency), and asserts every frame is non-periodic.
+    consistency), and checks the dataset is all isolated or all periodic.
+    Periodic frames (`vasp-ingest`) carry their method as ``label_level`` and
+    must declare a multiplicity.
     """
     dataset_dir = dataset_dir.resolve()
     missing = [name for name in REQUIRED_SPLITS if not (dataset_dir / name).is_file()]
@@ -192,6 +201,8 @@ def scan_dataset(dataset_dir: Path) -> DatasetFacts:
     label_routes: set[str] = set()
     n_frames = 0
     unlabeled = 0
+    periodic_frames = 0
+    undeclared_spin = 0
 
     for name in ("all.extxyz", *REQUIRED_SPLITS):
         path = dataset_dir / name
@@ -209,15 +220,19 @@ def scan_dataset(dataset_dir: Path) -> DatasetFacts:
             n_atoms = int(lines[i].strip())
             info = parse_extxyz_info_line(lines[i + 1])
             pbc = info.get("pbc", "F F F").replace('"', "").strip().upper()
-            if set(pbc.split()) - {"F"}:
-                raise ValueError(
-                    f"{path.name} frame {n_frames} has pbc={pbc!r}; the cluster MACE "
-                    "workflow is for isolated (non-periodic) clusters only"
-                )
+            periodic = bool(set(pbc.split()) - {"F"})
+            if periodic and "Lattice" not in info:
+                raise ValueError(f"{path.name} frame {n_frames} has pbc={pbc!r} but no Lattice")
+            periodic_frames += periodic
             n_frames += 1
             charges.add(int(info.get("charge", 0)))
-            multiplicities.add(int(info.get("multiplicity", info.get("spin", 1))))
-            if "metadata" in info:
+            if periodic and "multiplicity" not in info:
+                undeclared_spin += 1
+            else:
+                multiplicities.add(int(info.get("multiplicity", info.get("spin", 1))))
+            if periodic and info.get("label_level"):
+                label_routes.add(str(info["label_level"]).strip())
+            elif "metadata" in info:
                 try:
                     meta = json.loads(info["metadata"])
                 except (TypeError, ValueError):
@@ -238,6 +253,19 @@ def scan_dataset(dataset_dir: Path) -> DatasetFacts:
 
     if n_frames == 0:
         raise ValueError(f"{dataset_dir}: split files contain no frames")
+    if 0 < periodic_frames < n_frames:
+        raise ValueError(
+            f"{dataset_dir}: {periodic_frames} of {n_frames} frames are periodic; isolated "
+            "clusters and periodic frames have different energy references and do not "
+            "belong in one training set"
+        )
+    if undeclared_spin:
+        raise ValueError(
+            f"{dataset_dir}: {undeclared_spin} periodic frame(s) declare no multiplicity "
+            "(a released-spin VASP run whose moment is not near an integer). The model is "
+            "conditioned on the electronic state, so it cannot be guessed; drop those jobs "
+            "or rerun them with NUPDOWN"
+        )
     if unlabeled:
         raise ValueError(
             f"{dataset_dir}: {unlabeled} of {n_frames} frame(s) record no label route, "
@@ -247,7 +275,7 @@ def scan_dataset(dataset_dir: Path) -> DatasetFacts:
             "head on frames from different methods is unsound, and an absent route is not "
             "evidence that they match."
         )
-    return DatasetFacts(files, charges, multiplicities, label_routes, n_frames)
+    return DatasetFacts(files, charges, multiplicities, label_routes, n_frames, periodic_frames > 0)
 
 
 def _foundation_family(foundation_model: str) -> str:
@@ -615,6 +643,7 @@ def write_training_campaign(config: TrainingConfig) -> TrainingPlan:
         "charge_range": [min(facts.charges), max(facts.charges)],
         "multiplicity_range": [min(facts.multiplicities), max(facts.multiplicities)],
         "label_routes": sorted(facts.label_routes),
+        "periodic": facts.periodic,
         "e0s": config.e0s,
         "seeds": seeds,
         "seed_runs": seed_runs,

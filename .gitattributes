@@ -6,6 +6,7 @@
 # io.write_text_lf(); this file covers the ones committed to the repo.
 *.sh      text eol=lf
 *.sbatch  text eol=lf
+*.slurm   text eol=lf
 
 # Gaussian inputs and the extxyz datasets are consumed by Gaussian/MACE on the
 # cluster and are hashed into the campaign manifests -- keep them byte-identical
