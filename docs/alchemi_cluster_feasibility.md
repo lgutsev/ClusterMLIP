@@ -234,8 +234,13 @@ generator.
   but the toolkit's NEB support was not examined.
 - **Distillation**: not started, as instructed. There is no teacher that passes the gate.
 - **Supported Fe / K promotion**: mixed sizes in one batch work, and frozen-atom masks are per atom, so a
-  frozen support costs nothing extra in the adapter. Periodic cells were not tested. The blocker remains
-  the reference data, not the backend.
+  frozen support costs nothing extra in the adapter. The blocker remains the reference data, not the backend.
+- **Periodic cells** (added 2026-11-14): single-point parity passes. `parity_periodic.py`, float64, eight
+  generic rattled cells of 16 to 64 atoms (bulk Fe, strained triclinic Cu, MgO, Si, Cu(111) slabs with and
+  without CO, one slab periodic in two directions): native against batch of 1, batch of 8, shuffled order
+  and a different batch composition agree within 1.2e-13 eV and 1e-13 eV/Å, as native does against itself
+  (`report/parity_periodic_float64.json`). Relaxation, timing, cell relaxation and MD on periodic cells are
+  not measured.
 
 ## Files
 

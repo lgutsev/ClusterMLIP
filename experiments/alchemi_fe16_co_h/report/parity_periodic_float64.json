@@ -1,0 +1,138 @@
+{
+  "model": "mace-mpa-0-medium.model",
+  "dtype": "float64",
+  "structures": [
+    {
+      "name": "Fe_bcc_2x2x2_cubic",
+      "atoms": 16,
+      "pbc": [
+        true,
+        true,
+        true
+      ],
+      "native_energy_eV": -135.1389951750007,
+      "native_max_force_eV_per_A": 0.9841288166246849,
+      "native_vs_batchN_dE_eV": 2.842170943040401e-14,
+      "native_vs_batchN_dF": 1.1102230246251565e-15,
+      "edges_toolkit": null
+    },
+    {
+      "name": "Fe_bcc_3x3x3_primitive",
+      "atoms": 27,
+      "pbc": [
+        true,
+        true,
+        true
+      ],
+      "native_energy_eV": -228.00045512583807,
+      "native_max_force_eV_per_A": 1.088556377641949,
+      "native_vs_batchN_dE_eV": 0.0,
+      "native_vs_batchN_dF": 5.6343818499726694e-15,
+      "edges_toolkit": null
+    },
+    {
+      "name": "Cu_fcc_2x2x2_triclinic_strained",
+      "atoms": 32,
+      "pbc": [
+        true,
+        true,
+        true
+      ],
+      "native_energy_eV": -130.43230259424473,
+      "native_max_force_eV_per_A": 0.63906356538291,
+      "native_vs_batchN_dE_eV": 0.0,
+      "native_vs_batchN_dF": 1.27675647831893e-15,
+      "edges_toolkit": null
+    },
+    {
+      "name": "MgO_rocksalt_2x2x2",
+      "atoms": 64,
+      "pbc": [
+        true,
+        true,
+        true
+      ],
+      "native_energy_eV": -379.79303240860486,
+      "native_max_force_eV_per_A": 2.252737011679183,
+      "native_vs_batchN_dE_eV": 1.1368683772161603e-13,
+      "native_vs_batchN_dF": 3.608224830031759e-15,
+      "edges_toolkit": null
+    },
+    {
+      "name": "Si_diamond_2x2x2",
+      "atoms": 64,
+      "pbc": [
+        true,
+        true,
+        true
+      ],
+      "native_energy_eV": -344.18978125657065,
+      "native_max_force_eV_per_A": 2.194190936991625,
+      "native_vs_batchN_dE_eV": 5.684341886080802e-14,
+      "native_vs_batchN_dF": 4.85722573273506e-15,
+      "edges_toolkit": null
+    },
+    {
+      "name": "Cu111_slab_3x3x3_pbc_xyz",
+      "atoms": 27,
+      "pbc": [
+        true,
+        true,
+        true
+      ],
+      "native_energy_eV": -102.4853931473935,
+      "native_max_force_eV_per_A": 0.7429997501228942,
+      "native_vs_batchN_dE_eV": 0.0,
+      "native_vs_batchN_dF": 1.1102230246251565e-15,
+      "edges_toolkit": null
+    },
+    {
+      "name": "Cu111_slab_CO_pbc_xyz",
+      "atoms": 29,
+      "pbc": [
+        true,
+        true,
+        true
+      ],
+      "native_energy_eV": -46.51294645468807,
+      "native_max_force_eV_per_A": 131.1216285310972,
+      "native_vs_batchN_dE_eV": 2.1316282072803006e-14,
+      "native_vs_batchN_dF": 9.947598300641403e-14,
+      "edges_toolkit": null
+    },
+    {
+      "name": "Cu111_slab_2x2x4_pbc_xy_only",
+      "atoms": 16,
+      "pbc": [
+        true,
+        true,
+        false
+      ],
+      "native_energy_eV": -61.88733757492955,
+      "native_max_force_eV_per_A": 0.6667068482223959,
+      "native_vs_batchN_dE_eV": 0.0,
+      "native_vs_batchN_dF": 1.6653345369377348e-15,
+      "edges_toolkit": null
+    }
+  ],
+  "native_vs_native": {
+    "max_abs_dE_eV": 1.1368683772161603e-13,
+    "max_force_component_diff_eV_per_A": 8.526512829121202e-14
+  },
+  "native_vs_batch1": {
+    "max_abs_dE_eV": 1.1368683772161603e-13,
+    "max_force_component_diff_eV_per_A": 7.105427357601002e-14
+  },
+  "native_vs_batchN": {
+    "max_abs_dE_eV": 1.1368683772161603e-13,
+    "max_force_component_diff_eV_per_A": 9.947598300641403e-14
+  },
+  "batchN_vs_shuffled": {
+    "max_abs_dE_eV": 5.684341886080802e-14,
+    "max_force_component_diff_eV_per_A": 7.105427357601002e-14
+  },
+  "batchN_vs_half_batch": {
+    "max_abs_dE_eV": 5.684341886080802e-14,
+    "max_force_component_diff_eV_per_A": 8.526512829121202e-14
+  }
+}
