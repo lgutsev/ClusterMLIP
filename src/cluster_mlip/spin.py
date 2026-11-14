@@ -552,12 +552,19 @@ def _validated_fragments(record: Record, specification: dict) -> tuple[dict[int,
         atoms = fragment.get("atoms", [])
         if not atoms:
             raise ValueError(f"fragment {fragment_index} has no atoms")
-        charge = int(fragment["charge"])
-        multiplicity = int(fragment["multiplicity"])
+        # No int() coercion: int(1.7) == 1 and int(True) == 1 would silently
+        # change the electron count of the guess.
+        for key in ("charge", "multiplicity"):
+            if isinstance(fragment[key], bool) or not isinstance(fragment[key], int):
+                raise ValueError(f"fragment {fragment_index} {key} must be an integer, got {fragment[key]!r}")
+        charge = fragment["charge"]
+        multiplicity = fragment["multiplicity"]
         orientation = _orientation_sign(fragment.get("orientation", "alpha"))
         if multiplicity < 1:
             raise ValueError("fragment multiplicity must be positive; orientation carries the sign")
-        atom_indices = [int(index) for index in atoms]
+        if any(isinstance(index, bool) or not isinstance(index, int) for index in atoms):
+            raise ValueError(f"fragment {fragment_index} atom indices must be integers")
+        atom_indices = list(atoms)
         for atom_index in atom_indices:
             if atom_index < 1 or atom_index > len(record.atoms):
                 raise ValueError(f"atom index {atom_index} is outside 1..{len(record.atoms)}")
