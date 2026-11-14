@@ -56,6 +56,33 @@ def row_is_active(row: dict[str, str]) -> bool:
     return (row.get("submission_active") or "").strip().lower() not in {"false", "0", "no"}
 
 
+def ladder_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    """One manifest row per Link1 stage of an input, in stage order.
+
+    An input path can carry several generations of rows: a from-scratch rerun
+    (``prepare-spin-restarts --rerun-missing-checkpoints``) reruns the same
+    input file, so it retires the old rows and appends new ones under the same
+    ``input``. Counting both made a 5-stage ladder look like 10 rows. The
+    active generation wins; with none active (a lineage fully retired by a
+    restart), the most recent generation in manifest order does.
+    """
+    active = [row for row in rows if row_is_active(row)]
+    pool = active or rows
+    # Without stage numbers (flat jobs.csv, older manifests) there is nothing
+    # to collapse generations by: the active rows are the answer as they stand.
+    if any(not (row.get("stage_index") or "").strip() for row in pool):
+        return pool
+    chosen: dict[str, dict[str, str]] = {}
+    for row in pool:
+        chosen[(row.get("stage_index") or "").strip()] = row
+
+    def order(item: tuple[str, dict[str, str]]) -> tuple[int, str]:
+        key = item[0]
+        return (int(key), "") if key.isdigit() else (10**9, key)
+
+    return [row for _, row in sorted(chosen.items(), key=order)]
+
+
 def batch_locations(campaign: Path) -> dict[str, Path]:
     """Map each listed input filename to the batch directory that runs it.
 

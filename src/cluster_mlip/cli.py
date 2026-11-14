@@ -38,6 +38,7 @@ from .relaunch import prepare_route_relaunch
 from .restart import prepare_spin_restarts
 from .route_audit import audit_campaign_routes, resolve_config_type
 from .saddle_triage import RECOMMENDATIONS, triage_campaign_saddles
+from .input_repair import repair_checkpoint_inputs
 from .routes import (
     FINDINGS,
     frame_label,
@@ -229,6 +230,25 @@ def command_audit(args: argparse.Namespace) -> int:
             f"{selected['unique_geometry_state']} unique geometry/state entries"
         )
     print(f"Private audit: {output}")
+    return 0
+
+
+def command_repair_checkpoint_inputs(args: argparse.Namespace) -> int:
+    result = repair_checkpoint_inputs(
+        Path(args.campaign), start=args.start, end=args.end,
+        assume_stopped=args.assume_stopped, dry_run=args.dry_run,
+    )
+    verb = "Would repair" if args.dry_run else "Repaired"
+    print(f"{verb} {result['input_count']} input(s)")
+    for row in result["plan"]:
+        print(f"  {row['batch']} {row['input']}: stage(s) {row['repaired_stages']}, "
+              f"{row['atom_lines_removed']} atom line(s) removed")
+    for row in result["skipped"]:
+        print(f"SKIPPED {row['batch']} {row['input']}: {row['reason']}", file=sys.stderr)
+    if args.dry_run:
+        print("Dry run: nothing was written. Re-run without --dry-run to apply.")
+    elif result["backup"]:
+        print(f"Backup: {result['backup']}; plan appended to input_repair_plan.csv")
     return 0
 
 
@@ -1289,6 +1309,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="also list saddles that converged with the expected imaginary-mode count",
     )
     triage_saddles.set_defaults(func=command_triage_saddles)
+
+    repair_inputs = sub.add_parser(
+        "repair-checkpoint-inputs",
+        help="drop atom lines left in Geom=Checkpoint stages of not-yet-run inputs "
+             "(restarts written before PR #22 die in l101); backs up and updates the manifest",
+    )
+    repair_inputs.add_argument("campaign", help="prepared Gaussian spin campaign")
+    repair_inputs.add_argument("--start", type=int, default=1, help="first batch (inclusive)")
+    repair_inputs.add_argument("--end", type=int, help="last batch (inclusive)")
+    repair_inputs.add_argument(
+        "--assume-stopped", action="store_true",
+        help="also repair inputs left with an unmatched .started marker; pass only after "
+             "squeue is clear on every cluster that sees the campaign",
+    )
+    repair_inputs.add_argument("--dry-run", action="store_true")
+    repair_inputs.set_defaults(func=command_repair_checkpoint_inputs)
 
     relaunch_routes = sub.add_parser(
         "relaunch-routes",

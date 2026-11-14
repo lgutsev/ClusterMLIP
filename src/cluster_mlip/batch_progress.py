@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .gaussian import gaussian_job_complete, parse_final_force_frame
-from .route_audit import resolve_config_type
+from .route_audit import ladder_rows, resolve_config_type
 from .routes import FINDINGS, checkpoint_stages_with_coordinates, inspect_job
 from .spin import parse_spin_diagnostics
 
@@ -73,7 +73,9 @@ def write_batch_progress(campaign: Path, destination: Path | None = None, *,
             if name in seen:
                 issue(batch_name, name, 'error', 'Input occurs in more than one selected batch/list entry')
             seen.add(name)
-            rows = by_input.get(name, [])
+            # One row per stage: a from-scratch rerun keeps its input path, so the
+            # retired generation of rows would otherwise double the ladder.
+            rows = ladder_rows(by_input.get(name, []))
             if not rows:
                 issue(batch_name, name, 'error', 'Input is absent from the campaign manifest')
             inp = directory / name
