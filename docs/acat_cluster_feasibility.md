@@ -821,3 +821,37 @@ forces and leaves the gross energy errors. Neither result says the data are insu
 loss ignored half of the labels. Two inexpensive tests follow, both CPU-only: the Δ-model's energy
 correction applied on top of the fine-tuned model, and a fine-tune with the energy weight raised. One
 composition and 18 structures still limit what a pass would mean.
+
+## 17. Combined test: energy correction on top of the fine-tuned model (2026-11-15)
+
+Script: `delta_on_finetune.py`; numbers in `report/finetune/combined_mpa0_m49.json`. For each of the three
+folds of section 16, the Gaussian-process energy correction of section 15 is fitted on the frames that
+fold's fine-tune saw, using the fine-tuned model's own descriptors, and applied to the held-out panel
+structures. A held-out structure is unseen by both stages. CPU only, a few minutes.
+
+| 19 held-out structures, M = 49 | Uncorrected | Δ-model alone | Fine-tuned | Fine-tuned + Δ |
+|---|---|---|---|---|
+| Relative-energy error (eV) | 0.65 | 0.26 | 0.47 | 0.26 |
+| Pairs ordered | 88 % | 86 % | 81 % | 90 % |
+| Error scatter among the 11 bound structures within 0.5 eV (eV) | – | – | 0.16 | 0.12 |
+| Picks as lowest | 000 (correct) | 003 (+0.18) | 006 (+0.16) | 003 (+0.18) |
+| Fe force RMSE (eV/Å); zero-force guess 0.27 | 0.24 | 0.37 | 0.17 | 0.35 |
+| Adsorbate force RMSE (eV/Å); zero-force guess 1.18 | 1.10 | 0.68 | 0.42 | 0.44 |
+
+- **Energies improve as hoped.** The desorbed-CO structures go from 1.2 to 1.4 eV too low to +0.01 and
+  −0.49 eV; the side-on control from 1.6 to 0.4 eV. Pair ordering reaches 90 %, the best of the four.
+- **The correction's own force term spoils the Fe forces again** (0.17 → 0.35 eV/Å, worse than the
+  zero-force guess). The correction is fitted to energies only, so its gradient is unconstrained.
+- **The usable combination is therefore two-stage:** forces from the fine-tuned model (relaxation), energies
+  from fine-tuned + Δ (ranking). That is not one conservative potential: fine for relax-then-rescore
+  screening, not for dynamics.
+- **The gate is still not passed.** Forces pass in the two-stage use and ordering is at the 90 % line, but the
+  relative-energy error is 0.26 eV against a threshold of 0.03 eV, the scatter among bound structures is
+  0.12 eV, and the model does not pick the lowest structure. The dissociated control remains 1.6 eV off.
+
+**Where the three tests leave the question.** With 18 structures of one composition, held-out force accuracy
+improved by a factor of 1.4 (Fe) and 2.6 (adsorbates) and the gross energy errors were removed, but the
+0.1 eV resolution needed to rank bound structures was not reached by any route. What would most plausibly
+move that: more structures (each of these tests trains on 12 to 17), an energy correction that is also
+fitted to forces, and carrying M so that the three spin branches train one model instead of three.
+None of these was tested.

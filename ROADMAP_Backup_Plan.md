@@ -244,6 +244,10 @@ Route 2 was then tested (section 16): a naive fine-tune of MACE-MPA-0 on energie
 model to beat the zero-force guess on held-out structures (Fe 0.17, adsorbates 0.42 eV/Å) but leaves the
 gross energy errors, so it **does not pass the gate either**. The two routes fail in opposite ways; the
 next tests are the energy correction on top of the fine-tuned model, and a fine-tune with more energy weight.
+The combination was tested (section 17): energies improve to 0.26 eV error and 90 % of pairs ordered, but the
+correction's force term again spoils Fe forces, so the usable form is two-stage (fine-tuned forces to relax,
+corrected energies to rank). **Still short of the gate** (0.03 eV); more structures and spin as an input
+are the untested levers.
 
 This section authorizes **documentation only**: no training, no new Gaussian or VASP jobs beyond the already
 approved packages 111 and 112, no new dependency, and no merge without a separate decision.

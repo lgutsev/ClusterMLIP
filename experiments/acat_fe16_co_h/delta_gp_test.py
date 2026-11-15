@@ -38,8 +38,8 @@ PAIR_THRESHOLD_EV = 0.05
 
 
 class Featurizer:
-    def __init__(self, model_path: str):
-        self.calc = MACECalculator(model_paths=model_path, device="cuda", default_dtype="float64")
+    def __init__(self, model_path: str, device: str = "cuda"):
+        self.calc = MACECalculator(model_paths=model_path, device=device, default_dtype="float64")
         self.model = self.calc.models[0]
         irreps = o3.Irreps(str(self.model.products[0].linear.irreps_out))
         self.l_max = irreps.lmax
