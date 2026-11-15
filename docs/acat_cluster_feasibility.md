@@ -855,3 +855,46 @@ improved by a factor of 1.4 (Fe) and 2.6 (adsorbates) and the gross energy error
 move that: more structures (each of these tests trains on 12 to 17), an energy correction that is also
 fitted to forces, and carrying M so that the three spin branches train one model instead of three.
 None of these was tested.
+
+## 18. Data-limited or accuracy-limited? Two checks before active learning (2026-11-15)
+
+Script: `delta_gp_diagnostics.py`; numbers in `report/delta_gp/diagnostics_mpa0_m49.json`. Both use the
+energy correction of section 15 on MACE-MPA-0 at M = 49, with one fixed set of kernel settings so that only
+the amount of data changes. CPU, under a minute.
+
+**Learning curve.** Train on every frame of n randomly chosen structures, predict the panel frames of all
+the others; 200 random choices per n.
+
+| Training structures | 2 | 4 | 6 | 8 | 10 | 12 | 14 | 16 | 17 |
+|---|---|---|---|---|---|---|---|---|---|
+| Error on unseen structures, mean (eV) | 0.58 | 0.53 | 0.45 | 0.43 | 0.39 | 0.32 | 0.24 | 0.18 | 0.21 |
+| Median (eV) | 0.65 | 0.51 | 0.40 | 0.33 | 0.26 | 0.22 | 0.18 | 0.10 | 0.04 |
+
+The uncorrected model sits at about 0.65 eV throughout. The last column is leave-one-structure-out (absolute
+error of the one held-out structure), the others are centred within each test set, so the last step is not
+strictly comparable.
+
+- **The error is still falling at the largest training size, with no plateau.** That is the signature of a
+  data-limited model, not of an accuracy floor.
+- **Mean and median separate at the end.** With 17 training structures the typical unseen structure is
+  predicted to 0.04 eV, close to the 0.03 eV gate, while the mean (0.21 eV) is carried by a few structures
+  unlike anything in the training set: the dissociated, O-bound and side-on controls.
+- Caveat: the kernel settings were chosen on all 18 structures, so these numbers are slightly optimistic;
+  the nested estimate in section 15 is 0.26 eV.
+
+**Is the model's own uncertainty usable?** Leave one structure out; compare the Gaussian process's predicted
+standard deviation with the actual error on the 19 panel structures.
+
+- **It finds the bad ones:** four of the five largest errors are among the five most uncertain structures
+  (the three controls and one desorbed-CO structure). The fifth is structure 013 (0.32 eV error, predicted
+  0.09 eV).
+- **It is overconfident:** 8 of 19 errors fall within one predicted standard deviation (13 expected) and 12
+  within two (18 expected). Widening it by a factor of about two would be needed before using it as an
+  error bar.
+- Among the well-predicted structures it carries little information (rank correlation 0.30 over all 19).
+
+**Answer.** On this evidence the corrected model is data-limited: more structures should keep lowering the
+error, and the uncertainty is good enough to point at the kind of structure that is missing. That supports
+an active-learning loop. Three limits on that conclusion: it was measured for the energy correction only,
+not for the fine-tune; for one composition and one multiplicity; and the curve cannot say where a floor
+would appear, only that it has not been reached with 17 structures. Spin remains outside the model.

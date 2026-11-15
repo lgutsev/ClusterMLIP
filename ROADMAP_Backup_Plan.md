@@ -248,6 +248,10 @@ The combination was tested (section 17): energies improve to 0.26 eV error and 9
 correction's force term again spoils Fe forces, so the usable form is two-stage (fine-tuned forces to relax,
 corrected energies to rank). **Still short of the gate** (0.03 eV); more structures and spin as an input
 are the untested levers.
+A learning curve (section 18) shows the corrected model is data-limited: error on unseen structures falls
+from 0.58 eV with 2 training structures to 0.18 eV with 16, with no plateau, and the model's uncertainty
+flags four of its five worst errors (it is overconfident by about a factor of two). This supports the
+active-learning loop of item 6; any new reference labels need separate authorization.
 
 This section authorizes **documentation only**: no training, no new Gaussian or VASP jobs beyond the already
 approved packages 111 and 112, no new dependency, and no merge without a separate decision.
