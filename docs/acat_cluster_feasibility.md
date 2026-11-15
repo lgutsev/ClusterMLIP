@@ -778,3 +778,46 @@ Energy error is the mean absolute error of relative energies; forces in eV/Å.
 frame carries 60 force components and only one energy. A correction that also fits forces, or a fine-tune of
 the foundation model (the roadmap's second route), uses about 60 times more data from the same frames. That
 is the next test. It needs the GPU for training, and one composition will still limit what a pass means.
+
+## 16. Second corrected-model test: naive fine-tune (2026-11-14)
+
+The roadmap's second route, on the same labels and the same gate as section 15. Script: `finetune_test.py`;
+numbers in `report/finetune/`.
+
+**Setup.** MACE-MPA-0 fine-tuned on energies and forces of the 99 frames at M = 49, with the project's
+fine-tune defaults (learning rate 1e-4, force weight 100 against energy weight 1, EMA, AMSGrad, float64,
+100 epochs). Three grouped folds: no structure appears in both training and test, and structures 000, 008
+and the relaxed minimum count as one. Scored on the 19 held-out panel structures. It ran on the CPU
+(4 threads): 9 to 28 seconds per epoch, 22 to 48 minutes per fold. The GPU was not needed.
+
+One correction to the standard recipe was needed. Gaussian total energies and the model's energies differ by
+a large constant, and `--E0s=average` does not remove it: a dry run started 3.4 eV per atom off. The script
+keeps the foundation model's own atomic reference energies and shifts the labels by one constant (the mean
+difference on the fold's training frames); the run then starts 13 meV per atom off.
+
+**Result against the same gate (19 held-out structures, M = 49).**
+
+| | Uncorrected MPA-0 | Δ-model (section 15) | Fine-tuned |
+|---|---|---|---|
+| Relative-energy error (eV) | 0.65 | 0.26 | 0.47 |
+| Pairs ordered | 88 % | 86 % | 81 % (88 % within folds) |
+| Picks as lowest | 000 (correct) | 003 (+0.18 eV) | 006 (+0.16 eV) |
+| Fe force RMSE (eV/Å); zero-force guess 0.27 | 0.24 | 0.37 | **0.17** |
+| Adsorbate force RMSE (eV/Å); zero-force guess 1.18 | 1.10 | 0.68 | **0.42** |
+
+- **Forces: the fine-tune is the first model here that beats the zero-force guess on both Fe and the
+  adsorbates**, by a clear margin, on structures it never saw.
+- **Energies: not fixed.** Both desorbed-CO structures stay 1.2 to 1.4 eV too low even though the other one
+  was in each training set; the side-on and dissociated controls stay 1.6 eV off; among the 11 bound
+  structures within 0.5 eV the errors scatter by 0.15 eV. With one energy against 60 force components per
+  frame and a 100:1 weight on forces, the energies were barely fitted: validation energy error stayed near
+  20 meV per atom in two of the three folds.
+- All three runs used the full 100 epochs, so training had not stopped on its own.
+- **The gate is not passed**: it needs both forces and energies.
+
+**Reading of sections 15 and 16 together.** The two routes fail in opposite ways. The Δ-model, trained on
+energies, repairs the gross energy errors and damages forces. The fine-tune, dominated by forces, repairs
+forces and leaves the gross energy errors. Neither result says the data are insufficient; each says its
+loss ignored half of the labels. Two inexpensive tests follow, both CPU-only: the Δ-model's energy
+correction applied on top of the fine-tuned model, and a fine-tune with the energy weight raised. One
+composition and 18 structures still limit what a pass would mean.

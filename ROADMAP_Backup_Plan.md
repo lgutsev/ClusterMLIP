@@ -240,6 +240,10 @@ descriptors) with leave-one-structure-out scoring and **does not pass the gate**
 energy error and repairs the desorbed-CO artifact, but leaves 0.03 to 0.3 eV errors among bound structures
 and makes Fe forces worse than a zero-force guess. Next in order: a correction or fine-tune that also fits
 forces (route 2), then route 3.
+Route 2 was then tested (section 16): a naive fine-tune of MACE-MPA-0 on energies and forces is the first
+model to beat the zero-force guess on held-out structures (Fe 0.17, adsorbates 0.42 eV/Å) but leaves the
+gross energy errors, so it **does not pass the gate either**. The two routes fail in opposite ways; the
+next tests are the energy correction on top of the fine-tuned model, and a fine-tune with more energy weight.
 
 This section authorizes **documentation only**: no training, no new Gaussian or VASP jobs beyond the already
 approved packages 111 and 112, no new dependency, and no merge without a separate decision.
