@@ -73,7 +73,7 @@ def main() -> None:
         for a in atoms:
             b = a.copy()
             b.calc = calc
-            res.append({"energy": float(b.get_potential_energy()), "forces": np.array(b.get_forces())})
+            res.append({"energy": float(b.get_potential_energy()), "forces": np.array(b.get_forces(apply_constraint=False))})  # raw forces, even on FixAtoms cells
         return res
 
     n1, n2 = native(), native()

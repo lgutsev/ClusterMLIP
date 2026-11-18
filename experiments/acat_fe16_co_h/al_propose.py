@@ -129,7 +129,9 @@ def propose(args) -> None:
     pool = read(args.pool, index=":")
     _, e1, s1 = score(pool)
     acq1 = e1 - s1
-    short = np.argsort(acq1)[: args.shortlist]
+    short = list(np.argsort(acq1)[: args.shortlist])
+    # optional: also relax the most uncertain pool structures, so the list is not only low-energy look-alikes
+    short += [i for i in np.argsort(-s1) if i not in set(short)][: args.explore_shortlist]
 
     from mace.calculators import MACECalculator
 
@@ -163,10 +165,12 @@ def propose(args) -> None:
     def take(r: dict, why: str) -> bool:
         if any(same_structure(relaxed[r["index"]], relaxed[p["index"]], tol=0.15) for p in picks):
             return False
+        if args.max_per_motif and sum(p["motif"] == r["motif"] for p in picks) >= args.max_per_motif:
+            return False
         picks.append({**r, "picked_for": why})
         return True
 
-    n_exploit = args.n - args.n // 4
+    n_exploit = args.n - (args.n // 4 if args.n_explore is None else args.n_explore)
     for r in sorted(candidates, key=lambda r: r["acquisition_rel_ev"]):
         if len(picks) >= n_exploit:
             break
@@ -224,6 +228,9 @@ def main() -> None:
     p.add_argument("--shortlist", type=int, default=120)
     p.add_argument("--max-steps", type=int, default=150)
     p.add_argument("--explore-window", type=float, default=0.5)
+    p.add_argument("--explore-shortlist", type=int, default=0, help="also relax this many of the most uncertain pool structures")
+    p.add_argument("--n-explore", type=int, default=None, help="picks reserved for the largest uncertainty (default n // 4)")
+    p.add_argument("--max-per-motif", type=int, default=0, help="at most this many picks with the same site motif (0 = no limit)")
     p.set_defaults(fn=propose)
     args = ap.parse_args()
     args.fn(args)

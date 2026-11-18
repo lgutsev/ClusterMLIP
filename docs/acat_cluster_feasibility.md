@@ -961,3 +961,28 @@ carry the largest errors in section 18. A round built only from this list would 
 finds anything below structure 000, but would add little of the diversity the learning curve says is
 missing. The proposal was made with the MPA-0 fine-tune before the r2SCAN result was known; given that
 result, repeating it from the r2SCAN model is the natural next step before any DFT is requested.
+
+**Proposal redone from the r2SCAN model (2026-11-18, not submitted).** Same procedure with the r2SCAN model
+fine-tuned on all 99 frames, and three changes to widen the list: the 80 best candidates plus the 30 most
+uncertain pool structures were relaxed (all 110 converged, none already labelled); five picks are for low
+energy and three for the largest uncertainty within 1.0 eV of the lowest; at most two picks share a site
+motif. CPU only, 6 threads, 51 minutes.
+
+| Id | Pool id | Sites | Corrected relative energy (eV) | Widened sd (eV) | Picked for |
+|---|---|---|---|---|---|
+| AL1_00 | P0279 | CO bridge, H hollow, H hollow | 0.00 | 0.17 | low energy |
+| AL1_01 | P0126 | CO bridge, H hollow, H hollow | 0.03 | 0.18 | low energy |
+| AL1_02 | P0057 | CO top, H bridge, H hollow | 0.03 | 0.16 | low energy |
+| AL1_03 | P0875 | CO top, H bridge, H top | 0.07 | 0.17 | low energy |
+| AL1_04 | P0281 | CO top, H bridge, H top | 0.08 | 0.18 | low energy |
+| AL1_05 | P0817 | CO hollow, H bridge, H hollow | 0.56 | 0.22 | uncertainty |
+| AL1_06 | P0236 | CO hollow, H hollow, H hollow | 0.61 | 0.22 | uncertainty |
+| AL1_07 | P0045 | CO hollow, H hollow, H hollow | 0.57 | 0.21 | uncertainty |
+
+- **The two models disagree about where CO sits.** The MPA-0 list was all CO on hollow sites; the r2SCAN
+  list puts CO on top and bridge sites lowest and CO on hollows about 0.6 eV higher. The two lists share no
+  structure. Which is right is exactly what reference calculations on a few of each would settle.
+- The list now covers four site motifs instead of three near-identical ones, but the pool uncertainty is
+  still small and flat (median 0.13 eV, maximum 0.27 eV after widening), so "most uncertain" is a weak
+  signal here. None of the picks resembles the dissociated, O-bound or side-on controls.
+- Files: `al_round1_r2scan/al_round1_proposal.{csv,extxyz}` beside the earlier `al_round1/`.
