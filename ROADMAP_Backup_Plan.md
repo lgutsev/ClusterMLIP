@@ -252,6 +252,13 @@ A learning curve (section 18) shows the corrected model is data-limited: error o
 from 0.58 eV with 2 training structures to 0.18 eV with 16, with no plateau, and the model's uncertainty
 flags four of its five worst errors (it is overconfident by about a factor of two). This supports the
 active-learning loop of item 6; any new reference labels need separate authorization.
+Four follow-up runs (section 19, 2026-11-17): ten times more energy weight in the fine-tune changes nothing
+useful (0.44 eV, 85 %); the r2SCAN foundation model (`MACE-matpes-r2scan-omat-ft`) orders 95 % of pairs at
+0.22 eV with no correction, but with Fe forces no better than a zero-force guess, and fine-tuning it gives
+the best forces of any model here (Fe 0.17, adsorbates 0.37 eV/Å) at 0.27 eV and 88 %; M = 47 behaves like
+M = 49. **Nothing passes the gate.** A first active-learning list of eight structures exists (not
+submitted); all eight are ordinary CO-on-hollow structures, so it should be redone from the r2SCAN model
+and widened for diversity before any reference calculation is requested.
 
 This section authorizes **documentation only**: no training, no new Gaussian or VASP jobs beyond the already
 approved packages 111 and 112, no new dependency, and no merge without a separate decision.

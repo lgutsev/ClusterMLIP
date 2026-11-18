@@ -898,3 +898,66 @@ error, and the uncertainty is good enough to point at the kind of structure that
 an active-learning loop. Three limits on that conclusion: it was measured for the energy correction only,
 not for the fine-tune; for one composition and one multiplicity; and the curve cannot say where a floor
 would appear, only that it has not been reached with 17 structures. Spin remains outside the model.
+
+## 19. Four follow-up runs on the laptop CPU, and a first active-learning proposal (2026-11-17)
+
+Four jobs, run one after another on the CPU (8 threads, 4 h 17 min in total). Same three folds, same 19
+held-out M = 49 panel structures and same scoring as sections 16 and 17, unless stated.
+
+| Model (M = 49 unless stated) | Relative-energy MAE (eV) | Pairs ordered | Fe force RMSE (eV/A) | Adsorbate force RMSE (eV/A) |
+|---|---|---|---|---|
+| Zero-force baseline | | | 0.27 | 1.19 |
+| MPA-0, uncorrected | 0.65 | 88% | 0.24 | 1.10 |
+| MPA-0 fine-tune (section 16) | 0.47 | 81% | 0.17 | 0.42 |
+| MPA-0 fine-tune, energy weight 10 | 0.44 | 85% | 0.17 | 0.41 |
+| same + energy correction | 0.29 | 89% | 0.30 | 0.43 |
+| r2SCAN model, uncorrected | 0.22 | 95% | 0.27 | 0.67 |
+| r2SCAN model, fine-tuned | 0.27 | 88% | 0.17 | 0.37 |
+| same + energy correction | 0.25 | 89% | 0.32 | 0.36 |
+| M = 47: MPA-0, uncorrected (20 structures) | 0.66 | 89% | 0.25 | 0.99 |
+| M = 47: MPA-0 fine-tune | 0.62 | 79% | 0.19 | 0.63 |
+| M = 47: same + energy correction | 0.37 | 94% | 0.51 | 0.71 |
+
+The r2SCAN model is `MACE-matpes-r2scan-omat-ft`. Zero-force baselines for M = 47 are 0.21 (Fe) and 1.11
+(adsorbate).
+
+- **Rebalancing the loss does not fix the energies.** Ten times more weight on energies moves the MAE from
+  0.47 to 0.44 eV and the ordering from 81% to 85%, with forces unchanged. The energy error of the
+  fine-tune is not a loss-weight problem.
+- **The r2SCAN foundation model starts much closer.** Without any correction it orders 95% of pairs with a
+  0.22 eV MAE, better than every corrected MPA-0 variant. Its Fe forces are no better than the zero-force
+  baseline, so it still fails the gate as it stands. Fine-tuning fixes the forces (Fe 0.17, adsorbate 0.37,
+  the best of any model here) but makes the energies slightly worse (0.27 eV, 88%).
+- **M = 47 behaves like M = 49**, somewhat worse: the fine-tune alone barely improves the energies, and the
+  energy correction is what recovers the ordering (94%), at the cost of the forces.
+- **Nothing passes the gate.** No model reaches 0.03 eV; the best orderings (95% uncorrected r2SCAN, 94%
+  corrected M = 47) come with forces at or above the zero-force baseline. No variant predicts the true
+  lowest structure (000) as lowest except the uncorrected MPA-0 models; the others pick a structure 0.16 to
+  0.28 eV above it.
+- With 19 or 20 structures and three folds, differences of a few percent in ordering or 0.03 eV in MAE
+  between rows are within the noise. Only the r2SCAN starting point and the lack of effect of the energy
+  weight are clear.
+
+**Active-learning proposal (not submitted).** `al_propose.py` fine-tuned MPA-0 on all 99 M = 49 frames,
+relaxed a 120-structure shortlist of the 991-structure pool with it (all converged, none already labelled,
+none flagged as a failure), applied the energy correction, and ranked by corrected energy minus the
+widened (x2) uncertainty. Six structures were picked by that criterion and two for the largest uncertainty
+within 0.5 eV of the lowest.
+
+| Id | Pool id | Sites | Corrected relative energy (eV) | Widened sd (eV) | Picked for |
+|---|---|---|---|---|---|
+| AL1_00 | P0440 | CO hollow, H bridge, H hollow | 0.00 | 0.23 | low energy |
+| AL1_01 | P0451 | CO hollow, H bridge, H hollow | 0.04 | 0.24 | low energy |
+| AL1_02 | P0596 | CO hollow, H hollow, H hollow | 0.06 | 0.25 | low energy |
+| AL1_03 | P0140 | CO bridge, H hollow, H hollow | 0.11 | 0.27 | low energy |
+| AL1_04 | P0464 | CO hollow, H bridge, H hollow | 0.15 | 0.31 | low energy |
+| AL1_05 | P0634 | CO hollow, H hollow, H hollow | 0.15 | 0.29 | low energy |
+| AL1_06 | P0419 | CO hollow, H hollow, H hollow | 0.21 | 0.32 | uncertainty |
+| AL1_07 | P0527 | CO hollow, H hollow, H hollow | 0.34 | 0.31 | uncertainty |
+
+Limits of the proposal: the pool uncertainty is small everywhere (median 0.15 eV, maximum 0.43 eV after
+widening), so the eight picks are all ordinary CO-on-hollow structures and none resembles the controls that
+carry the largest errors in section 18. A round built only from this list would test whether the search
+finds anything below structure 000, but would add little of the diversity the learning curve says is
+missing. The proposal was made with the MPA-0 fine-tune before the r2SCAN result was known; given that
+result, repeating it from the r2SCAN model is the natural next step before any DFT is requested.

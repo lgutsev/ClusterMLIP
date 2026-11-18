@@ -111,8 +111,8 @@ def run(args) -> None:
             f"--train_file={out / 'train_shifted.extxyz'}", f"--valid_file={out / 'valid_shifted.extxyz'}",
             f"--test_file={out / 'test_shifted.extxyz'}",
             "--energy_key=REF_energy", "--forces_key=REF_forces", f"--foundation_model={path}",
-            "--multiheads_finetuning=False", f"--E0s={e0s}", "--loss=weighted", "--energy_weight=1.0",
-            "--forces_weight=100.0", "--stress_weight=0", "--lr=0.0001", f"--batch_size={args.batch_size}",
+            "--multiheads_finetuning=False", f"--E0s={e0s}", "--loss=weighted", f"--energy_weight={args.energy_weight}",
+            f"--forces_weight={args.forces_weight}", "--stress_weight=0", "--lr=0.0001", f"--batch_size={args.batch_size}",
             f"--valid_batch_size={args.batch_size}", f"--max_num_epochs={args.epochs}", "--patience=20", "--ema",
             "--ema_decay=0.99", "--default_dtype=float64", f"--device={args.device}", f"--seed={args.seed}", "--amsgrad",
             f"--work_dir={out}"]
@@ -220,6 +220,8 @@ def main() -> None:
     p.add_argument("--epochs", type=int, default=100)
     p.add_argument("--batch-size", type=int, default=4)
     p.add_argument("--seed", type=int, default=123)
+    p.add_argument("--energy-weight", type=float, default=1.0)
+    p.add_argument("--forces-weight", type=float, default=100.0)
     p.set_defaults(fn=run)
     p = sub.add_parser("score")
     p.add_argument("work", type=Path)
