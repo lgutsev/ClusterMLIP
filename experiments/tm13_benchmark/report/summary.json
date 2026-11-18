@@ -1,0 +1,62 @@
+{
+ "set": "fe13_legacy_ubpw91_m45",
+ "units": {
+  "energy": "eV",
+  "force": "eV/A",
+  "length": "A"
+ },
+ "dft_labels": null,
+ "dft_states_used": 0,
+ "reference_multiplicity_for_spin_blind_models": 45,
+ "models": {
+  "fe16_spin_B_s1": {
+   "path": "D:/MLIP_Work_Folder/Cluster_MLIP/fe16_v1/12_local_spin_mp/runs/long_B_s1/long_B_s1.model",
+   "spin_input": true,
+   "trained_on": "60 neutral Fe16 frames, M 47-53, UBPW91/6-311++G*, from scratch (charge + multiplicity embedding), seed 1",
+   "note": "the Fe16 spin-aware MACE; Fe13 and M 43/45 are outside its training range",
+   "sha256": "d3b3fdd1d4745ad229e0efa513cc042ecdc8dea144595e8a23a2f525faa1939d"
+  },
+  "fe16_spin_B_s2": {
+   "path": "D:/MLIP_Work_Folder/Cluster_MLIP/fe16_v1/12_local_spin_mp/runs/long_B_s2/long_B_s2.model",
+   "spin_input": true,
+   "trained_on": "as fe16_spin_B_s1, seed 2",
+   "note": "",
+   "sha256": "c957d333e1064ac08b29088554b76a5bd8d476cd650b1bcb8794b891446883eb"
+  },
+  "fe16coh_spin_fold1": {
+   "path": "D:/MLIP_Work_Folder/Cluster_MLIP/spin_heldout_v1/fold_1/spin/spin_fold1.model",
+   "spin_input": true,
+   "trained_on": "Fe16 ladder (53 frames, M 39-49) + Fe16+CO+2H fold 1 training frames, UBPW91/6-311++G*, from scratch",
+   "note": "from the 2026-11-18 spin held-out experiment of another session, read only",
+   "sha256": "4665e2681dcf0fee1e9db9c054121879c4d3f1d787f974fd9f0c69e77cbfb9a7"
+  },
+  "mace_mpa0": {
+   "path": "D:/MLIP_Foundational_Models/mace/mace-mpa-0-medium.model",
+   "spin_input": false,
+   "trained_on": "MPtrj + sAlex, PBE(+U), periodic",
+   "note": "foundation model, no spin input",
+   "sha256": "75428afe3a1d7d8062e19bcaabd5c433623cabf308242ec9fb493e38604fb638"
+  },
+  "mace_matpes_r2scan": {
+   "path": "D:/MLIP_Foundational_Models/mace/MACE-matpes-r2scan-omat-ft.model",
+   "spin_input": false,
+   "trained_on": "MATPES r2SCAN (OMat fine-tune), periodic",
+   "note": "foundation model, no spin input",
+   "sha256": "8f147ecffa1d06a696e5648b13b81abda9c96fda9d0fb3faba3cd3fb27d9bba9"
+  },
+  "ft_mpa0_fe16coh_m49": {
+   "path": "D:/MLIP_Work_Folder/Cluster_MLIP/acat_fe16_co_h/finetune_m49_all/fold_0/mpa0/mpa0_fold0.model",
+   "spin_input": false,
+   "trained_on": "MPA-0 fine-tuned on Fe16+CO+2H UBPW91 frames at M=49 (fold 0 of finetune_m49_all)",
+   "note": "spin-blind, one multiplicity",
+   "sha256": "510dc4f4394751149f31d5a1c91d32fd5e9c7989bfae67a61d72ac2b90d996a6"
+  },
+  "ft_r2scan_fe16coh_m49": {
+   "path": "D:/MLIP_Work_Folder/Cluster_MLIP/acat_fe16_co_h/finetune_m49_all/fold_0/r2scan/r2scan_fold0.model",
+   "spin_input": false,
+   "trained_on": "MATPES r2SCAN model fine-tuned on Fe16+CO+2H UBPW91 frames at M=49 (fold 0 of finetune_m49_all)",
+   "note": "spin-blind, one multiplicity",
+   "sha256": "8551066a2add3447145bdbe891ee6e93344eafed463a5ff2832e89ea8ceaac62"
+  }
+ }
+}

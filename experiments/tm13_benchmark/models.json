@@ -1,0 +1,9 @@
+{
+ "fe16_spin_B_s1": {"path": "D:/MLIP_Work_Folder/Cluster_MLIP/fe16_v1/12_local_spin_mp/runs/long_B_s1/long_B_s1.model", "spin_input": true, "trained_on": "60 neutral Fe16 frames, M 47-53, UBPW91/6-311++G*, from scratch (charge + multiplicity embedding), seed 1", "note": "the Fe16 spin-aware MACE; Fe13 and M 43/45 are outside its training range"},
+ "fe16_spin_B_s2": {"path": "D:/MLIP_Work_Folder/Cluster_MLIP/fe16_v1/12_local_spin_mp/runs/long_B_s2/long_B_s2.model", "spin_input": true, "trained_on": "as fe16_spin_B_s1, seed 2", "note": ""},
+ "fe16coh_spin_fold1": {"path": "D:/MLIP_Work_Folder/Cluster_MLIP/spin_heldout_v1/fold_1/spin/spin_fold1.model", "spin_input": true, "trained_on": "Fe16 ladder (53 frames, M 39-49) + Fe16+CO+2H fold 1 training frames, UBPW91/6-311++G*, from scratch", "note": "from the 2026-11-18 spin held-out experiment of another session, read only"},
+ "mace_mpa0": {"path": "D:/MLIP_Foundational_Models/mace/mace-mpa-0-medium.model", "spin_input": false, "trained_on": "MPtrj + sAlex, PBE(+U), periodic", "note": "foundation model, no spin input"},
+ "mace_matpes_r2scan": {"path": "D:/MLIP_Foundational_Models/mace/MACE-matpes-r2scan-omat-ft.model", "spin_input": false, "trained_on": "MATPES r2SCAN (OMat fine-tune), periodic", "note": "foundation model, no spin input"},
+ "ft_mpa0_fe16coh_m49": {"path": "D:/MLIP_Work_Folder/Cluster_MLIP/acat_fe16_co_h/finetune_m49_all/fold_0/mpa0/mpa0_fold0.model", "spin_input": false, "trained_on": "MPA-0 fine-tuned on Fe16+CO+2H UBPW91 frames at M=49 (fold 0 of finetune_m49_all)", "note": "spin-blind, one multiplicity"},
+ "ft_r2scan_fe16coh_m49": {"path": "D:/MLIP_Work_Folder/Cluster_MLIP/acat_fe16_co_h/finetune_m49_all/fold_0/r2scan/r2scan_fold0.model", "spin_input": false, "trained_on": "MATPES r2SCAN model fine-tuned on Fe16+CO+2H UBPW91 frames at M=49 (fold 0 of finetune_m49_all)", "note": "spin-blind, one multiplicity"}
+}

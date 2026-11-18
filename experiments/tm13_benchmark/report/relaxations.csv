@@ -1,0 +1,14 @@
+set,model,multiplicity,converged,steps,fmax_eV_A,energy_gain_eV,start_motif,final_motif,motif_changed,start_mean_nn_A,final_mean_nn_A,mean_nn_change_A,rmsd_perm_aligned_A,dft_endpoint_check
+fe13_legacy_ubpw91_m45,fe16_spin_B_s1,43,True,9,0.005,-0.081772,"icosahedron-like (centre CN 12, 42 bonds)","icosahedron-like (centre CN 12, 42 bonds)",False,2.5047,2.4772,-0.0274,0.0820,not_needed
+fe13_legacy_ubpw91_m45,fe16_spin_B_s1,45,True,5,0.005,-0.090375,"icosahedron-like (centre CN 12, 42 bonds)","icosahedron-like (centre CN 12, 42 bonds)",False,2.5047,2.4940,-0.0106,0.0791,not_needed
+fe13_legacy_ubpw91_m45,fe16_spin_B_s1,47,True,227,0.005,-0.324570,"icosahedron-like (centre CN 12, 42 bonds)","no 12-coordinate centre, 38 bonds, max CN 9",True,2.5047,2.4020,-0.1026,0.4324,needed
+fe13_legacy_ubpw91_m45,fe16_spin_B_s2,43,True,5,0.005,-0.061462,"icosahedron-like (centre CN 12, 42 bonds)","icosahedron-like (centre CN 12, 42 bonds)",False,2.5047,2.5019,-0.0027,0.0786,not_needed
+fe13_legacy_ubpw91_m45,fe16_spin_B_s2,45,True,8,0.005,-0.064341,"icosahedron-like (centre CN 12, 42 bonds)","icosahedron-like (centre CN 12, 42 bonds)",False,2.5047,2.5020,-0.0027,0.0785,not_needed
+fe13_legacy_ubpw91_m45,fe16_spin_B_s2,47,True,19,0.005,-0.041710,"icosahedron-like (centre CN 12, 42 bonds)","icosahedron-like (centre CN 12, 42 bonds)",False,2.5047,2.5293,0.0247,0.1638,not_needed
+fe13_legacy_ubpw91_m45,fe16coh_spin_fold1,43,True,14,0.005,-0.316509,"icosahedron-like (centre CN 12, 42 bonds)","icosahedron-like (centre CN 12, 42 bonds)",False,2.5047,2.3942,-0.1105,0.1284,not_needed
+fe13_legacy_ubpw91_m45,fe16coh_spin_fold1,45,True,17,0.005,-0.522791,"icosahedron-like (centre CN 12, 42 bonds)","icosahedron-like (centre CN 12, 42 bonds)",False,2.5047,2.3620,-0.1427,0.1530,not_needed
+fe13_legacy_ubpw91_m45,fe16coh_spin_fold1,47,True,134,0.005,-0.274432,"icosahedron-like (centre CN 12, 42 bonds)","icosahedron-like (centre CN 12, 42 bonds)",False,2.5047,2.3894,-0.1153,0.1321,not_needed
+fe13_legacy_ubpw91_m45,mace_mpa0,,True,106,0.005,-0.150379,"icosahedron-like (centre CN 12, 42 bonds)","icosahedron-like (centre CN 12, 42 bonds)",False,2.5047,2.5252,0.0205,0.1553,not_needed
+fe13_legacy_ubpw91_m45,mace_matpes_r2scan,,True,11,0.005,-0.255666,"icosahedron-like (centre CN 12, 42 bonds)","icosahedron-like (centre CN 12, 42 bonds)",False,2.5047,2.4702,-0.0345,0.0847,not_needed
+fe13_legacy_ubpw91_m45,ft_mpa0_fe16coh_m49,,True,18,0.005,-0.133172,"icosahedron-like (centre CN 12, 42 bonds)","icosahedron-like (centre CN 12, 42 bonds)",False,2.5047,2.5190,0.0143,0.1191,not_needed
+fe13_legacy_ubpw91_m45,ft_r2scan_fe16coh_m49,,True,10,0.005,-0.286550,"icosahedron-like (centre CN 12, 42 bonds)","icosahedron-like (centre CN 12, 42 bonds)",False,2.5047,2.4585,-0.0462,0.0891,not_needed
