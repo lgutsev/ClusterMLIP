@@ -9,8 +9,8 @@ Branch `exp/tm13-benchmark` (from `origin/main` d0f3ec0), code commit `8f2cfc2`.
 | Fe13 held-out set (source + 4 displacements) | **done**, from the group's own UBPW91 Fe13 structure |
 | Santos et al. coordinates | **blocked**: archive not found, ACS pages refuse automated access |
 | Model evaluation on the 5 geometries, relaxations | **done** (7 models, CPU) |
-| UBPW91 reference forces and spin survey | **pending**: package 143 staged, not sent (needs approval) |
-| Force scoring against the reference | **pending** on package 143; scripts ready |
+| UBPW91 reference forces and spin survey | **pending**: package 144 (staged as 143) taken in by the desk, not yet submitted |
+| Force scoring against the reference | **pending** on package 144; scripts ready |
 
 No Fe13 force error against DFT exists yet, so the handoff's decision rule cannot be applied yet. What can
 be said now comes from the legacy UBPW91 data and is listed under "Provisional findings".
@@ -26,7 +26,7 @@ be said now comes from the legacy UBPW91 data and is listed under "Provisional f
 - **Reference DFT:** UBPW91/6-311++G*, G09 D.01 on QB4. The route that completed cleanly is package 112/116's:
   per M one `Stable=Opt` link and one `Force` link, `Guess=Read`, `IOP(5/13=1,5/36=1,8/11=1)` in every
   link. The original "three Fe16 geometries × P0–P3" fragment pilot did not complete (packages 61/78/82
-  failed to converge); the flip-down ladder (91, 99, 112, 116) is what works, and package 143 reuses it.
+  failed to converge); the flip-down ladder (91, 99, 112, 116) is what works, and package 144 reuses it.
 - **Local-spin output:** Mulliken puts −8.2 on the central Fe13 atom. This is the known diffuse-basis
   artifact, so the package prints Hirshfeld spins.
 
@@ -55,7 +55,7 @@ Manifest with hashes, amplitudes and seed: `sets/fe13_legacy_ubpw91_m45/manifest
 These use the legacy data, not new DFT.
 
 1. **Residual forces at the UBPW91 minimum.** If c0 is a stationary point of UBPW91 at M = 45 (it comes from
-   a legacy `OPT` job; frame 0000 of package 143 checks this), the reference force there is about zero and a
+   a legacy `OPT` job; frame 0000 of package 144 checks this), the reference force there is about zero and a
    model's force is its error. Zero-force is exact there by construction, so this is not the displaced test.
 
    | Model (M = 45 where it takes spin) | Force RMS at c0 | Mean over 4 displaced |
@@ -90,14 +90,14 @@ These use the legacy data, not new DFT.
    Two seeds of the same model differ by 2 eV and the third model has the opposite sign. Forces also change
    with M by more than the displacement signal (s1: 0.106 at M = 45, 0.010 at M = 47).
 
-4. **Spin ambiguity in the reference is real.** The legacy M = 43 state lies 34 meV above M = 45. Package 143
+4. **Spin ambiguity in the reference is real.** The legacy M = 43 state lies 34 meV above M = 45. Package 144
    measures the force difference between M = 45 and 43, and between ladder and fresh-guess solutions, on the
    same geometries before any geometry-only label is proposed.
 
-## Pending: package 143
+## Pending: package 144 (staged as 143)
 
 `D:\MLIP_Work_Folder\Cluster_MLIP\loni_package\143_clustermlip_fe13_heldout_reference`, hand-off note
-`HANDOFF_143_TO_DISPATCH.md` marked STAGED ONLY. 9 tasks, 38 links, at most 2,592 SU (expected a few hundred).
+`HANDOFF_143_TO_DISPATCH.md` approved and sent 2026-11-18; the desk took it in as **144_clustermlip_fe13_heldout_reference** (desk commit cc43c56), review pass, not yet submitted. 9 tasks, 38 links, at most 2,592 SU (expected a few hundred).
 
 - Frames 0000–0004: all five geometries, ladder M = 47 → 45 → 43.
 - Frames 0005–0008: fresh SCF at M = 45 and at M = 43 on c0 and c4.
@@ -123,5 +123,5 @@ log. `score_models.py` then fills the DFT columns of `report/results.csv` (now `
 
 ## Recommendation
 
-Send package 143. Its result decides between the handoff's branches; on present evidence the likely outcome is
+Package 144 is with the desk. Its result decides between the handoff's branches; on present evidence the likely outcome is
 "model struggles", with spin transfer the clearest failure. Do not start the Co/Ni/Cu stage before that.
