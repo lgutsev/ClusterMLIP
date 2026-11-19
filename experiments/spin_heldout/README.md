@@ -85,3 +85,14 @@ Files: `D:\MLIP_Work_Folder\Cluster_MLIP\fenom_spin_heldout_v1\` (`report.json`,
 
 No Cu test was possible from data on disk: the warehouses hold Cu structures (Cu13, Cu12, CuOn and others)
 only as seed geometries with legacy energies at mixed routes and no forces.
+
+### FenOm rerun, queued 2026-11-19
+
+The per-batch training loss of the first run (`results/*_train.txt`) fell from 1.46 to 0.047 in 80 epochs and
+was still falling, while the validation loss started at 0.040: the training set is dominated by a few
+extreme frames and the model was still fitting them. So "did not fit" is the better description.
+
+Changes: frames with a force component above 3 eV/Å dropped (270); Huber loss; 150 epochs without early
+stop; validation taken from trajectories of the training groups; a third, easy test set (held-out
+trajectories of training groups) and a 500-frame training sample are scored. Still `dataset_spin_v0`: the
+v2 collect is on QB3, not on the laptop.

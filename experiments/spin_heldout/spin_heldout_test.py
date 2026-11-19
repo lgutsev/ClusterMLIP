@@ -107,8 +107,8 @@ def run(args) -> None:
              "--num_interactions=2", "--correlation=3", "--max_ell=3", "--r_max=6.0", "--num_radial_basis=8",
              f"--hidden_irreps={args.hidden}", "--MLP_irreps=16x0e", "--scaling=rms_forces_scaling",
              # lr and force weight from the Fe16 baseline diagnosis (0.005 / 100 stalls on a zero-force plateau)
-             "--loss=weighted", "--energy_weight=1.0", "--forces_weight=10.0", "--stress_weight=0", "--lr=0.001",
-             f"--batch_size={args.batch_size}", f"--valid_batch_size={args.batch_size}", f"--max_num_epochs={args.epochs}", "--patience=60",
+             f"--loss={args.loss}", "--energy_weight=1.0", "--forces_weight=10.0", "--stress_weight=0", "--lr=0.001",
+             f"--batch_size={args.batch_size}", f"--valid_batch_size={args.batch_size}", f"--max_num_epochs={args.epochs}", f"--patience={args.patience}",
              "--ema", "--ema_decay=0.999", "--default_dtype=float64", f"--device={args.device}", f"--seed={args.seed}",
              "--eval_interval=5"]
     resumed = any((out / "checkpoints").glob("*.pt"))  # an interrupted run continues from its last checkpoint
@@ -259,6 +259,7 @@ def main() -> None:
     p.add_argument("--epochs", type=int, default=300); p.add_argument("--device", default="cuda")
     p.add_argument("--seed", type=int, default=11); p.add_argument("--hidden", default="128x0e + 128x1o + 128x2e")
     p.add_argument("--batch-size", type=int, default=8)
+    p.add_argument("--loss", default="weighted"); p.add_argument("--patience", type=int, default=60)
     p = sub.add_parser("score")
     p.add_argument("work", type=Path); p.add_argument("--out", type=Path, required=True); p.add_argument("--device", default="cuda")
     args = ap.parse_args()

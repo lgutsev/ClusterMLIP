@@ -10,11 +10,14 @@ the same model without the spin input?
 
 Data. `dataset_spin_v0/all.extxyz` of FenOm_Warehouse2: optimisation trajectories of each seed structure
 ("parent") at several multiplicities. Fe16 and Fe16N2 frames are left out. Each trajectory is thinned
-(first frame, every `stride`-th, last). Frames with a force component above 10 eV/A are dropped.
+(first frame, every `stride`-th, last). Frames with a force component above `--fmax` eV/A are dropped.
+Validation is 5% of the trajectories of the training groups. A 500-frame sample of the training set is
+scored too ("train_sample"), to tell a model that did not fit from one that does not transfer.
 
 Split. Parents that share a geometry (same formula and same rounded pair-distance list in any kept
 frame) are merged into one group, so a duplicated seed cannot sit on both sides. Two test sets:
-  "parents"  about 10% of the groups of every other formula;
+  "trajectories"  10% of the trajectories of the training groups (easy: the same minima are in training);
+  "parents"  about 15% of the groups of every other formula;
   "formula"  one whole formula (default Fe2H2O3, between Fe2H2O2 and Fe2H2O4 in training).
 
 Scores per test set and variant: energy error per atom, force RMSE against a zero-force baseline, and
@@ -52,8 +55,8 @@ def prepare(args) -> None:
         if formula.startswith("Fe16"):
             dropped["Fe16 frames"] += 1
             continue
-        if np.abs(a.arrays["REF_forces"]).max() > 10.0:
-            dropped["force above 10 eV/A"] += 1
+        if np.abs(a.arrays["REF_forces"]).max() > args.fmax:
+            dropped[f"force above {args.fmax:g} eV/A"] += 1
             continue
         rid = str(a.info["record_id"])
         m = FRAME.search(rid)
@@ -99,12 +102,18 @@ def prepare(args) -> None:
         if f == args.held_formula:
             kind.update({g: "test_formula" for g in groups})
             continue
-        n_test, n_valid = max(1, round(0.10 * len(groups))), max(1, round(0.05 * len(groups)))
+        n_test = max(1, round(0.15 * len(groups)))
         for i, g in enumerate(groups):
-            kind[g] = "test_parents" if i < n_test else "valid" if i < n_test + n_valid else "train"
+            kind[g] = "test_parents" if i < n_test else "train"
+    # inside the training groups whole trajectories go to validation (5%) and to an easier test set (10%)
+    tkind: dict[str, str] = {}
+    for t in rng.permutation(sorted({b.info["trajectory"] for b in frames if kind[b.info["group"]] == "train"})):
+        u = rng.random()
+        tkind[str(t)] = "valid" if u < 0.05 else "test_trajectories" if u < 0.15 else "train"
     split = {"train": [], "valid": [], "test": []}
     for b in frames:
         k = kind[b.info["group"]]
+        k = tkind[b.info["trajectory"]] if k == "train" else k
         b.info["test_kind"] = k
         split["test" if k.startswith("test") else k].append(b)
     d = args.work / "fold_0"
@@ -133,6 +142,10 @@ def score(args) -> None:
 
     d = args.work / "fold_0"
     test = read(d / "test.extxyz", index=":")
+    train = read(d / "train.extxyz", index=":")
+    for a in [train[i] for i in np.random.default_rng(0).choice(len(train), size=min(500, len(train)), replace=False)]:
+        a.info["test_kind"] = "train_sample"  # same metrics on frames the model was fitted to
+        test.append(a)
     report: dict = {"plan": json.loads((args.work / "folds.json").read_text(encoding="utf-8")), "variants": {}}
     for variant in ("spin", "blind"):
         models = [m for m in sorted((d / variant).glob(f"{variant}_fold0*.model")) if "compiled" not in m.name and "stagetwo" not in m.name]
@@ -147,7 +160,7 @@ def score(args) -> None:
             pred_e.append(float(b.get_potential_energy())); pred_f.append(np.array(b.get_forces()))
         del calc
         entry: dict = {}
-        for kind in ("test_parents", "test_formula"):
+        for kind in ("train_sample", "test_trajectories", "test_parents", "test_formula"):
             idx = [i for i, a in enumerate(test) if a.info["test_kind"] == kind]
             if not idx:
                 continue
@@ -206,7 +219,7 @@ def main() -> None:
     p = sub.add_parser("prepare")
     p.add_argument("data", type=Path); p.add_argument("work", type=Path)
     p.add_argument("--held-formula", default="Fe2H2O3"); p.add_argument("--stride", type=int, default=3)
-    p.add_argument("--seed", type=int, default=11)
+    p.add_argument("--seed", type=int, default=11); p.add_argument("--fmax", type=float, default=10.0)
     p = sub.add_parser("score")
     p.add_argument("work", type=Path); p.add_argument("--out", type=Path, required=True); p.add_argument("--device", default="cuda")
     args = ap.parse_args()
