@@ -1,19 +1,49 @@
-# Fe13 transfer benchmark: status report (2026-11-18)
+# Fe13 transfer benchmark: report (2026-11-19)
 
 Branch `exp/tm13-benchmark` (from `origin/main` d0f3ec0), code commit `8f2cfc2`. Units: eV, eV/Å, Å.
 
-## Where it stands
+## Result (2026-11-19, package 144 returned)
 
-| Step | Status |
-|---|---|
-| Fe13 held-out set (source + 4 displacements) | **done**, from the group's own UBPW91 Fe13 structure |
-| Santos et al. coordinates | **blocked**: archive not found, ACS pages refuse automated access |
-| Model evaluation on the 5 geometries, relaxations | **done** (7 models, CPU) |
-| UBPW91 reference forces and spin survey | **pending**: package 144 (staged as 143) taken in by the desk, not yet submitted |
-| Force scoring against the reference | **pending** on package 144; scripts ready |
+Reference: UBPW91/6-311++G*, G09 D.01, QB4 job 1191998. Tables: `report/dft_links.csv`, `report/dft_states.csv`,
+`report/dft_labels.extxyz`, `report/results.csv`.
 
-No Fe13 force error against DFT exists yet, so the handoff's decision rule cannot be applied yet. What can
-be said now comes from the legacy UBPW91 data and is listed under "Provisional findings".
+**Reference quality.** M = 45 and M = 47 are clean on all five geometries (converged SCF, stable, Force link
+kept the solution). At M = 45 a fresh SCF on c0 and on c4 lands on the ladder state exactly (same energy to
+1e-8 Ha, same forces), so there is one M = 45 solution. c0 is a UBPW91 stationary point: force RMS 0.0035 eV/Å.
+**M = 43 did not converge anywhere** (129-cycle SCF in every Stable=Opt link, 7 of 7 states rejected; the
+fresh M = 43 guess on c0, frame 0006, died in l508). No M = 43 label is used. The unconverged M = 43 energies
+sit 0.21–0.30 eV above M = 45, not the 0.034 eV of the legacy adiabatic gap, so they are not to be trusted.
+
+**Force error at M = 45** (RMSE, eV/Å; spin models evaluated at M = 45):
+
+| Model | c0 | c1 expand | c2 compress | c3 surface | c4 random | mean of c1–c4 |
+|---|---|---|---|---|---|---|
+| DFT force RMS (= zero-force error) | 0.004 | 0.299 | 0.359 | 0.048 | 0.323 | 0.257 |
+| mace_mpa0 | 0.165 | 0.198 | 0.108 | 0.168 | 0.220 | 0.174 |
+| fe16_spin_B_s1 | 0.105 | 0.183 | 0.239 | 0.100 | 0.213 | 0.184 |
+| fe16_spin_B_s2 | 0.077 | 0.236 | 0.244 | 0.075 | 0.213 | 0.192 |
+| ft_mpa0_fe16coh_m49 | 0.202 | 0.088 | 0.306 | 0.210 | 0.329 | 0.233 |
+| mace_matpes_r2scan | 0.327 | 0.336 | 0.298 | 0.321 | 0.312 | 0.317 |
+| fe16coh_spin_fold1 | 0.223 | 0.133 | 0.581 | 0.233 | 0.440 | 0.347 |
+| ft_r2scan_fe16coh_m49 | 0.430 | 0.396 | 0.349 | 0.427 | 0.427 | 0.400 |
+
+- The Fe16 spin model beats zero-force by about 25–30 % on the displaced geometries, and is no better than
+  untuned MACE-MPA-0. Its force MAE there is 0.09–0.19 eV/Å against 0.051 on unseen Fe16 frames.
+- On c0 and c3, where the true forces are near zero, every model is worse than zero-force.
+- Energy change against c0 at M = 45: the spin model is within 0.11 eV on every geometry (DFT changes are
+  0.005–0.15 eV), always too low.
+
+**Spin dependence is not captured.** DFT forces at M = 47 differ from M = 45 by 0.24–0.28 eV/Å RMS on the same
+geometry, as large as the displacement signal. Scored at M = 47 against M = 47 forces, the spin models have
+RMSE 0.39–0.44 eV/Å on the displaced geometries, no better than predicting zero. Vertical M = 47 − M = 45 at
+c0 is +0.515 eV in DFT; the models give +0.47 (s1), +2.89 (s2) and −1.00 (fe16coh fold 1).
+
+**Decision.** This is the "model struggles" branch: small gain over zero-force at the trained-like spin state,
+none at the neighbouring one. Co13/Ni13/Cu13 and Fe13H should wait. The relaxation and provisional sections
+below are from 2026-11-18 and stand, except that finding 1's assumption (c0 stationary) is now confirmed.
+
+**Open.** M = 43 needs a different SCF strategy before it can be labelled (a new package, not a rerun of
+frame 0006). The `fe16_spin_B_s1` M = 47 endpoint is still unchecked. Santos geometry still missing.
 
 ## Inventory (handoff step 1.1)
 

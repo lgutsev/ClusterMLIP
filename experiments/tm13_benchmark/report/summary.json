@@ -5,8 +5,8 @@
   "force": "eV/A",
   "length": "A"
  },
- "dft_labels": null,
- "dft_states_used": 0,
+ "dft_labels": "experiments/tm13_benchmark/report/dft_labels.extxyz",
+ "dft_states_used": 10,
  "reference_multiplicity_for_spin_blind_models": 45,
  "models": {
   "fe16_spin_B_s1": {
