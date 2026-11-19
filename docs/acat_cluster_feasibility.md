@@ -986,3 +986,28 @@ motif. CPU only, 6 threads, 51 minutes.
   still small and flat (median 0.13 eV, maximum 0.27 eV after widening), so "most uncertain" is a weak
   signal here. None of the picks resembles the dissociated, O-bound or side-on controls.
 - Files: `al_round1_r2scan/al_round1_proposal.{csv,extxyz}` beside the earlier `al_round1/`.
+
+### First active-learning round: UBPW91 labels (desk package 142, 2026-11-19)
+
+All 8 fixed-geometry M = 49 labels are usable (Stable=Opt found no instability, both SCFs converged,
+about 1.7 to 2.0 h each on 12 cores). Energies relative to panel structure 000 at fixed geometry:
+
+| frame | CO site, H sites | why picked | UBPW91 (eV) | model, relative to the first pick (eV) |
+|---|---|---|---|---|
+| 0000 | bridge; hollow, hollow | low predicted energy | −0.07 | 0.00 |
+| 0001 | bridge; hollow, hollow | low predicted energy | +0.10 | +0.03 |
+| 0002 | top; bridge, hollow | low predicted energy | −0.18 | +0.03 |
+| 0003 | top; bridge, top | low predicted energy | −0.12 | +0.07 |
+| 0004 | top; bridge, top | low predicted energy | −0.09 | +0.08 |
+| 0005 | hollow; bridge, hollow | large uncertainty | +0.30 | +0.56 |
+| 0006 | hollow; hollow, hollow | large uncertainty | +0.41 | +0.61 |
+| 0007 | hollow; hollow, hollow | large uncertainty | +0.51 | +0.57 |
+
+- As a proposer the corrected r2SCAN model worked: four of its five low picks lie below 000, the lowest
+  fixed-geometry structure of the 20-structure panel, and the three CO-hollow structures are 0.3 to 0.5 eV
+  higher, as it predicted. CO on top or bridge is right; the CO-hollow preference of MPA-0 is not.
+- Among the eight, predicted and UBPW91 relative energies differ by 0.12 eV on average (0.19 at most);
+  22 of 28 pairs are ordered correctly. The order inside the low group is not resolved.
+- These are single points at model-relaxed geometries with UBPW91 forces of 0.19 to 0.28 eV/Å (rms on Fe),
+  so they are not minima. The relaxed minimum A is 0.38 eV below 000; whether 0002 relaxes below it is open.
+- M = 49 only: these labels add nothing to the spin test.

@@ -102,7 +102,7 @@ def main() -> None:
         text = (args.outputs / f"{row['frame']}.log").read_text(encoding="utf-8", errors="replace")
         links = [parse_link(c, len(atoms)) for c in split_links(text)]
         watchdog = (args.outputs / f"{row['frame']}.watchdog").read_text(encoding="utf-8").strip()
-        entry = {"frame": row["frame"], "draft_job": row["draft_job"], "why": row["why"], "motif": row["motif"],
+        entry = {"frame": row["frame"], "draft_job": row.get("draft_job") or row.get("job"), "why": row["why"], "motif": row["motif"],
                  "links": len(links), "normal_terminations": sum(l["normal"] for l in links),
                  "watchdog": watchdog or None, "seconds": int((args.outputs / f"{row['frame']}.seconds").read_text()),
                  "states": {}}
