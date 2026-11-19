@@ -728,3 +728,286 @@ checked against this package's `Int=UltraFine`. Treat the last digit as uncertai
   one composition.
 - Not done: the second minimum (B) with Fe free, a frequency check, any other coverage or composition, and
   the one excluded state (structure 001 at M = 49).
+
+## 15. Labels collected, and a first corrected-model test (2026-11-14)
+
+**Labels.** `collect_coh_labels.py` reads the four packages (112, 116, 118, 124) with the project parser and
+writes 218 energy-and-force frames in `collect`'s extxyz format: 59 panel states, 107 frozen-Fe optimization
+steps and their 3 stationary points, 46 full-optimization steps and their 2 stationary points, and one extra
+ladder frame. Frames whose own SCF did not converge are dropped; duplicates are removed by multiplicity and
+geometry. Dataset: `D:\MLIP_Work_Folder\Cluster_MLIP\fe16_coh2_labels_v1` (table of frames in
+`report/fe16_coh2_labels_v1_frames.csv`). All frames are one composition; split by structure, never by frame.
+
+**Test.** The first route of the roadmap: a Δ-model on the foundation model, after Christiansen and Hammer
+(arXiv:2502.21179, there with CHGNet). A Gaussian process on the model's own invariant descriptors, averaged
+per element, is trained on E(UBPW91) − E(model). Energies only, as in the paper; forces of the corrected
+model come from automatic differentiation. Script: `delta_gp_test.py`. The paper leaves the kernel and its
+settings open; here an RBF kernel between same-element descriptors, with length scale and noise chosen by
+leave-one-group-out error inside the training set. The companion paper on using this inside a global search
+(PCCP 2026, 28, 912) could not be read (publisher access), so its loop is not reproduced.
+
+**Evaluation.** Leave one structure out: the model that predicts a structure saw no frame derived from it.
+Structures 000, 008 and the relaxed minimum count as one structure. Scored on the 19 (M = 49) or 20 (M = 47)
+panel structures. Training used all frames at that multiplicity; training on the panel frames alone gave the
+same picture (`report/delta_gp/`).
+
+| Model, M | Energy error, uncorrected → corrected (eV) | Pairs ordered | Fe force RMSE: zero / uncorrected / corrected | Adsorbate force RMSE: zero / uncorrected / corrected |
+|---|---|---|---|---|
+| MPA-0, 49 | 0.65 → 0.26 | 88 % → 86 % | 0.27 / 0.24 / 0.37 | 1.18 / 1.10 / 0.68 |
+| MPA-0, 47 | 0.66 → 0.16 | 89 % → 98 % | 0.21 / 0.25 / 0.49 | 1.11 / 0.99 / 0.55 |
+| r2SCAN, 49 | 0.22 → 0.21 | 95 % → 90 % | 0.27 / 0.27 / 0.47 | 1.18 / 0.67 / 0.72 |
+| r2SCAN, 47 | 0.18 → 0.16 | 93 % → 90 % | 0.21 / 0.28 / 0.39 | 1.11 / 0.78 / 0.64 |
+
+Energy error is the mean absolute error of relative energies; forces in eV/Å.
+
+**Verdict: the gate is not passed.**
+
+- **It repairs MPA-0's gross errors.** The two desorbed-CO structures go from 1.8 to 1.9 eV too low to within
+  0.25 to 0.37 eV, and the side-on control from 2.2 eV off to 0.5 eV. Mean error falls by more than half.
+- **It does not resolve the low-energy window.** Remaining errors on the bound structures are 0.03 to 0.3 eV,
+  as large as the energy differences between them. MPA-0's correct pick of the lowest structure is lost: the
+  corrected model picks 003, which is 0.18 eV up. The gate asks for 0.03 eV.
+- **It makes Fe forces worse than predicting zero**, for both models and both multiplicities. A correction
+  trained on energies alone has no reason to get forces right, and here it does not. Adsorbate forces improve
+  for MPA-0 and not for r2SCAN.
+- **For r2SCAN it buys almost nothing**: the model was already at 0.2 eV and the correction cannot do better
+  with 18 training structures.
+- The dissociated control stays 1.7 eV off: nothing like it is in the training set.
+
+**Reading.** Eighteen structures of energies are too few, and the unused information is in the forces: each
+frame carries 60 force components and only one energy. A correction that also fits forces, or a fine-tune of
+the foundation model (the roadmap's second route), uses about 60 times more data from the same frames. That
+is the next test. It needs the GPU for training, and one composition will still limit what a pass means.
+
+## 16. Second corrected-model test: naive fine-tune (2026-11-14)
+
+The roadmap's second route, on the same labels and the same gate as section 15. Script: `finetune_test.py`;
+numbers in `report/finetune/`.
+
+**Setup.** MACE-MPA-0 fine-tuned on energies and forces of the 99 frames at M = 49, with the project's
+fine-tune defaults (learning rate 1e-4, force weight 100 against energy weight 1, EMA, AMSGrad, float64,
+100 epochs). Three grouped folds: no structure appears in both training and test, and structures 000, 008
+and the relaxed minimum count as one. Scored on the 19 held-out panel structures. It ran on the CPU
+(4 threads): 9 to 28 seconds per epoch, 22 to 48 minutes per fold. The GPU was not needed.
+
+One correction to the standard recipe was needed. Gaussian total energies and the model's energies differ by
+a large constant, and `--E0s=average` does not remove it: a dry run started 3.4 eV per atom off. The script
+keeps the foundation model's own atomic reference energies and shifts the labels by one constant (the mean
+difference on the fold's training frames); the run then starts 13 meV per atom off.
+
+**Result against the same gate (19 held-out structures, M = 49).**
+
+| | Uncorrected MPA-0 | Δ-model (section 15) | Fine-tuned |
+|---|---|---|---|
+| Relative-energy error (eV) | 0.65 | 0.26 | 0.47 |
+| Pairs ordered | 88 % | 86 % | 81 % (88 % within folds) |
+| Picks as lowest | 000 (correct) | 003 (+0.18 eV) | 006 (+0.16 eV) |
+| Fe force RMSE (eV/Å); zero-force guess 0.27 | 0.24 | 0.37 | **0.17** |
+| Adsorbate force RMSE (eV/Å); zero-force guess 1.18 | 1.10 | 0.68 | **0.42** |
+
+- **Forces: the fine-tune is the first model here that beats the zero-force guess on both Fe and the
+  adsorbates**, by a clear margin, on structures it never saw.
+- **Energies: not fixed.** Both desorbed-CO structures stay 1.2 to 1.4 eV too low even though the other one
+  was in each training set; the side-on and dissociated controls stay 1.6 eV off; among the 11 bound
+  structures within 0.5 eV the errors scatter by 0.15 eV. With one energy against 60 force components per
+  frame and a 100:1 weight on forces, the energies were barely fitted: validation energy error stayed near
+  20 meV per atom in two of the three folds.
+- All three runs used the full 100 epochs, so training had not stopped on its own.
+- **The gate is not passed**: it needs both forces and energies.
+
+**Reading of sections 15 and 16 together.** The two routes fail in opposite ways. The Δ-model, trained on
+energies, repairs the gross energy errors and damages forces. The fine-tune, dominated by forces, repairs
+forces and leaves the gross energy errors. Neither result says the data are insufficient; each says its
+loss ignored half of the labels. Two inexpensive tests follow, both CPU-only: the Δ-model's energy
+correction applied on top of the fine-tuned model, and a fine-tune with the energy weight raised. One
+composition and 18 structures still limit what a pass would mean.
+
+## 17. Combined test: energy correction on top of the fine-tuned model (2026-11-15)
+
+Script: `delta_on_finetune.py`; numbers in `report/finetune/combined_mpa0_m49.json`. For each of the three
+folds of section 16, the Gaussian-process energy correction of section 15 is fitted on the frames that
+fold's fine-tune saw, using the fine-tuned model's own descriptors, and applied to the held-out panel
+structures. A held-out structure is unseen by both stages. CPU only, a few minutes.
+
+| 19 held-out structures, M = 49 | Uncorrected | Δ-model alone | Fine-tuned | Fine-tuned + Δ |
+|---|---|---|---|---|
+| Relative-energy error (eV) | 0.65 | 0.26 | 0.47 | 0.26 |
+| Pairs ordered | 88 % | 86 % | 81 % | 90 % |
+| Error scatter among the 11 bound structures within 0.5 eV (eV) | – | – | 0.16 | 0.12 |
+| Picks as lowest | 000 (correct) | 003 (+0.18) | 006 (+0.16) | 003 (+0.18) |
+| Fe force RMSE (eV/Å); zero-force guess 0.27 | 0.24 | 0.37 | 0.17 | 0.35 |
+| Adsorbate force RMSE (eV/Å); zero-force guess 1.18 | 1.10 | 0.68 | 0.42 | 0.44 |
+
+- **Energies improve as hoped.** The desorbed-CO structures go from 1.2 to 1.4 eV too low to +0.01 and
+  −0.49 eV; the side-on control from 1.6 to 0.4 eV. Pair ordering reaches 90 %, the best of the four.
+- **The correction's own force term spoils the Fe forces again** (0.17 → 0.35 eV/Å, worse than the
+  zero-force guess). The correction is fitted to energies only, so its gradient is unconstrained.
+- **The usable combination is therefore two-stage:** forces from the fine-tuned model (relaxation), energies
+  from fine-tuned + Δ (ranking). That is not one conservative potential: fine for relax-then-rescore
+  screening, not for dynamics.
+- **The gate is still not passed.** Forces pass in the two-stage use and ordering is at the 90 % line, but the
+  relative-energy error is 0.26 eV against a threshold of 0.03 eV, the scatter among bound structures is
+  0.12 eV, and the model does not pick the lowest structure. The dissociated control remains 1.6 eV off.
+
+**Where the three tests leave the question.** With 18 structures of one composition, held-out force accuracy
+improved by a factor of 1.4 (Fe) and 2.6 (adsorbates) and the gross energy errors were removed, but the
+0.1 eV resolution needed to rank bound structures was not reached by any route. What would most plausibly
+move that: more structures (each of these tests trains on 12 to 17), an energy correction that is also
+fitted to forces, and carrying M so that the three spin branches train one model instead of three.
+None of these was tested.
+
+## 18. Data-limited or accuracy-limited? Two checks before active learning (2026-11-15)
+
+Script: `delta_gp_diagnostics.py`; numbers in `report/delta_gp/diagnostics_mpa0_m49.json`. Both use the
+energy correction of section 15 on MACE-MPA-0 at M = 49, with one fixed set of kernel settings so that only
+the amount of data changes. CPU, under a minute.
+
+**Learning curve.** Train on every frame of n randomly chosen structures, predict the panel frames of all
+the others; 200 random choices per n.
+
+| Training structures | 2 | 4 | 6 | 8 | 10 | 12 | 14 | 16 | 17 |
+|---|---|---|---|---|---|---|---|---|---|
+| Error on unseen structures, mean (eV) | 0.58 | 0.53 | 0.45 | 0.43 | 0.39 | 0.32 | 0.24 | 0.18 | 0.21 |
+| Median (eV) | 0.65 | 0.51 | 0.40 | 0.33 | 0.26 | 0.22 | 0.18 | 0.10 | 0.04 |
+
+The uncorrected model sits at about 0.65 eV throughout. The last column is leave-one-structure-out (absolute
+error of the one held-out structure), the others are centred within each test set, so the last step is not
+strictly comparable.
+
+- **The error is still falling at the largest training size, with no plateau.** That is the signature of a
+  data-limited model, not of an accuracy floor.
+- **Mean and median separate at the end.** With 17 training structures the typical unseen structure is
+  predicted to 0.04 eV, close to the 0.03 eV gate, while the mean (0.21 eV) is carried by a few structures
+  unlike anything in the training set: the dissociated, O-bound and side-on controls.
+- Caveat: the kernel settings were chosen on all 18 structures, so these numbers are slightly optimistic;
+  the nested estimate in section 15 is 0.26 eV.
+
+**Is the model's own uncertainty usable?** Leave one structure out; compare the Gaussian process's predicted
+standard deviation with the actual error on the 19 panel structures.
+
+- **It finds the bad ones:** four of the five largest errors are among the five most uncertain structures
+  (the three controls and one desorbed-CO structure). The fifth is structure 013 (0.32 eV error, predicted
+  0.09 eV).
+- **It is overconfident:** 8 of 19 errors fall within one predicted standard deviation (13 expected) and 12
+  within two (18 expected). Widening it by a factor of about two would be needed before using it as an
+  error bar.
+- Among the well-predicted structures it carries little information (rank correlation 0.30 over all 19).
+
+**Answer.** On this evidence the corrected model is data-limited: more structures should keep lowering the
+error, and the uncertainty is good enough to point at the kind of structure that is missing. That supports
+an active-learning loop. Three limits on that conclusion: it was measured for the energy correction only,
+not for the fine-tune; for one composition and one multiplicity; and the curve cannot say where a floor
+would appear, only that it has not been reached with 17 structures. Spin remains outside the model.
+
+## 19. Four follow-up runs on the laptop CPU, and a first active-learning proposal (2026-11-17)
+
+Four jobs, run one after another on the CPU (8 threads, 4 h 17 min in total). Same three folds, same 19
+held-out M = 49 panel structures and same scoring as sections 16 and 17, unless stated.
+
+| Model (M = 49 unless stated) | Relative-energy MAE (eV) | Pairs ordered | Fe force RMSE (eV/A) | Adsorbate force RMSE (eV/A) |
+|---|---|---|---|---|
+| Zero-force baseline | | | 0.27 | 1.19 |
+| MPA-0, uncorrected | 0.65 | 88% | 0.24 | 1.10 |
+| MPA-0 fine-tune (section 16) | 0.47 | 81% | 0.17 | 0.42 |
+| MPA-0 fine-tune, energy weight 10 | 0.44 | 85% | 0.17 | 0.41 |
+| same + energy correction | 0.29 | 89% | 0.30 | 0.43 |
+| r2SCAN model, uncorrected | 0.22 | 95% | 0.27 | 0.67 |
+| r2SCAN model, fine-tuned | 0.27 | 88% | 0.17 | 0.37 |
+| same + energy correction | 0.25 | 89% | 0.32 | 0.36 |
+| M = 47: MPA-0, uncorrected (20 structures) | 0.66 | 89% | 0.25 | 0.99 |
+| M = 47: MPA-0 fine-tune | 0.62 | 79% | 0.19 | 0.63 |
+| M = 47: same + energy correction | 0.37 | 94% | 0.51 | 0.71 |
+
+The r2SCAN model is `MACE-matpes-r2scan-omat-ft`. Zero-force baselines for M = 47 are 0.21 (Fe) and 1.11
+(adsorbate).
+
+- **Rebalancing the loss does not fix the energies.** Ten times more weight on energies moves the MAE from
+  0.47 to 0.44 eV and the ordering from 81% to 85%, with forces unchanged. The energy error of the
+  fine-tune is not a loss-weight problem.
+- **The r2SCAN foundation model starts much closer.** Without any correction it orders 95% of pairs with a
+  0.22 eV MAE, better than every corrected MPA-0 variant. Its Fe forces are no better than the zero-force
+  baseline, so it still fails the gate as it stands. Fine-tuning fixes the forces (Fe 0.17, adsorbate 0.37,
+  the best of any model here) but makes the energies slightly worse (0.27 eV, 88%).
+- **M = 47 behaves like M = 49**, somewhat worse: the fine-tune alone barely improves the energies, and the
+  energy correction is what recovers the ordering (94%), at the cost of the forces.
+- **Nothing passes the gate.** No model reaches 0.03 eV; the best orderings (95% uncorrected r2SCAN, 94%
+  corrected M = 47) come with forces at or above the zero-force baseline. No variant predicts the true
+  lowest structure (000) as lowest except the uncorrected MPA-0 models; the others pick a structure 0.16 to
+  0.28 eV above it.
+- With 19 or 20 structures and three folds, differences of a few percent in ordering or 0.03 eV in MAE
+  between rows are within the noise. Only the r2SCAN starting point and the lack of effect of the energy
+  weight are clear.
+
+**Active-learning proposal (not submitted).** `al_propose.py` fine-tuned MPA-0 on all 99 M = 49 frames,
+relaxed a 120-structure shortlist of the 991-structure pool with it (all converged, none already labelled,
+none flagged as a failure), applied the energy correction, and ranked by corrected energy minus the
+widened (x2) uncertainty. Six structures were picked by that criterion and two for the largest uncertainty
+within 0.5 eV of the lowest.
+
+| Id | Pool id | Sites | Corrected relative energy (eV) | Widened sd (eV) | Picked for |
+|---|---|---|---|---|---|
+| AL1_00 | P0440 | CO hollow, H bridge, H hollow | 0.00 | 0.23 | low energy |
+| AL1_01 | P0451 | CO hollow, H bridge, H hollow | 0.04 | 0.24 | low energy |
+| AL1_02 | P0596 | CO hollow, H hollow, H hollow | 0.06 | 0.25 | low energy |
+| AL1_03 | P0140 | CO bridge, H hollow, H hollow | 0.11 | 0.27 | low energy |
+| AL1_04 | P0464 | CO hollow, H bridge, H hollow | 0.15 | 0.31 | low energy |
+| AL1_05 | P0634 | CO hollow, H hollow, H hollow | 0.15 | 0.29 | low energy |
+| AL1_06 | P0419 | CO hollow, H hollow, H hollow | 0.21 | 0.32 | uncertainty |
+| AL1_07 | P0527 | CO hollow, H hollow, H hollow | 0.34 | 0.31 | uncertainty |
+
+Limits of the proposal: the pool uncertainty is small everywhere (median 0.15 eV, maximum 0.43 eV after
+widening), so the eight picks are all ordinary CO-on-hollow structures and none resembles the controls that
+carry the largest errors in section 18. A round built only from this list would test whether the search
+finds anything below structure 000, but would add little of the diversity the learning curve says is
+missing. The proposal was made with the MPA-0 fine-tune before the r2SCAN result was known; given that
+result, repeating it from the r2SCAN model is the natural next step before any DFT is requested.
+
+**Proposal redone from the r2SCAN model (2026-11-18, not submitted).** Same procedure with the r2SCAN model
+fine-tuned on all 99 frames, and three changes to widen the list: the 80 best candidates plus the 30 most
+uncertain pool structures were relaxed (all 110 converged, none already labelled); five picks are for low
+energy and three for the largest uncertainty within 1.0 eV of the lowest; at most two picks share a site
+motif. CPU only, 6 threads, 51 minutes.
+
+| Id | Pool id | Sites | Corrected relative energy (eV) | Widened sd (eV) | Picked for |
+|---|---|---|---|---|---|
+| AL1_00 | P0279 | CO bridge, H hollow, H hollow | 0.00 | 0.17 | low energy |
+| AL1_01 | P0126 | CO bridge, H hollow, H hollow | 0.03 | 0.18 | low energy |
+| AL1_02 | P0057 | CO top, H bridge, H hollow | 0.03 | 0.16 | low energy |
+| AL1_03 | P0875 | CO top, H bridge, H top | 0.07 | 0.17 | low energy |
+| AL1_04 | P0281 | CO top, H bridge, H top | 0.08 | 0.18 | low energy |
+| AL1_05 | P0817 | CO hollow, H bridge, H hollow | 0.56 | 0.22 | uncertainty |
+| AL1_06 | P0236 | CO hollow, H hollow, H hollow | 0.61 | 0.22 | uncertainty |
+| AL1_07 | P0045 | CO hollow, H hollow, H hollow | 0.57 | 0.21 | uncertainty |
+
+- **The two models disagree about where CO sits.** The MPA-0 list was all CO on hollow sites; the r2SCAN
+  list puts CO on top and bridge sites lowest and CO on hollows about 0.6 eV higher. The two lists share no
+  structure. Which is right is exactly what reference calculations on a few of each would settle.
+- The list now covers four site motifs instead of three near-identical ones, but the pool uncertainty is
+  still small and flat (median 0.13 eV, maximum 0.27 eV after widening), so "most uncertain" is a weak
+  signal here. None of the picks resembles the dissociated, O-bound or side-on controls.
+- Files: `al_round1_r2scan/al_round1_proposal.{csv,extxyz}` beside the earlier `al_round1/`.
+
+### First active-learning round: UBPW91 labels (desk package 142, 2026-11-19)
+
+All 8 fixed-geometry M = 49 labels are usable (Stable=Opt found no instability, both SCFs converged,
+about 1.7 to 2.0 h each on 12 cores). Energies relative to panel structure 000 at fixed geometry:
+
+| frame | CO site, H sites | why picked | UBPW91 (eV) | model, relative to the first pick (eV) |
+|---|---|---|---|---|
+| 0000 | bridge; hollow, hollow | low predicted energy | −0.07 | 0.00 |
+| 0001 | bridge; hollow, hollow | low predicted energy | +0.10 | +0.03 |
+| 0002 | top; bridge, hollow | low predicted energy | −0.18 | +0.03 |
+| 0003 | top; bridge, top | low predicted energy | −0.12 | +0.07 |
+| 0004 | top; bridge, top | low predicted energy | −0.09 | +0.08 |
+| 0005 | hollow; bridge, hollow | large uncertainty | +0.30 | +0.56 |
+| 0006 | hollow; hollow, hollow | large uncertainty | +0.41 | +0.61 |
+| 0007 | hollow; hollow, hollow | large uncertainty | +0.51 | +0.57 |
+
+- As a proposer the corrected r2SCAN model worked: four of its five low picks lie below 000, the lowest
+  fixed-geometry structure of the 20-structure panel, and the three CO-hollow structures are 0.3 to 0.5 eV
+  higher, as it predicted. CO on top or bridge is right; the CO-hollow preference of MPA-0 is not.
+- Among the eight, predicted and UBPW91 relative energies differ by 0.12 eV on average (0.19 at most);
+  22 of 28 pairs are ordered correctly. The order inside the low group is not resolved.
+- These are single points at model-relaxed geometries with UBPW91 forces of 0.19 to 0.28 eV/Å (rms on Fe),
+  so they are not minima. The relaxed minimum A is 0.38 eV below 000; whether 0002 relaxes below it is open.
+- M = 49 only: these labels add nothing to the spin test.

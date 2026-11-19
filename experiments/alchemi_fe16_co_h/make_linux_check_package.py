@@ -48,6 +48,9 @@ set -eo pipefail
 [ -n "${SLURM_JOB_ID:-}" ] || { echo "run inside an allocation: sbatch setup_env.sh"; exit 1; }
 cd "${SLURM_SUBMIT_DIR:?submit from the package directory}"
 ENV=${ALCHEMI_ENV:-__ENV__}
+# Hide ~/.local from pip and python: otherwise pip counts packages there (numpy, in package 111) as
+# installed, the environment ends up without them, and any job that sets PYTHONNOUSERSITE=1 fails.
+export PYTHONNOUSERSITE=1
 mkdir -p outputs
 curl -sSfI https://pypi.org/simple/pip/ > /dev/null || { echo "PyPI not reachable from this node"; exit 1; }
 CONDA=$(command -v mamba || command -v conda) || { echo "no mamba/conda on PATH"; exit 1; }
@@ -72,6 +75,7 @@ SLURM = r"""#!/bin/bash
 # Run `sbatch setup_env.sh` first and wait for outputs/setup_ok.txt ("cuda ok True"). Nothing here needs the network.
 set -eo pipefail
 cd "${SLURM_SUBMIT_DIR:?submit from the package directory}"
+export PYTHONNOUSERSITE=1  # use only what the environment itself holds
 PKG=$PWD
 PY=${ALCHEMI_ENV:-__ENV__}/bin/python
 K=$PKG/kit/experiments/alchemi_fe16_co_h

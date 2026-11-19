@@ -199,6 +199,13 @@ configuration). All 28 steps exited 0; the job took 30 minutes.
   are too small to load it: 64 slots use 2.5 GB of 80 GB. Larger slot counts were not tried.
 - Peak VRAM matches the laptop (0.66 GB at 16 slots, 2.5 GB at 64).
 
+A defect in the environment, found later by another project (2026-11-15): the pip install ran with the
+user site (`~/.local`) visible, so numpy was taken as already installed and the environment itself holds none.
+The run above imported numpy 2.4.4 from the user site, not a version pinned by the package. A job that hides
+the user site (`PYTHONNOUSERSITE=1`) fails in that environment until numpy is installed into it. The generator
+now sets `PYTHONNOUSERSITE=1` in both scripts. The parity and timing results are not affected in kind, but
+the numpy version of that run was not controlled.
+
 One packaging slip, harmless: the job passed a file name where the parity script expects a folder, so the
 parity JSON sits one level deeper than intended (`parity_float64.json/parity_float64.json`). Fixed in the
 generator.
@@ -234,8 +241,13 @@ generator.
   but the toolkit's NEB support was not examined.
 - **Distillation**: not started, as instructed. There is no teacher that passes the gate.
 - **Supported Fe / K promotion**: mixed sizes in one batch work, and frozen-atom masks are per atom, so a
-  frozen support costs nothing extra in the adapter. Periodic cells were not tested. The blocker remains
-  the reference data, not the backend.
+  frozen support costs nothing extra in the adapter. The blocker remains the reference data, not the backend.
+- **Periodic cells** (added 2026-11-14): single-point parity passes. `parity_periodic.py`, float64, eight
+  generic rattled cells of 16 to 64 atoms (bulk Fe, strained triclinic Cu, MgO, Si, Cu(111) slabs with and
+  without CO, one slab periodic in two directions): native against batch of 1, batch of 8, shuffled order
+  and a different batch composition agree within 1.2e-13 eV and 1e-13 eV/Å, as native does against itself
+  (`report/parity_periodic_float64.json`). Relaxation, timing, cell relaxation and MD on periodic cells are
+  not measured.
 
 ## Files
 
