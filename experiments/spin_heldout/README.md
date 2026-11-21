@@ -96,3 +96,34 @@ Changes: frames with a force component above 3 eV/Å dropped (270); Huber loss; 
 stop; validation taken from trajectories of the training groups; a third, easy test set (held-out
 trajectories of training groups) and a 500-frame training sample are scored. Still `dataset_spin_v0`: the
 v2 collect is on QB3, not on the laptop.
+
+### FenOm rerun, result 2026-11-21
+
+Ran 2026-11-20 22:02 to 2026-11-21 04:48 on the laptop GPU (150 epochs each, batch 32, Huber loss; 4,744
+training frames). The spin model was still improving at the last epoch (validation force RMSE 0.147 eV/Å).
+
+| test set | frames | model | E MAE (meV/atom) | F RMSE (eV/Å) | zero-force baseline | gap MAE (eV) | mean abs. ref. gap | gap sign | lowest M right |
+|---|---|---|---|---|---|---|---|---|---|
+| training sample | 500 | spin | 6.9 | 0.052 | 0.298 | 0.158 | 0.736 | 138/146 | 101/106 |
+| | | blind | 72.6 | 0.287 | | 0.691 | | 81/146 | 55/106 |
+| held-out trajectories of training structures | 611 | spin | 5.5 | 0.080 | 0.272 | 0.024 | 0.600 | 18/18 | 13/13 |
+| | | blind | 61.8 | 0.262 | | 0.656 | | 11/18 | 7/13 |
+| held-out structures | 1104 | spin | 90.8 | 0.279 | 0.260 | 0.261 | 0.321 | 97/127 | 29/50 |
+| | | blind | 134.4 | 0.265 | | 0.341 | | 77/127 | 19/50 |
+| held-out formula (Fe2H2O3) | 531 | spin | 91.5 | 0.275 | 0.213 | 0.228 | 0.303 | 51/56 | 14/19 |
+| | | blind | 134.8 | 0.214 | | 0.319 | | 30/56 | 3/19 |
+
+Reading:
+
+- The spin input works. With M as input the model fits the data and predicts spin gaps of structures it has
+  seen at other points of their trajectories to 0.02 eV. Without M the model cannot fit the same data at all
+  (forces at the zero baseline even on training frames), because one geometry carries several energies.
+- It does not transfer to new structures at this data size. On held-out structures and on the held-out
+  formula the forces are no better than predicting zero and the energy error is 0.09 eV/atom. The gap sign
+  is right more often than for the blind model (76% and 91% against 61% and 54%), but the gap error is
+  close to the size of the gaps.
+- Limits: one fold, one seed, `dataset_spin_v0`, training not converged, and the blind control is so poor
+  that it is a weak comparison. Peak GPU memory was 7.9 GB, above the 7 GB allowed on the laptop; use a
+  smaller batch next time.
+
+Files: `D:\MLIP_Work_Folder\Cluster_MLIP\fenom_spin_heldout_v2\` (`report.json`, `score.log`, `night.log`).

@@ -1011,3 +1011,23 @@ about 1.7 to 2.0 h each on 12 cores). Energies relative to panel structure 000 a
 - These are single points at model-relaxed geometries with UBPW91 forces of 0.19 to 0.28 eV/Å (rms on Fe),
   so they are not minima. The relaxed minimum A is 0.38 eV below 000; whether 0002 relaxes below it is open.
 - M = 49 only: these labels add nothing to the spin test.
+
+### Full optimization of structure 0002 at M = 49, 47, 45 (desk package 145, 2026-11-21)
+
+All three tasks reached a stationary point (46, 26 and 35 steps), every link ended normally and no SCF
+failed. Review: `review_opt_package.py`; no frequency calculation was run.
+
+| state | E relative to minimum A, M = 49 (eV) | relaxation from the start geometry (eV) |
+|---|---|---|
+| minimum A, M = 49 (package 124) | 0.000 | |
+| minimum B, M = 49 | +0.017 | −0.19 |
+| minimum B, M = 47 | +0.192 | −0.16 |
+| minimum A, M = 47 (package 124) | +0.235 | |
+| minimum B, M = 45 | +0.704 | −0.22 |
+
+- The structure relaxed to a second minimum, B: CO on top of the same Fe atom as in A, one H in a hollow and
+  one H on a bridge (A has both H in hollows). Fe atoms moved by up to 0.31 Å.
+- B and A are degenerate within 0.02 eV at M = 49. The model-proposed structure is therefore as good as the
+  best structure of the earlier search, and it is not lower.
+- Adiabatic gaps of B: E(47) − E(49) = +0.175 eV, E(45) − E(47) = +0.512 eV (A: +0.235 eV for the first).
+  At B's start geometry the vertical gaps are +0.146 and +0.567 eV. M = 49 stays the ground state.
