@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import csv
 import json
 import re
 import shutil
@@ -16,30 +17,59 @@ from .batch_progress import write_batch_progress
 from .dataset import grouped_split, read_jobs_manifest, read_labeled_extxyz, write_labeled_extxyz
 from .doctor import MISSING_REQUIRED, format_report, run_checks
 from .evaluate import predict_with_mace, write_evaluation_report
-from .gaussian import extract_document_records, gaussian_job_complete, parse_force_frames
+from .gaussian import extract_document_records, gaussian_job_complete, parse_force_frames, rms_force
 from .io import iter_documents, read_document, read_extxyz, source_tree, write_extxyz, write_manifest
 from .jobs import (
     DEFAULT_LINK1_ROUTE,
     DEFAULT_RATTLE_ROUTE,
     DEFAULT_ROUTE,
     DEFAULT_SADDLE_ROUTE,
+    HIGHER_ORDER_POLICIES,
     expanded_records,
+    record_geometry,
     write_gaussian_jobs,
 )
+from .label_levels import audit_label_levels, route_label_level
 from .label_report import write_label_report
+from .ladder_pairs import (
+    DEFAULT_GROUP_TOLERANCE_ANG,
+    DEFAULT_PAIR_TOLERANCE_ANG,
+    PAIR_COLUMNS,
+    StageEndpoint,
+    group_count_profile,
+    source_geometry_groups,
+    verify_spin_pairs,
+)
+from .local_spins import LOCAL_SPIN_COLUMNS, local_spin_rows, local_spin_summary
 from .literature import DEFAULT_KEYWORDS, run_literature_gap
 from .paper_pdfs import load_pdf_compositions, write_pdf_index
 from .mace_glue import MaceUnavailable
 from .manifest import write_experiment_manifest
-from .models import Record, composition_allowed, geometry_signature
+from .models import Atom, LabeledFrame, Record, composition_allowed, geometry_signature
 from .physical_checks import write_physical_checks_report
 from .progress import write_campaign_progress
 from .relaunch import prepare_route_relaunch
 from .restart import prepare_spin_restarts
-from .route_audit import audit_campaign_routes, resolve_config_type
-from .routes import FINDINGS, inspect_job, intended_stationary_point
+from .route_audit import (
+    audit_campaign_routes,
+    resolve_config_type,
+    resolve_row_geometry,
+    row_is_active,
+)
+from .routes import (
+    FINDINGS,
+    force_only_route,
+    input_atom_symbols,
+    input_coordinates,
+    input_stage_routes,
+    inspect_job,
+    recorded_saddle_order,
+    route_is_force_only,
+    running_search_route,
+)
 from .spin import (
     DEFAULT_SPIN_ROUTE,
+    geometry_distance,
     parse_spin_diagnostics,
     route_with_frequency,
     validate_fragment_specification_shape,
@@ -124,6 +154,19 @@ def command_extract(args: argparse.Namespace) -> int:
     print(f"Extracted {len(records)} unique seeds from {source}")
     for name, count in sorted(counts.items()):
         print(f"  {name}: {count}")
+    roles = collections.Counter(str(r.metadata.get("geometry_role", "")) for r in records)
+    print("Geometry roles: " + ", ".join(
+        f"{name or 'unrecorded'}={count}" for name, count in sorted(roles.items())
+    ))
+    fallbacks = [
+        r for r in records if r.metadata.get("geometry_role_source") == "filename_fallback"
+    ]
+    if fallbacks:
+        print(
+            f"WARNING: {len(fallbacks)} record(s) classified as IRC frames from their file "
+            "name alone (geometry_role_source=filename_fallback); see manifest.csv",
+            file=sys.stderr,
+        )
     print(f"Unreadable documents: {len(errors)}")
     return 0
 
@@ -228,6 +271,7 @@ def command_audit_routes(args: argparse.Namespace) -> int:
         Path(args.campaign),
         Path(args.output) if args.output else None,
         include_inactive=args.include_inactive,
+        seeds=Path(args.seeds) if args.seeds else None,
     )
     summary = result["summary"]
     print(f"Inputs audited: {summary['inputs_audited']}")
@@ -243,6 +287,15 @@ def command_audit_routes(args: argparse.Namespace) -> int:
                 print("        -> results unusable; these jobs must be relaunched")
     else:
         print("Every job's route matches its structural label.")
+    print("Geometry roles: " + ", ".join(
+        f"{name}={count}" for name, count in sorted(summary["by_geometry_role"].items())
+    ))
+    if summary["geometry_role_filename_fallbacks"]:
+        print(
+            f"WARNING: {summary['geometry_role_filename_fallbacks']} row(s) are treated as "
+            "reaction-path frames on file-name evidence alone; see the report, or pass --seeds",
+            file=sys.stderr,
+        )
     print(f"Must relaunch: {summary['must_relaunch']} "
           f"({summary['completed_but_invalid']} of them already finished)")
     sources = summary["must_relaunch_by_geometry_source"]
@@ -271,14 +324,25 @@ def command_relaunch_routes(args: argparse.Namespace) -> int:
         dry_run=args.dry_run,
         saddle_order=args.saddle_order,
         saddle_order_from=Path(args.saddle_order_from) if args.saddle_order_from else None,
+        path_point_policy=args.path_point_policy,
+        higher_order_policy=args.higher_order_policy,
+        seeds=Path(args.seeds) if args.seeds else None,
+        plan_output=Path(args.plan_output) if args.plan_output else None,
     )
     verb = "Would relaunch" if args.dry_run else "Relaunched"
     print(f"{verb} {result['input_count']} input(s), {result['job_row_count']} manifest row(s)")
+    policies = result["policies"]
+    print(f"Policies: path points -> {policies['path_point_policy']}, "
+          f"higher-order candidates -> {policies['higher_order_policy']}")
     for row in result["plan"]:
-        print(f"  {row['batch'] or '-'} {row['original_input']} [{row['config_type']}, "
+        print(f"  {row['batch'] or '-'} {row['original_input']} [{row['config_type']} / "
+              f"{row['geometry_role']} via {row['geometry_role_source']}, "
               f"was {row['previous_state']}] -> {row['new_input']}")
+        print(f"      repair: {row['repair']} ({row['input_stages']} stage(s))")
         print(f"      route: {row['route_before']}")
         print(f"          -> {row['route_after']}")
+    if result.get("plan_output"):
+        print(f"Plan CSV: {result['plan_output']}")
     for row in result["skipped"]:
         print(f"SKIPPED {row['input']}: {row['reason']}", file=sys.stderr)
     overridden = result["overridden_active_attempts"]
@@ -324,19 +388,44 @@ def command_prepare(args: argparse.Namespace) -> int:
         args.rattle_route,
         args.link1_route,
         args.saddle_route,
+        higher_order_policy=args.higher_order_policy,
     )
-    saddles = sum(
-        1 for record in jobs
-        if "rattle_index" not in record.metadata
-        and intended_stationary_point(record.config_type) == "saddle"
-    )
+    references = [record for record in jobs if "rattle_index" not in record.metadata]
+    geometries = [record_geometry(record) for record in references]
+    policies = collections.Counter(geometry["route_policy"] for geometry in geometries)
     print(f"Prepared {len(jobs)} Gaussian force jobs from {len(records)} seeds")
     print(f"Seed route: {args.route}")
-    if saddles:
-        print(f"Saddle route ({saddles} labeled saddle seeds): {args.saddle_route}")
+    if policies["saddle"]:
+        print(f"Saddle route ({policies['saddle']} labeled saddle seeds): {args.saddle_route}")
+    fixed = policies["fixed_geometry"] + (
+        policies["higher_order"] if args.higher_order_policy == "force" else 0
+    )
+    if fixed:
+        print(f"Fixed-geometry Force route ({fixed} reaction-path/higher-order seeds): "
+              f"{force_only_route(args.route)}")
+    _report_filename_fallbacks(references, geometries)
     print(f"Rattled route: {args.rattle_route}")
     print(f"Link1 force route: {args.link1_route}")
     return 0
+
+
+def _report_filename_fallbacks(records: list[Record], geometries: list[dict[str, str]]) -> None:
+    """Say out loud which records are treated as IRC frames on name evidence alone."""
+    fallbacks = [
+        record for record, geometry in zip(records, geometries)
+        if geometry["geometry_role_source"].endswith("filename_fallback")
+    ]
+    if not fallbacks:
+        return
+    print(
+        f"WARNING: {len(fallbacks)} seed(s) are treated as reaction-path frames only because "
+        "their source name mentions an IRC (no IRC route or path markers recorded):",
+        file=sys.stderr,
+    )
+    for record in fallbacks[:10]:
+        print(f"  {record.record_id} [{record.config_type}] {record.source}", file=sys.stderr)
+    if len(fallbacks) > 10:
+        print(f"  ... and {len(fallbacks) - 10} more", file=sys.stderr)
 
 
 def command_prepare_slurm(args: argparse.Namespace) -> int:
@@ -425,6 +514,258 @@ def command_campaign_status(args: argparse.Namespace) -> int:
     return 0
 
 
+# A fixed-geometry Force stage must report the geometry it was given. Gaussian
+# prints coordinates to 1e-6 Angstrom, so an RMS pair-distance difference above
+# this is an atom that moved, not rounding.
+_FIXED_GEOMETRY_TOLERANCE_ANG = 1e-3
+
+
+def _archived_geometry(
+    outputs: Path, row: dict[str, str], input_text: str
+) -> tuple[list[Atom] | None, list[str] | None]:
+    """The coordinates a fixed-geometry job was launched with, else its atoms.
+
+    A checkpoint-seeded restart carries none of its own; its lineage root does.
+    When only a Z-matrix is available the element sequence is returned
+    instead, so the label can at least be checked atom for atom.
+    """
+    texts = [input_text]
+    root = (row.get("restart_root_input") or "").strip()
+    if root and (outputs / root).is_file():
+        texts.append((outputs / root).read_text(encoding="utf-8", errors="ignore"))
+    for text in texts:
+        coordinates = input_coordinates(text)
+        if coordinates is not None:
+            return [Atom(symbol, x, y, z) for symbol, x, y, z in coordinates], None
+    for text in texts:
+        symbols = input_atom_symbols(text)
+        if symbols is not None:
+            return None, symbols
+    return None, None
+
+
+def _label_lineage(rows_by_job: dict[str, dict[str, str]], job_id: str) -> str:
+    """The original job a restarted, rerun or relaunched stage descends from.
+
+    Two attempts at the same stage share this root, which is how a label
+    recovered from an archived attempt is recognized as a duplicate of the
+    active attempt's label for that stage.
+    """
+    seen: set[str] = set()
+    current = job_id
+    while current not in seen:
+        seen.add(current)
+        row = rows_by_job.get(current)
+        parent = "" if row is None else (
+            (row.get("restart_of_job_id") or row.get("relaunch_of_job_id") or "").strip()
+        )
+        if not parent:
+            break
+        current = parent
+    return current
+
+
+def _attempt_rank(row: dict[str, str]) -> tuple[int, int]:
+    """Active beats archived; among equals, the later attempt wins."""
+    attempts = [
+        int(value) for key in ("restart_attempt", "relaunch_attempt")
+        if (value := (row.get(key) or "").strip()).isdigit()
+    ]
+    return (1 if row_is_active(row) else 0, max(attempts, default=0))
+
+
+def _stage_completed(metadata: dict) -> bool:
+    """A stage whose optimization converged (or a fixed-geometry Force stage)
+    and whose Link1 section terminated normally."""
+    return bool(metadata.get("spin_stage_normal_termination")) and (
+        metadata.get("force_label_kind") == "fixed_geometry_force"
+        or bool(metadata.get("spin_stage_optimized"))
+    )
+
+
+def _batch_range(value: str) -> tuple[int, int]:
+    match = re.fullmatch(r"\s*(\d+)\s*(?:-\s*(\d+))?\s*", value)
+    if not match:
+        raise argparse.ArgumentTypeError("batch range must look like 1-6 or 3")
+    start = int(match.group(1))
+    end = int(match.group(2) or start)
+    if end < start:
+        raise argparse.ArgumentTypeError("batch range end precedes its start")
+    return start, end
+
+
+def _batch_number(path: Path, root: Path) -> int | None:
+    for part in path.relative_to(root).parts:
+        match = re.fullmatch(r"batch_(\d+)", part)
+        if match:
+            return int(match.group(1))
+    return None
+
+
+PROVENANCE_COLUMNS = [
+    "frame_id", "split", "split_group", "parent_record_id", "source_geometry_sha256",
+    "source", "formula", "charge", "multiplicity", "energy_ev", "rms_force_ev_ang",
+    "config_type", "geometry_role", "job_id", "chain_id", "stage_index",
+    "stage_frame_position", "stage_frame_count", "force_frame_index", "predecessor_job_id",
+    "predecessor_multiplicity", "high_spin_multiplicity", "final_target_multiplicity",
+    "restart_of_job_id", "gaussian_output", "collection_campaign", "label_level",
+    "first_route", "scf_convergence_warning", "s2_before", "s2_after", "s2_expected",
+    "local_spin_available", "atomic_spin_association", "mulliken_spin_sum",
+    "mulliken_spin_sum_error", "local_spin_consistent", "fe_spin_min", "fe_spin_max",
+    "fe_minority_count", "fe_weak_count", "fe_moment_pattern", "spin_pair_ids",
+    "spin_pair_roles",
+]
+
+
+def _write_frame_tables(
+    destination: Path, splits: dict[str, list[LabeledFrame]]
+) -> None:
+    """frame_provenance.csv (one row per frame) and local_spins.csv (one row
+    per atom of every frame that carries its own Mulliken spin table)."""
+    with (destination / "frame_provenance.csv").open("w", newline="", encoding="utf-8") as prov, \
+            (destination / "local_spins.csv").open("w", newline="", encoding="utf-8") as spins:
+        provenance = csv.DictWriter(prov, fieldnames=PROVENANCE_COLUMNS, lineterminator="\n",
+                                    extrasaction="ignore")
+        local = csv.DictWriter(spins, fieldnames=LOCAL_SPIN_COLUMNS, lineterminator="\n")
+        provenance.writeheader()
+        local.writeheader()
+        for split, members in splits.items():
+            for frame in members:
+                record = frame.record
+                metadata = record.metadata
+                pairs = metadata.get("spin_pairs") or []
+                row = {key: metadata.get(key, "") for key in PROVENANCE_COLUMNS}
+                row.update({
+                    "frame_id": record.record_id,
+                    "split": split,
+                    "split_group": metadata.get("split_group") or metadata.get("parent_record_id", ""),
+                    "source": record.source,
+                    "formula": record.formula,
+                    "charge": record.charge,
+                    "multiplicity": record.multiplicity,
+                    "energy_ev": f"{frame.energy_ev:.8f}",
+                    "rms_force_ev_ang": f"{rms_force(frame):.6f}",
+                    "config_type": record.config_type,
+                    "spin_pair_ids": ";".join(pair["pair_id"] for pair in pairs),
+                    "spin_pair_roles": ";".join(pair["role"] for pair in pairs),
+                })
+                provenance.writerow(row)
+                local.writerows(local_spin_rows(record.record_id, record))
+
+
+def _write_dataset_summary(
+    destination: Path,
+    frames: list[LabeledFrame],
+    splits: dict[str, list[LabeledFrame]],
+    pairs: list[dict[str, object]],
+    geometries: dict[str, list[Atom]],
+    exact_keys: dict[str, str],
+    group_tolerance: float,
+    counts: dict[str, int],
+) -> dict[str, object]:
+    """Frames and independent source geometries, reported separately."""
+    parents = {frame.record.metadata.get("parent_record_id", "") for frame in frames}
+    groups = {frame.record.metadata.get("split_group", "") for frame in frames}
+    stages = {
+        (frame.record.metadata.get("collection_campaign", ""),
+         frame.record.metadata.get("gaussian_output", ""),
+         frame.record.metadata.get("job_id", ""))
+        for frame in frames
+    }
+    exact = {exact_keys[parent] for parent in parents if exact_keys.get(parent)}
+    used_geometries = {parent: geometries[parent] for parent in parents if parent in geometries}
+    used_exact = {parent: exact_keys[parent] for parent in parents if parent in exact_keys}
+    summary: dict[str, object] = {
+        "frames": len(frames),
+        "optimization_stages": len(stages),
+        "source_records": len(parents),
+        "source_geometries_exact": len(exact) + sum(
+            1 for parent in parents if not exact_keys.get(parent)
+        ),
+        "independent_source_geometry_groups": len(groups),
+        "split_group_tolerance_ang": group_tolerance,
+        "group_count_by_tolerance_ang": {
+            f"{tolerance:g}": count
+            for tolerance, count in group_count_profile(used_geometries, used_exact)
+        },
+        "frames_by_multiplicity": dict(sorted(collections.Counter(
+            str(frame.record.multiplicity) for frame in frames).items(), key=lambda item: int(item[0]))),
+        "frames_with_local_spins": sum(
+            bool(frame.record.metadata.get("local_spin_available")) for frame in frames
+        ),
+        "frames_with_inconsistent_spin_sum": sum(
+            frame.record.metadata.get("local_spin_consistent") is False for frame in frames
+        ),
+        "label_levels": dict(collections.Counter(
+            str(frame.record.metadata.get("label_level", "")) for frame in frames)),
+        "splits": {
+            name: {
+                "frames": len(members),
+                "groups": len({member.record.metadata.get("split_group", "") for member in members}),
+                "source_records": len({
+                    member.record.metadata.get("parent_record_id", "") for member in members
+                }),
+            }
+            for name, members in splits.items()
+        },
+        "spin_pairs_verified": sum(1 for pair in pairs if pair["paired"]),
+        "spin_pairs_verified_in_dataset": sum(
+            1 for pair in pairs if pair["paired"]
+            and pair["parent_frame_in_dataset"] is True and pair["child_frame_in_dataset"] is True
+        ),
+        "spin_pair_claims_not_verified": sum(
+            1 for pair in pairs if pair["pair_basis"] == "manifest_claim_not_verified"
+        ),
+        "spin_pairs_found_only_by_geometry": sum(
+            1 for pair in pairs if pair["pair_basis"] == "geometry_only"
+        ),
+        **counts,
+    }
+    (destination / "dataset_summary.json").write_text(
+        json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n"
+    )
+    lines = [
+        "# Dataset summary",
+        "",
+        f"- **Frames: {summary['frames']}** from {summary['optimization_stages']} stages",
+        f"- **Independent source geometries: {summary['independent_source_geometry_groups']}** "
+        f"(split groups at {group_tolerance:g} A fingerprint RMS; "
+        f"{summary['source_geometries_exact']} exact source geometries, "
+        f"{summary['source_records']} source record IDs)",
+        f"- Frames with their own Mulliken spin table: {summary['frames_with_local_spins']} "
+        f"(spin sum inconsistent with 2S: {summary['frames_with_inconsistent_spin_sum']})",
+        f"- Verified M -> M-2 spin pairs: {summary['spin_pairs_verified']} "
+        f"(both frames in dataset: {summary['spin_pairs_verified_in_dataset']}; found only by "
+        f"geometry: {summary['spin_pairs_found_only_by_geometry']}; manifest claims that failed "
+        f"verification: {summary['spin_pair_claims_not_verified']})",
+        "",
+        "## Independent groups by tolerance",
+        "",
+        "| Fingerprint tolerance (A) | Groups |",
+        "|---:|---:|",
+        *(f"| {tol} | {count} |" for tol, count in summary["group_count_by_tolerance_ang"].items()),
+        "",
+        "## Splits (held out by group, never by frame)",
+        "",
+        "| Split | Frames | Groups | Source records |",
+        "|---|---:|---:|---:|",
+        *(f"| {name} | {value['frames']} | {value['groups']} | {value['source_records']} |"
+          for name, value in summary["splits"].items()),
+        "",
+        "## Frames by multiplicity",
+        "",
+        "| M | Frames |",
+        "|---:|---:|",
+        *(f"| {m} | {count} |" for m, count in summary["frames_by_multiplicity"].items()),
+        "",
+        "## Collection counts",
+        "",
+        *(f"- {key}: {value}" for key, value in sorted(counts.items())),
+    ]
+    (destination / "dataset_summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    return summary
+
+
 def command_collect(args: argparse.Namespace) -> int:
     output_roots = [Path(item).resolve() for item in args.outputs]
     destination = Path(args.output)
@@ -435,13 +776,21 @@ def command_collect(args: argparse.Namespace) -> int:
     if (args.valid_fraction < 0 or args.test_fraction < 0
             or args.valid_fraction + args.test_fraction >= 1):
         raise ValueError("split fractions must be nonnegative and sum to less than one")
-    if args.allow_partial and args.frames != "converged":
+    if args.allow_partial and args.frames not in {"converged", "completed-stages"}:
         raise ValueError(
-            "--allow-partial requires --frames converged so interrupted optimization steps "
-            "cannot enter the dataset"
+            "--allow-partial requires --frames converged or completed-stages so interrupted "
+            "optimization steps cannot enter the dataset"
         )
+    stage_modes = {"converged", "completed-stages"}
+    formulas = {item for value in (args.formula or []) for item in value.split(",") if item}
     frames = []
     failures: list[tuple[str, str]] = []
+    superseded: list[tuple[str, str, str]] = []
+    endpoints: list[StageEndpoint] = []
+    # Source record -> its starting geometry, and its exact geometry hash.
+    source_geometries: dict[str, list[Atom]] = {}
+    source_exact: dict[str, str] = {}
+    counts_out: collections.Counter = collections.Counter()
     for outputs in output_roots:
         spin_campaign = (outputs / "spin_jobs.csv").is_file()
         manifest_path = outputs / ("spin_jobs.csv" if spin_campaign else "jobs.csv")
@@ -450,6 +799,7 @@ def command_collect(args: argparse.Namespace) -> int:
         for row in manifest.values():
             key = Path(row.get("output") or row["job_id"]).stem
             manifest_by_output.setdefault(key, []).append(row)
+        campaign_frames = []
         paths = sorted(list(outputs.rglob("*.log")) + list(outputs.rglob("*.out")))
         counts = collections.Counter(path.stem for path in paths if not path.is_symlink())
         for path in paths:
@@ -458,12 +808,42 @@ def command_collect(args: argparse.Namespace) -> int:
             rows = manifest_by_output.get(path.stem, [])
             if manifest and not rows:
                 continue  # Scheduler logs and unrelated files are not Gaussian labels.
+            if args.batch_range:
+                batch = _batch_number(path, outputs)
+                if batch is None or not args.batch_range[0] <= batch <= args.batch_range[1]:
+                    continue
+            if formulas and rows and all(row.get("formula") for row in rows) and not any(
+                row["formula"] in formulas for row in rows
+            ):
+                counts_out["outputs_skipped_by_formula"] += 1
+                continue
             try:
                 if counts[path.stem] > 1:
                     raise ValueError("ambiguous duplicate output name within campaign")
+                # A route relaunch stamps the rows of the attempt it discarded.
+                # That is an operator's verdict on those results, not a
+                # route/label disagreement to be argued with, so
+                # --allow-route-mismatch does not reopen it.
+                invalidated = next(
+                    (row["route_invalidated"] for row in rows if row.get("route_invalidated")), ""
+                )
+                if invalidated:
+                    raise ValueError(
+                        f"archived output invalidated by relaunch-routes ({invalidated}); "
+                        "its replacement is collected instead"
+                    )
+                # An archived attempt (every row inactive, none invalidated) was
+                # superseded by a restart or rerun, not declared wrong. Its
+                # completed stages are real labels -- a checkpoint restart does
+                # not recompute them -- so under --frames converged they are
+                # recovered stage by stage, exactly as --allow-partial would.
+                archived_attempt = bool(rows) and not any(row_is_active(row) for row in rows)
+                partial_ok = args.allow_partial or (
+                    archived_attempt and args.frames in stage_modes
+                )
                 rc_path = path.with_suffix(".rc")
                 bad_rc = rc_path.is_file() and rc_path.read_text(encoding="utf-8").strip() != "0"
-                if bad_rc and not args.allow_partial:
+                if bad_rc and not partial_ok:
                     raise ValueError("Gaussian worker recorded a nonzero or invalid exit code")
                 text = path.read_text(encoding="utf-8", errors="ignore")
                 expected = len(rows) if spin_campaign else 1
@@ -480,26 +860,45 @@ def command_collect(args: argparse.Namespace) -> int:
                 # checks cannot catch it: a transition state run with a plain
                 # Opt contributes a minimum labeled as a saddle, which is worse
                 # for training than having no frame at all.
-                invalidated = (rows[0].get("route_invalidated", "") if rows else "")
                 verdict = None
                 if input_text and rows:
-                    config_type, _ = resolve_config_type(rows[0], Path(rows[0]["input"]).name)
+                    input_name = Path(rows[0]["input"]).name
+                    config_type, _ = resolve_config_type(rows[0], input_name)
                     if config_type:
-                        verdict = inspect_job(config_type, input_text, text)
-                if not args.allow_route_mismatch and (
-                        invalidated or (verdict and verdict["must_relaunch"])):
-                    codes = invalidated or (";".join(verdict["findings"]) if verdict else "")
+                        geometry = resolve_row_geometry(
+                            rows[0], input_name, config_type,
+                            running_route=running_search_route(input_text),
+                        )
+                        verdict = inspect_job(
+                            config_type, input_text, text,
+                            geometry_role=geometry["geometry_role"],
+                            source_calculation_type=geometry["source_calculation_type"],
+                            requested_saddle_order=recorded_saddle_order(rows[0]),
+                        )
+                if not args.allow_route_mismatch and verdict and verdict["must_relaunch"]:
                     raise ValueError(
-                        f"route does not search for the labeled stationary point ({codes}); "
-                        "relaunch with cluster-mlip relaunch-routes, or pass "
-                        "--allow-route-mismatch to accept the label anyway"
+                        "route does not match the labeled geometry "
+                        f"({';'.join(verdict['findings'])}); relaunch with cluster-mlip "
+                        "relaunch-routes, or pass --allow-route-mismatch to accept the label anyway"
                     )
                 complete = gaussian_job_complete(text, expected) and not bad_rc
-                if not complete and not args.allow_partial:
+                if not complete and not partial_ok:
                     raise ValueError("incomplete Gaussian job (including Link1 stages)")
+                stage_routes = input_stage_routes(input_text) if input_text else []
                 parsed = parse_force_frames(text, path)
                 if not parsed:
                     raise ValueError("no complete energy/geometry/force frame")
+                if formulas and parsed[0].record.formula not in formulas:
+                    counts_out["outputs_skipped_by_formula"] += 1
+                    continue
+                if rows:
+                    parent_id = rows[0].get("parent_record_id") or rows[0].get("job_id", "")
+                    if parent_id and parent_id not in source_geometries:
+                        start, _ = _archived_geometry(outputs, rows[0], input_text)
+                        if start is not None:
+                            source_geometries[parent_id] = start
+                        if rows[0].get("source_geometry_sha256"):
+                            source_exact[parent_id] = rows[0]["source_geometry_sha256"]
                 diagnostics = parse_spin_diagnostics(text)
                 grouped: dict[str, list] = {}
                 for frame in parsed:
@@ -534,36 +933,220 @@ def command_collect(args: argparse.Namespace) -> int:
                     record.metadata["spin_stage_optimized"] = any(
                         item.optimized for item in stage_diagnostics
                     )
+                    # A spin row labels one Link1 stage; a flat row the whole
+                    # job, which is fixed-geometry only if every stage is.
+                    if spin_campaign:
+                        stage = int(row.get("stage_index") or 0)
+                        own_routes = stage_routes[stage:stage + 1]
+                    else:
+                        own_routes = stage_routes
+                    force_only = bool(own_routes) and all(
+                        route_is_force_only(route) for route in own_routes
+                    )
+                    record.metadata["force_label_kind"] = (
+                        "fixed_geometry_force" if force_only else "optimization"
+                    )
+                    record.metadata["job_id"] = job_id
+                    label_route = row.get("first_route") or (own_routes[0] if own_routes else "")
+                    if label_route:
+                        record.metadata["label_level"] = route_label_level(label_route).key
+                    record.metadata.update(local_spin_summary(record))
+                    if force_only:
+                        # A fixed-geometry label is only a label *of the
+                        # archived geometry* if that is what Gaussian was
+                        # given; one that cannot be checked is not accepted.
+                        reference, symbols = _archived_geometry(outputs, row, input_text)
+                        if reference is not None:
+                            if geometry_distance(
+                                Record("reference", "", reference, record.charge,
+                                       record.multiplicity, record.config_type),
+                                record,
+                            ) > _FIXED_GEOMETRY_TOLERANCE_ANG:
+                                raise ValueError(
+                                    f"fixed-geometry Force stage {job_id} reports a geometry "
+                                    "that differs from the archived input coordinates"
+                                )
+                            record.metadata["fixed_geometry_check"] = "matched"
+                        elif symbols is not None:
+                            if symbols != [atom.symbol for atom in record.atoms]:
+                                raise ValueError(
+                                    f"fixed-geometry Force stage {job_id} reports atoms that "
+                                    "differ from the archived Z-matrix"
+                                )
+                            record.metadata["fixed_geometry_check"] = "atoms_matched_zmatrix"
+                        else:
+                            raise ValueError(
+                                f"fixed-geometry Force stage {job_id} has no archived "
+                                "coordinates to check against (checkpoint-seeded input "
+                                "whose restart_root_input is missing)"
+                            )
                     grouped.setdefault(job_id, []).append(frame)
                 if spin_campaign and complete and set(grouped) != {row["job_id"] for row in rows}:
                     raise ValueError("one or more planned spin stages have no force label")
                 selected = []
+                row_by_job = {row.get("job_id", ""): row for row in rows}
                 for job_id, members in grouped.items():
-                    if args.frames == "all":
+                    for position, frame in enumerate(members):
+                        frame.record.metadata["stage_frame_count"] = len(members)
+                        frame.record.metadata["stage_frame_position"] = (
+                            "only" if len(members) == 1 else "first" if position == 0
+                            else "final" if position == len(members) - 1 else "intermediate"
+                        )
+                    completed_stage = _stage_completed(members[-1].record.metadata)
+                    # Every stage's first and final frame, whatever the mode:
+                    # ladder hand-offs are verified on these.
+                    endpoints.append(StageEndpoint(
+                        job_id=job_id, output=f"{outputs}::{path.relative_to(outputs)}",
+                        row=row_by_job.get(job_id, {}), first=members[0], final=members[-1],
+                        completed=completed_stage,
+                    ))
+                    if args.frames in {"all", "completed-stages"}:
                         for frame in members:
                             frame.record.record_id = f"{job_id}__frame{frame.record.metadata['force_frame_index']:06d}"
+                    if args.frames == "all":
                         selected.extend(members)
+                    elif args.frames == "completed-stages":
+                        # Every force frame of a stage that finished, but not
+                        # a frame whose SCF only "finished" under IOP(5/13=1).
+                        if not completed_stage:
+                            counts_out["frames_in_unfinished_stages"] += len(members)
+                            continue
+                        kept = [frame for frame in members
+                                if not frame.record.metadata.get("scf_convergence_warning")]
+                        counts_out["frames_dropped_scf_not_converged"] += len(members) - len(kept)
+                        selected.extend(kept)
                     elif args.frames == "converged":
-                        final = members[-1]
-                        if (final.record.metadata["spin_stage_normal_termination"]
-                                and final.record.metadata["spin_stage_optimized"]):
-                            selected.append(final)
+                        # An optimization's label is its converged frame. A
+                        # fixed-geometry Force stage never "converges" in that
+                        # sense: a normal termination with its SCF energy, the
+                        # force table and the archived geometry (checked above)
+                        # is the complete label.
+                        if completed_stage:
+                            selected.append(members[-1])
                     else:
                         selected.append(members[-1])
-                frames.extend(selected)
+                campaign_frames.extend(selected)
             except Exception as exc:
                 failures.append((str(path), str(exc)))
+        # One label per stage. An archived attempt and its rerun can both have
+        # finished the same stage (a from-scratch rerun recomputes all of
+        # them); training on both would double-weight that geometry.
+        if args.frames == "all":
+            frames.extend(campaign_frames)
+            continue
+        if args.frames == "completed-stages":
+            # The same, one whole trajectory per stage: keep the best
+            # attempt's frames and drop the other attempts' stage entirely.
+            attempts: dict[tuple[str, int, int], dict[str, list[LabeledFrame]]] = {}
+            for frame in campaign_frames:
+                job_id = frame.record.metadata["job_id"]
+                label_key = (_label_lineage(manifest, job_id), frame.record.charge,
+                             frame.record.multiplicity)
+                attempts.setdefault(label_key, {}).setdefault(job_id, []).append(frame)
+            for by_job in attempts.values():
+                keep = max(by_job, key=lambda job: _attempt_rank(manifest.get(job, {})))
+                frames.extend(by_job[keep])
+                for job_id, members in by_job.items():
+                    if job_id != keep:
+                        superseded.append((str(members[0].output_file), job_id, keep))
+            continue
+        best: dict[tuple[str, int, int], LabeledFrame] = {}
+        for frame in campaign_frames:
+            label_key = (
+                _label_lineage(manifest, frame.record.record_id),
+                frame.record.charge, frame.record.multiplicity,
+            )
+            current = best.get(label_key)
+            if current is None:
+                best[label_key] = frame
+                continue
+            keep, drop = (
+                (frame, current)
+                if _attempt_rank(manifest.get(frame.record.record_id, {}))
+                > _attempt_rank(manifest.get(current.record.record_id, {}))
+                else (current, frame)
+            )
+            best[label_key] = keep
+            superseded.append((str(drop.output_file), drop.record.record_id, keep.record.record_id))
+        frames.extend(best.values())
+    duplicate_aliases: dict[int, LabeledFrame] = {}
+    if args.frames == "completed-stages":
+        # A restart seeded from a finished geometry recomputes that point;
+        # one copy of an identical (state, geometry) label is enough.
+        # The copy kept is chosen by record/job/frame, not by file order.
+        def keep_rank(frame: LabeledFrame) -> tuple:
+            metadata = frame.record.metadata
+            return (str(metadata.get("parent_record_id", "")), str(metadata.get("job_id", "")),
+                    int(metadata.get("force_frame_index", 0)))
+
+        unique: dict[tuple, LabeledFrame] = {}
+        for frame in frames:
+            key = (frame.record.formula, frame.record.charge, frame.record.multiplicity,
+                   geometry_signature(frame.record.atoms))
+            if key not in unique or keep_rank(frame) < keep_rank(unique[key]):
+                unique[key] = frame
+        kept_ids = {id(frame) for frame in unique.values()}
+        for frame in frames:
+            if id(frame) not in kept_ids:
+                key = (frame.record.formula, frame.record.charge, frame.record.multiplicity,
+                       geometry_signature(frame.record.atoms))
+                duplicate_aliases[id(frame)] = unique[key]
+                counts_out["frames_dropped_exact_duplicate"] += 1
+                superseded.append((str(frame.output_file), frame.record.record_id,
+                                   unique[key].record.record_id))
+        frames = [frame for frame in frames if id(frame) in kept_ids]
+    # Split by source geometry: records whose starting geometries coincide
+    # (exact hash, or fingerprints within tolerance) form one group.
+    groups = source_geometry_groups(source_geometries, source_exact, args.split_group_tolerance)
+    for frame in frames:
+        parent = frame.record.metadata.get("parent_record_id", frame.record.record_id)
+        frame.record.metadata["split_group"] = groups.get(parent, parent)
+    pairs = verify_spin_pairs(
+        endpoints, args.pair_tolerance, {id(frame) for frame in frames}, duplicate_aliases
+    )
     write_labeled_extxyz(frames, destination / "all.extxyz")
     splits = grouped_split(
         frames, args.valid_fraction, args.test_fraction, args.seed, stratify_by=args.stratify_by
     )
     for name, subset in splits.items():
         write_labeled_extxyz(subset, destination / f"{name}.extxyz")
+    with (destination / "spin_pairs.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=PAIR_COLUMNS, lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(pairs)
+    _write_frame_tables(destination, splits)
+    counts_out["outputs_rejected"] = len(failures)
+    dataset_summary = _write_dataset_summary(
+        destination, frames, splits, pairs, source_geometries, source_exact,
+        args.split_group_tolerance, dict(counts_out),
+    )
     with (destination / "failed_outputs.tsv").open("w", encoding="utf-8") as handle:
         for name, message in failures:
             handle.write(f"{name}\t{message}\n")
+    with (destination / "superseded_labels.tsv").open("w", encoding="utf-8") as handle:
+        handle.write("output\tdropped_job_id\tkept_job_id\n")
+        for name, dropped, kept in superseded:
+            handle.write(f"{name}\t{dropped}\t{kept}\n")
     print(f"Collected {len(frames)} labeled frames; rejected {len(failures)} outputs")
+    exact_duplicates = counts_out.get("frames_dropped_exact_duplicate", 0)
+    if len(superseded) > exact_duplicates:
+        print(
+            f"Dropped {len(superseded) - exact_duplicates} duplicate stage label(s) from "
+            f"superseded attempts -- see {destination / 'superseded_labels.tsv'}"
+        )
+    if exact_duplicates:
+        print(
+            f"Dropped {exact_duplicates} frame(s) identical in state and geometry to a kept "
+            f"frame -- see {destination / 'superseded_labels.tsv'}"
+        )
     print("Split: " + ", ".join(f"{name}={len(values)}" for name, values in splits.items()))
+    print(
+        f"Independent source geometries: {dataset_summary['independent_source_geometry_groups']} "
+        f"(from {dataset_summary['source_records']} source records); "
+        f"frames with local spins: {dataset_summary['frames_with_local_spins']}; "
+        f"verified spin pairs: {dataset_summary['spin_pairs_verified']} "
+        f"-- see {destination / 'dataset_summary.md'}"
+    )
     label_summary = write_label_report(
         frames, destination, args.force_outlier_threshold,
         splits=splits, stratify_by=args.stratify_by or (),
@@ -573,6 +1156,23 @@ def command_collect(args: argparse.Namespace) -> int:
         f"(> {args.force_outlier_threshold} eV/Angstrom) -- see {destination / 'label_report.md'}"
     )
     return 0 if frames else 2
+
+
+def command_label_levels(args: argparse.Namespace) -> int:
+    reference = route_label_level(args.reference_route, args.reference_program)
+    formulas = {item for value in (args.formula or []) for item in value.split(",") if item}
+    summary = audit_label_levels(
+        [Path(source) for source in args.sources], Path(args.output), reference, formulas or None,
+    )
+    print(f"Reference level: {summary['reference_level']}")
+    print(
+        f"{summary['frames_total']} force frames in {summary['files_with_matching_force_frames']} "
+        f"outputs; usable at the reference level: {summary['same_level_usable_frames']} "
+        f"({summary['same_level_usable_minimum_optimization_frames']} minimum-optimization frames "
+        f"from {summary['same_level_minimum_optimization_source_files']} files)"
+    )
+    print(f"Report: {Path(args.output).resolve() / 'label_levels.md'}")
+    return 0 if summary["frames_total"] else 2
 
 
 def _stratify_by(value: str) -> tuple[str, ...]:
@@ -674,6 +1274,7 @@ def command_prepare_spins(args: argparse.Namespace) -> int:
             route=route,
             memory=args.memory,
             nproc=args.nproc,
+            higher_order_policy=args.higher_order_policy,
         )
         print(f"Plan: {Path(args.output).resolve() / 'spin_plan.csv'}")
         print(f"Plan summary: {Path(args.output).resolve() / 'spin_plan_summary.json'}")
@@ -690,7 +1291,9 @@ def command_prepare_spins(args: argparse.Namespace) -> int:
             nproc=args.nproc,
             fragment_specifications=specifications,
             strategy=args.strategy,
+            higher_order_policy=args.higher_order_policy,
         )
+    _report_filename_fallbacks(records, [record_geometry(record) for record in records])
     print(f"Prepared {stages} traceable spin stages")
     print(f"Manifest: {Path(args.output).resolve() / 'spin_jobs.csv'}")
     return 0
@@ -1036,6 +1639,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     prepare.add_argument("--memory", default="16GB")
     prepare.add_argument("--nproc", type=int, default=16)
+    prepare.add_argument(
+        "--higher-order-policy", choices=HIGHER_ORDER_POLICIES, default="force",
+        help=(
+            "how to label higher_order_saddle candidates: 'force' (default) runs a "
+            "fixed-geometry Force job at the archived geometry; 'saddle-search' runs "
+            "Opt=(Saddle=N) with N taken from the record's imaginary-mode count"
+        ),
+    )
     prepare.set_defaults(func=command_prepare)
 
     prepare_slurm = sub.add_parser(
@@ -1119,6 +1730,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--include-inactive", action="store_true",
         help="also audit superseded manifest rows from earlier restarts/relaunches",
     )
+    audit_routes.add_argument(
+        "--seeds", metavar="SEEDS.EXTXYZ",
+        help="the extxyz the campaign was prepared from; its archived routes identify "
+             "IRC-derived rows that a legacy manifest records only by file name",
+    )
     audit_routes.set_defaults(func=command_audit_routes)
 
     relaunch_routes = sub.add_parser(
@@ -1143,8 +1759,32 @@ def build_parser() -> argparse.ArgumentParser:
         "--saddle-order-from", metavar="SEEDS.EXTXYZ",
         help="take each higher_order_saddle record's imaginary-mode order from the "
              "seeds extxyz the campaign was prepared from, where extract recorded it "
-             "from the archived log. Without this (or --saddle-order) those records are "
-             "skipped rather than retargeted to a first-order TS search",
+             "from the archived log. Giving this (or --saddle-order) requests an "
+             "Opt=(Saddle=N) search; without either, higher-order candidates follow "
+             "--higher-order-policy",
+    )
+    relaunch_routes.add_argument(
+        "--path-point-policy", choices=("force", "skip"), default="force",
+        help="IRC/reaction-path frames launched with Opt: 'force' (default) relaunches "
+             "them as fixed-geometry Force labels at the archived coordinates -- every "
+             "ladder stage Force, later stages Geom=Checkpoint Guess=Read; 'skip' leaves them",
+    )
+    relaunch_routes.add_argument(
+        "--higher-order-policy", choices=("force", "saddle-search"),
+        help="higher-order saddle candidates: 'force' labels them at the archived geometry "
+             "(the default unless --saddle-order/--saddle-order-from is given); "
+             "'saddle-search' runs Opt=(Saddle=N) and needs one of those to supply N",
+    )
+    relaunch_routes.add_argument(
+        "--seeds", metavar="SEEDS.EXTXYZ",
+        help="seed records the campaign was prepared from, used to recognize IRC-derived "
+             "rows by their archived route instead of by file name",
+    )
+    relaunch_routes.add_argument(
+        "--plan-output", metavar="PLAN.CSV",
+        help="also write the relaunch plan (original/replacement input, geometry role, "
+             "old/new route, archived log, stage count, reason) to this CSV; the only "
+             "file a --dry-run writes, and only when given",
     )
     relaunch_routes.add_argument("--dry-run", action="store_true")
     relaunch_routes.set_defaults(func=command_relaunch_routes)
@@ -1195,6 +1835,14 @@ def build_parser() -> argparse.ArgumentParser:
             "recommended for larger systems in the same campaign"
         ),
     )
+    prepare_spins.add_argument(
+        "--higher-order-policy", choices=HIGHER_ORDER_POLICIES, default="force",
+        help=(
+            "how to label higher_order_saddle candidates: 'force' (default) runs a "
+            "fixed-geometry Force job at the archived geometry; 'saddle-search' runs "
+            "Opt=(Saddle=N) with N taken from the record's imaginary-mode count"
+        ),
+    )
     prepare_spins.add_argument("--memory", default="16GB")
     prepare_spins.add_argument("--nproc", type=int, default=16)
     prepare_spins.set_defaults(func=command_prepare_spins)
@@ -1206,17 +1854,44 @@ def build_parser() -> argparse.ArgumentParser:
     collect.add_argument("--test-fraction", type=float, default=0.10)
     collect.add_argument("--seed", type=int, default=20260811)
     collect.add_argument(
-        "--frames", choices=("final", "all", "converged"), default="final",
+        "--frames", choices=("final", "all", "converged", "completed-stages"), default="final",
         help=(
             "final force frame per completed job/spin stage (default), every force-bearing step, "
-            "or only the final frame of normally terminated optimized stages"
+            "or only the final frame of normally terminated optimized stages -- and of normally "
+            "terminated fixed-geometry Force stages at their archived geometry. 'converged' "
+            "also recovers completed stages from archived (restarted/rerun) attempts, keeping "
+            "one label per stage. 'completed-stages' keeps every SCF-converged force frame of "
+            "each such stage (the whole optimization trajectory), with the same archived-attempt "
+            "recovery and one trajectory per stage"
         ),
     )
     collect.add_argument(
         "--allow-partial", action="store_true",
         help=(
-            "recover completed stages from interrupted jobs; requires --frames converged so "
-            "unfinished optimization steps are excluded"
+            "recover completed stages from interrupted jobs; requires --frames converged or "
+            "completed-stages so unfinished optimization steps are excluded"
+        ),
+    )
+    collect.add_argument(
+        "--formula", action="append",
+        help="collect only outputs of this composition, e.g. Fe16 (repeat or comma-separate)",
+    )
+    collect.add_argument(
+        "--batch-range", type=_batch_range,
+        help="collect only outputs under slurm_batches/batch_NNNN within this range, e.g. 1-6",
+    )
+    collect.add_argument(
+        "--pair-tolerance", type=float, default=DEFAULT_PAIR_TOLERANCE_ANG,
+        help=(
+            "largest per-coordinate difference (Angstrom) for a parent's final and a child's "
+            "first geometry to count as one geometry in spin_pairs.csv"
+        ),
+    )
+    collect.add_argument(
+        "--split-group-tolerance", type=float, default=DEFAULT_GROUP_TOLERANCE_ANG,
+        help=(
+            "source records whose starting geometries differ by at most this pair-distance "
+            "fingerprint RMS (Angstrom) share a split group; 0 merges exact duplicates only"
         ),
     )
     collect.add_argument(
@@ -1224,7 +1899,8 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "ingest labels from jobs whose route searched for a different stationary point "
             "than their label claims (for example a transition state run with a plain Opt). "
-            "Off by default: such a frame is a minimum labeled as a saddle"
+            "Off by default: such a frame is a minimum labeled as a saddle. Outputs that "
+            "relaunch-routes archived as route_invalidated are rejected regardless"
         ),
     )
     collect.add_argument(
@@ -1241,6 +1917,29 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     collect.set_defaults(func=command_collect)
+
+    label_levels = sub.add_parser(
+        "label-levels",
+        help=(
+            "classify every force frame in Gaussian outputs (directories or ZIPs) by the level "
+            "of theory Gaussian reports, against a reference route"
+        ),
+    )
+    label_levels.add_argument("sources", nargs="+", help="directories or ZIP archives of Gaussian outputs")
+    label_levels.add_argument("-o", "--output", default="label_levels")
+    label_levels.add_argument(
+        "--reference-route", default=DEFAULT_SPIN_ROUTE,
+        help="route defining the target level (default: the spin-campaign route)",
+    )
+    label_levels.add_argument(
+        "--reference-program", default="g09", choices=("g03", "g09", "g16"),
+        help="Gaussian version the reference route runs under (sets the default grid)",
+    )
+    label_levels.add_argument(
+        "--formula", action="append",
+        help="audit only outputs of this composition, e.g. Fe16 (repeat or comma-separate)",
+    )
+    label_levels.set_defaults(func=command_label_levels)
 
     restart_spins = sub.add_parser(
         "prepare-spin-restarts",

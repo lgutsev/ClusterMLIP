@@ -18,9 +18,9 @@ from .gaussian import (
 from .io import (
     iter_documents, read_document, read_extxyz, source_tree, write_extxyz, write_text_lf,
 )
-from .jobs import human_job_stem
+from .jobs import HIGHER_ORDER_POLICIES, higher_order_saddle_route, human_job_stem, record_geometry
 from .models import Atom, Record
-from .routes import intended_stationary_point, route_search_kind
+from .routes import GEOMETRY_COLUMNS, force_only_route, route_is_force_only, route_search_kind
 
 
 # The archived spin-refinement jobs use Gaussian 09's built-in 6-311++G*
@@ -50,6 +50,13 @@ SPIN_MANIFEST_COLUMNS = [
     "predecessor_job_id", "predecessor_multiplicity", "predecessor_checkpoint", "checkpoint",
     "checkpoint_lineage", "fragment_label", "fragment_count", "fragment_spec_sha256", "input",
     "input_sha256", "output",
+]
+
+# Written by every generator, carried by restart/relaunch, but not required
+# by _spin_manifest_audit: campaigns prepared before these columns existed
+# must still validate.
+SPIN_OUTPUT_COLUMNS = SPIN_MANIFEST_COLUMNS + [
+    column for column in GEOMETRY_COLUMNS if column not in SPIN_MANIFEST_COLUMNS
 ]
 
 SPIN_RESTART_COLUMNS = [
@@ -333,6 +340,13 @@ def _route_with(route: str, *keywords: str) -> str:
     for conflict in conflicts:
         if re.search(rf"\b{re.escape(conflict)}\s*=", lower):
             raise ValueError(f"route already defines {conflict}; keep state-control keywords tool-managed")
+    # A trailing population request stays last, so a checkpoint stage reads
+    # "... Int=UltraFine Geom=Checkpoint Guess=Read Pop=Regular" -- the same
+    # layout as its root stage with only the state keywords inserted.
+    trailing = re.search(r"\s+(Pop(?:ulation)?\s*=\s*(?:\([^)]*\)|\S+))$", route, re.IGNORECASE)
+    if trailing:
+        head = route[:trailing.start()]
+        return f"{head} {' '.join(keywords)} {trailing.group(1)}".strip()
     return f"{route} {' '.join(keywords)}".strip()
 
 
@@ -388,6 +402,29 @@ def _manifest_int(value: object, default: int = 0) -> int:
         return default
 
 
+def record_stage_route(
+    record: Record, route: str, higher_order_policy: str = "force"
+) -> tuple[str, dict[str, str]]:
+    """The stage-0 route a record's geometry role allows, with its provenance.
+
+    A reaction-path frame, and a higher-order candidate unless a saddle search
+    was requested, is labeled at its archived geometry: the campaign route
+    becomes a Force job there (``routes.force_only_route``), and every later
+    stage reads that same geometry from the checkpoint.
+    """
+    if higher_order_policy not in HIGHER_ORDER_POLICIES:
+        raise ValueError(f"higher-order policy must be one of {HIGHER_ORDER_POLICIES}")
+    geometry = record_geometry(record)
+    policy = geometry["route_policy"]
+    if policy == "fixed_geometry" or (policy == "higher_order" and higher_order_policy == "force"):
+        return force_only_route(route), geometry
+    if policy == "higher_order":
+        searched, order = higher_order_saddle_route(record, route)
+        geometry["requested_saddle_order"] = str(order)
+        return searched, geometry
+    return route, geometry
+
+
 def render_ladder_input(
     record: Record,
     high_spin: int,
@@ -396,8 +433,10 @@ def render_ladder_input(
     memory: str = "16GB",
     nproc: int = 16,
     provenance: str = "",
+    higher_order_policy: str = "force",
 ) -> tuple[str, list[dict[str, str]]]:
     """Render a checkpoint-preserving one-spin-flip-at-a-time Link1 ladder."""
+    route, geometry = record_stage_route(record, route, higher_order_policy)
     sequence = multiplicity_ladder(high_spin, targets)
     for multiplicity in sequence:
         validate_multiplicity(record, multiplicity)
@@ -468,6 +507,7 @@ def render_ladder_input(
             "fragment_label": "",
             "fragment_count": "",
             "fragment_spec_sha256": "",
+            **geometry,
         })
         previous_checkpoint = checkpoint
         previous_job_id = job_id
@@ -597,7 +637,9 @@ def render_fragment_input(
     route: str = DEFAULT_SPIN_ROUTE,
     memory: str = "16GB",
     nproc: int = 16,
+    higher_order_policy: str = "force",
 ) -> tuple[str, dict[str, str]]:
+    route, geometry = record_stage_route(record, route, higher_order_policy)
     target = int(specification["target_multiplicity"])
     validate_multiplicity(record, target)
     atom_map, states = _validated_fragments(record, specification)
@@ -605,7 +647,14 @@ def render_fragment_input(
     job_id = f"{record.record_id}-fragment-{label}-m{target}"
     checkpoint = f"{job_id}.chk"
     fragment_state = " ".join(f"{charge} {multiplicity}" for charge, multiplicity in states)
-    fragment_route = _route_with(route, f"Guess=(Fragment={len(states)},Always)")
+    # Always regenerates the fragment guess at every optimization step. A
+    # fixed-geometry Force job takes no steps, and "Guess=Always" is exactly
+    # what its route must not carry.
+    fragment_guess = (
+        f"Guess=(Fragment={len(states)})" if route_search_kind(route) == "none"
+        else f"Guess=(Fragment={len(states)},Always)"
+    )
+    fragment_route = _route_with(route, fragment_guess)
     lines = _link_header(checkpoint, memory, nproc)
     lines.extend([
         fragment_route,
@@ -650,6 +699,7 @@ def render_fragment_input(
         "fragment_label": label,
         "fragment_count": str(len(states)),
         "fragment_spec_sha256": _canonical_sha256(specification),
+        **geometry,
     }
     return "\n".join(lines) + "\n", row
 
@@ -664,6 +714,7 @@ def write_spin_jobs(
     nproc: int = 16,
     fragment_specifications: list[dict] | None = None,
     strategy: str = "auto",
+    higher_order_policy: str = "force",
 ) -> int:
     if strategy not in {"auto", "ladder", "fragment", "both"}:
         raise ValueError("spin preparation strategy must be auto, ladder, fragment, or both")
@@ -691,7 +742,7 @@ def write_spin_jobs(
     # and geometries disagree; the saddle types need their own route.
     saddle_seeds = [
         record for record in high_spin_records
-        if intended_stationary_point(record.config_type) == "saddle"
+        if record_geometry(record)["route_policy"] == "saddle"
     ]
     if saddle_seeds and route_search_kind(route) != "saddle":
         preview = ", ".join(f"{record.record_id}:{record.config_type}" for record in saddle_seeds[:5])
@@ -736,7 +787,10 @@ def write_spin_jobs(
     for record in high_spin_records:
         readable = human_job_stem(record)
         if strategy in {"ladder", "both"}:
-            text, chain_rows = render_ladder_input(record, high_spin, requested_targets, route, memory, nproc)
+            text, chain_rows = render_ladder_input(
+                record, high_spin, requested_targets, route, memory, nproc,
+                higher_order_policy=higher_order_policy,
+            )
             filename = f"{readable}__spin-ladder-m{high_spin}-to-m{min(requested_targets)}.gjf"
             files.append((filename, text))
             for row in chain_rows:
@@ -745,7 +799,9 @@ def write_spin_jobs(
             rows.extend(chain_rows)
         if strategy in {"fragment", "both"}:
             for specification in specs_by_record.get(record.record_id, []):
-                text, row = render_fragment_input(record, specification, route, memory, nproc)
+                text, row = render_fragment_input(
+                    record, specification, route, memory, nproc, higher_order_policy
+                )
                 filename = (
                     f"{readable}__spin-fragment-{row['fragment_label']}"
                     f"-m{row['intended_multiplicity']}.gjf"
@@ -783,7 +839,7 @@ def write_spin_jobs(
     for row in rows:
         row["input_sha256"] = written_hashes[row["input"]]
     with (output / "spin_jobs.csv").open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=SPIN_MANIFEST_COLUMNS)
+        writer = csv.DictWriter(handle, fieldnames=SPIN_OUTPUT_COLUMNS)
         writer.writeheader()
         writer.writerows(rows)
     with (output / "skipped_spin_seeds.csv").open("w", newline="", encoding="utf-8") as handle:
@@ -813,6 +869,7 @@ def write_spin_jobs(
         "trusted_high_spin_seed_count": len(high_spin_records),
         "skipped_non_high_spin_seed_count": len(skipped_records),
         "route": route,
+        "higher_order_policy": higher_order_policy,
         "memory": memory,
         "nproc": nproc,
         "input_directory": str(input_directory),
@@ -845,6 +902,7 @@ def write_automatic_fe_spin_jobs(
     route: str = DEFAULT_SPIN_ROUTE,
     memory: str = "16GB",
     nproc: int = 16,
+    higher_order_policy: str = "force",
 ) -> int:
     """Prepare one data-inferred high-spin-to-archived-target ladder per Fe record."""
     inferred_plans, inferred_skipped = infer_automatic_fe_spin_plans(records)
@@ -900,6 +958,7 @@ def write_automatic_fe_spin_jobs(
             provenance=(
                 f"spin_plan_id={plan.plan_id}; high_spin_inference={plan.inference}"
             ),
+            higher_order_policy=higher_order_policy,
         )
         readable = human_job_stem(plan.record)
         filename = (
@@ -979,7 +1038,7 @@ def write_automatic_fe_spin_jobs(
     for row in rows:
         row["input_sha256"] = written_hashes[row["input"]]
     with (output / "spin_jobs.csv").open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=SPIN_MANIFEST_COLUMNS)
+        writer = csv.DictWriter(handle, fieldnames=SPIN_OUTPUT_COLUMNS)
         writer.writeheader()
         writer.writerows(rows)
     plan_columns = [
@@ -1048,6 +1107,7 @@ def write_automatic_fe_spin_jobs(
         ],
         "idealized_per_fe_high_spin_used": False,
         "route": route,
+        "higher_order_policy": higher_order_policy,
         "memory": memory,
         "nproc": nproc,
         "input_directory": str(input_directory),
@@ -1572,7 +1632,8 @@ def validate_spin_campaign(
             matched_new.add(index)
             spin_distance = spin_density_distance(legacy.diagnostics, current.diagnostics)
             s2_difference = s2_distance(legacy.diagnostics, current.diagnostics)
-            if not current.diagnostics.normal_termination or not current.diagnostics.optimized:
+            if not current.diagnostics.normal_termination or not (
+                    current.diagnostics.optimized or route_is_force_only(current.record.route)):
                 status = "new_calculation_incomplete"
             elif (
                 (spin_distance is not None and spin_distance > spin_tolerance)
@@ -1722,7 +1783,7 @@ def validate_spin_campaign(
                 row is not None
                 and diagnostic is not None
                 and diagnostic.normal_termination
-                and diagnostic.optimized
+                and (diagnostic.optimized or route_is_force_only(row.get("first_route", "")))
                 and predecessor_complete
                 and lineage_by_job.get(job_id) == "verified"
             )

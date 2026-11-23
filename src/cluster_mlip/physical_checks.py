@@ -70,6 +70,13 @@ def _sum_forces(forces: list[tuple[float, float, float]], indices: set[int]) -> 
     )
 
 
+def _stationary_role(frame: LabeledFrame) -> bool:
+    from .routes import STATIONARY_ROLES
+
+    role = str(frame.record.metadata.get("geometry_role", "") or "")
+    return not role or role in STATIONARY_ROLES
+
+
 def stationary_point_check(
     frames: list[LabeledFrame], predictions: list[Prediction], threshold_ev_ang: float = 1.0
 ) -> CheckResult:
@@ -84,12 +91,18 @@ def stationary_point_check(
     carries a large reference force, so scoring the model for predicting a
     near-zero force there penalizes it for being right. Only relaxed frames
     are stationary points.
+
+    A frame whose recorded ``geometry_role`` says it is not a verified
+    stationary point -- an IRC point, a path endpoint, or a higher-order
+    *candidate* labeled at its archived geometry -- is excluded for the same
+    reason, whatever its legacy ``config_type`` claims.
     """
     values = [
         _force_rms(pred_forces)
         for frame, (_, pred_forces) in zip(frames, predictions)
         if pes_region(frame.record.config_type) in ("minimum", "saddle")
         and displacement_class(frame.record.config_type) == "relaxed"
+        and _stationary_role(frame)
     ]
     if not values:
         return _no_data_result(

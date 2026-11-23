@@ -10,6 +10,7 @@ from typing import TypedDict
 
 from .gaussian import HARTREE_TO_EV, gaussian_job_complete, parse_final_force_frame
 from .models import LabeledFrame, geometry_signature
+from .routes import stage_is_force_only
 from .spin import SpinDiagnostics, parse_spin_diagnostics
 
 
@@ -55,6 +56,20 @@ def write_campaign_progress(campaign: Path, destination: Path | None = None) -> 
 
     rows: list[dict[str, object]] = []
     spin_cache: dict[Path, list[SpinDiagnostics]] = {}
+    input_cache: dict[Path, str] = {}
+
+    def force_only_stage(job: dict[str, str]) -> bool:
+        path = campaign / job.get("input", "")
+        if path not in input_cache:
+            input_cache[path] = (
+                path.read_text(encoding="utf-8", errors="ignore") if path.is_file() else ""
+            )
+        try:
+            stage = int(job.get("stage_index") or 0)
+        except ValueError:
+            return False
+        return stage_is_force_only(input_cache[path], stage)
+
     for job in jobs:
         output_name = job.get("output") or f"{job['job_id']}.log"
         stem = Path(output_name).stem
@@ -108,7 +123,8 @@ def write_campaign_progress(campaign: Path, destination: Path | None = None) -> 
 
         if duplicate_output:
             state = "ambiguous_duplicate_output"
-        elif spin_campaign and spin_diagnostic is not None and normal and spin_diagnostic.optimized:
+        elif spin_campaign and spin_diagnostic is not None and normal and (
+                spin_diagnostic.optimized or force_only_stage(job)):
             state = "complete"
         elif spin_campaign and spin_diagnostic is not None and normal:
             state = "terminated_not_optimized"

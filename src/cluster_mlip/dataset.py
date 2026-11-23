@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from .io import parse_extxyz_info_line, quote_extxyz
+from .local_spins import atomic_charge_values, atomic_spin_values
 from .models import Atom, LabeledFrame, Record
 from .stratify import classify_record, stratum_key
 
@@ -14,8 +15,17 @@ def write_labeled_extxyz(frames: list[LabeledFrame], path: Path) -> None:
     with path.open("w", encoding="utf-8") as handle:
         for frame in frames:
             rec = frame.record
+            # Local moments ride along as per-atom provenance columns after
+            # the forces; MACE ignores columns it is not asked to fit.
+            spins = atomic_spin_values(rec)
+            charges = atomic_charge_values(rec) if spins is not None else None
+            properties = "species:S:1:pos:R:3:REF_forces:R:3"
+            if spins is not None:
+                properties += ":mulliken_spin:R:1"
+                if charges is not None:
+                    properties += ":mulliken_charge:R:1"
             fields = [
-                "Properties=species:S:1:pos:R:3:REF_forces:R:3",
+                f"Properties={properties}",
                 f"record_id={quote_extxyz(rec.record_id)}",
                 f"source={quote_extxyz(rec.source)}",
                 f"formula={quote_extxyz(rec.formula)}",
@@ -33,10 +43,15 @@ def write_labeled_extxyz(frames: list[LabeledFrame], path: Path) -> None:
             if rec.metadata:
                 fields.append(f"metadata={quote_extxyz(json.dumps(rec.metadata, sort_keys=True))}")
             handle.write(f"{len(rec.atoms)}\n{' '.join(fields)}\n")
-            for atom, force in zip(rec.atoms, frame.forces_ev_ang):
+            for index, (atom, force) in enumerate(zip(rec.atoms, frame.forces_ev_ang)):
+                extra = ""
+                if spins is not None:
+                    extra += f" {spins[index]: .6f}"
+                    if charges is not None:
+                        extra += f" {charges[index]: .6f}"
                 handle.write(
                     f"{atom.symbol:3s} {atom.x: .12f} {atom.y: .12f} {atom.z: .12f} "
-                    f"{force[0]: .12f} {force[1]: .12f} {force[2]: .12f}\n"
+                    f"{force[0]: .12f} {force[1]: .12f} {force[2]: .12f}{extra}\n"
                 )
 
 
@@ -75,7 +90,10 @@ def read_labeled_extxyz(path: Path) -> list[LabeledFrame]:
 
 
 def _parent_group(frame: LabeledFrame) -> str:
-    return frame.record.metadata.get("parent_record_id", frame.record.record_id)
+    # `split_group` (set by collect) merges source records that share a
+    # starting geometry, so twins cannot straddle a split.
+    metadata = frame.record.metadata
+    return metadata.get("split_group") or metadata.get("parent_record_id", frame.record.record_id)
 
 
 def _stratum_take(n: int, fraction: float, available: int) -> int:

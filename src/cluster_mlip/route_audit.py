@@ -22,10 +22,25 @@ from pathlib import Path
 from typing import Any
 
 from .gaussian import gaussian_job_complete
-from .routes import FINDINGS, config_type_from_stem, geometry_source, inspect_job
+from .models import Record
+from .routes import (
+    FINDINGS,
+    GeometryRoleResolution,
+    config_type_from_stem,
+    geometry_source,
+    inspect_job,
+    recorded_saddle_order,
+    resolve_geometry_role,
+    running_search_route,
+)
 
 AUDIT_COLUMNS = [
-    "input", "batch", "job_ids", "config_type", "config_type_source", "intent",
+    "input", "batch", "job_ids", "config_type", "config_type_source",
+    # What the geometry is (routes.GEOMETRY_ROLES) and where that came from;
+    # "filename_fallback" marks a legacy row whose IRC origin is known only
+    # from its source name, so an operator can check it before relaunching.
+    "geometry_role", "geometry_role_source", "geometry_role_evidence",
+    "requested_saddle_order", "intent",
     "search_kinds", "executed_search_kinds", "state", "expected_imaginary_modes",
     "final_imaginary_modes", "severity", "must_relaunch", "findings",
     # How a relaunch would have to rebuild this job: an input carrying its own
@@ -90,6 +105,59 @@ def resolve_config_type(row: dict[str, str], input_name: str) -> tuple[str, str]
     return inferred, "filename" if inferred else "unavailable"
 
 
+def _source_name(row: dict[str, str], input_name: str) -> str:
+    """The archived source path of a job, or the source slug its filename encodes."""
+    source = (row.get("source") or "").strip()
+    if source:
+        return source
+    return Path(input_name).stem.split("__")[0]
+
+
+def resolve_row_geometry(
+    row: dict[str, str],
+    input_name: str,
+    config_type: str,
+    seeds: dict[str, Record] | None = None,
+    *,
+    running_route: str = "",
+) -> GeometryRoleResolution:
+    """A manifest row's geometry role: its own columns, then its seed record,
+    then its label and -- reported as ``filename_fallback`` -- its source name.
+
+    ``running_route`` is the input's current optimizing route; a saddle search
+    already running for the label keeps it (``running_saddle_search``).
+    """
+    recorded = {
+        key: (row.get(key) or "").strip()
+        for key in ("geometry_role", "geometry_role_source", "source_calculation_type")
+    }
+    if recorded["geometry_role"]:
+        return resolve_geometry_role(config_type, recorded)
+    seed = (seeds or {}).get((row.get("parent_record_id") or "").strip())
+    if seed is not None:
+        resolution = resolve_geometry_role(
+            seed.config_type, seed.metadata, source=seed.source, route=seed.route,
+            running_route=running_route,
+        )
+        if resolution["geometry_role_source"] not in ("config_type", "running_saddle_search"):
+            resolution["geometry_role_source"] = (
+                f"seed_record:{resolution['geometry_role_source']}"
+            )
+            return resolution
+    return resolve_geometry_role(
+        config_type, {}, source=_source_name(row, input_name),
+        route=(row.get("legacy_route") or "").strip(), running_route=running_route,
+    )
+
+
+def load_seed_records(seeds: Path | None) -> dict[str, Record]:
+    if seeds is None:
+        return {}
+    from .io import read_extxyz
+
+    return {record.record_id: record for record in read_extxyz(seeds)}
+
+
 def _job_state(output: Path, input_text: str) -> tuple[str, str]:
     if not output.is_file():
         return "not_started", ""
@@ -127,14 +195,20 @@ def audit_campaign_routes(
     *,
     include_inactive: bool = False,
     write_reports: bool = True,
+    seeds: Path | None = None,
 ) -> dict[str, Any]:
     """Audit every job's route intent; write CSV/JSON/Markdown reports.
 
     `write_reports=False` computes the audit without publishing anything, for
     callers that must not touch the campaign -- notably
     `relaunch-routes --dry-run`, which tells the operator nothing was written.
+
+    `seeds` is the extxyz the campaign was prepared from. Its records carry
+    the archived route and IRC markers, which identify an IRC-derived row far
+    better than the filename fallback a legacy manifest otherwise needs.
     """
     campaign = campaign.resolve()
+    seed_records = load_seed_records(seeds)
     manifest = find_manifest(campaign)
     _, manifest_rows = read_manifest(manifest)
     locations = batch_locations(campaign)
@@ -164,6 +238,11 @@ def audit_campaign_routes(
                 "reason": "no config_type in the manifest and none encoded in the filename",
             })
             continue
+        geometry = resolve_row_geometry(
+            group[0], input_name, config_type, seed_records,
+            running_route=running_search_route(input_text),
+        )
+        requested_order = recorded_saddle_order(group[0])
         declared_output = (group[0].get("output") or "").strip()
         output = next(
             (candidate for candidate in _candidate_outputs(
@@ -171,7 +250,12 @@ def audit_campaign_routes(
             None,
         )
         state, output_text = _job_state(output, input_text) if output else ("not_started", "")
-        verdict = inspect_job(config_type, input_text, output_text)
+        verdict = inspect_job(
+            config_type, input_text, output_text,
+            geometry_role=geometry["geometry_role"],
+            source_calculation_type=geometry["source_calculation_type"],
+            requested_saddle_order=requested_order,
+        )
         optimizing = verdict["optimizing_routes"]
         assert isinstance(optimizing, list)
         findings = verdict["findings"]
@@ -184,6 +268,11 @@ def audit_campaign_routes(
             "job_ids": ";".join(row.get("job_id", "") for row in group),
             "config_type": config_type,
             "config_type_source": label_source,
+            "geometry_role": geometry["geometry_role"],
+            "geometry_role_source": geometry["geometry_role_source"],
+            "geometry_role_evidence": geometry["evidence"],
+            "source_calculation_type": geometry["source_calculation_type"],
+            "requested_saddle_order": "" if requested_order is None else str(requested_order),
             "intent": verdict["intent"],
             "search_kinds": verdict["search_kinds"],
             "executed_search_kinds": verdict["executed_search_kinds"],
@@ -213,6 +302,17 @@ def audit_campaign_routes(
         "manifest": manifest.name,
         "inputs_audited": len(rows),
         "by_intent": dict(collections.Counter(row["intent"] for row in rows)),
+        "by_geometry_role": dict(collections.Counter(row["geometry_role"] for row in rows)),
+        # Rows whose IRC origin rests on a file name alone. Reported rather than
+        # silently trusted: this is the weakest evidence the audit accepts.
+        "geometry_role_filename_fallbacks": sum(
+            row["geometry_role_source"].endswith("filename_fallback") for row in rows
+        ),
+        # IRC-named rows whose running saddle search was kept rather than
+        # turned into a Force label -- the other half of the same decision.
+        "irc_named_saddle_searches_kept": sum(
+            row["geometry_role_source"].endswith("running_saddle_search") for row in rows
+        ),
         "by_severity": dict(collections.Counter(row["severity"] for row in rows)),
         "findings": dict(finding_counts),
         "must_relaunch": len(relaunch_rows),
@@ -274,6 +374,9 @@ def _report(campaign: Path, summary: dict[str, Any], rows: list[dict[str, Any]],
         f"- Inputs audited: {summary['inputs_audited']}",
         f"- Jobs whose results are invalid and must be relaunched: {summary['must_relaunch']}",
         f"- Of those, already finished (wasted allocation): {summary['completed_but_invalid']}",
+        "- Geometry roles: " + ", ".join(
+            f"{name}={count}" for name, count in sorted(summary["by_geometry_role"].items())
+        ),
         "",
         "## Findings",
         "",
@@ -313,13 +416,44 @@ def _report(campaign: Path, summary: dict[str, Any], rows: list[dict[str, Any]],
         lines += [
             "",
             "Relaunch these with `cluster-mlip relaunch-routes CAMPAIGN --dry-run` and then",
-            "without `--dry-run`. Each replacement rebuilds the corrected saddle search from",
-            "the *original input geometry*: the collapsed minimum an incorrect plain-Opt run",
-            "converged to is not a transition-state guess and is never used as the restart",
-            "geometry.",
+            "without `--dry-run`. Each replacement is rebuilt from the *original input",
+            "geometry*: the collapsed minimum an incorrect plain-Opt run converged to is",
+            "never used as the restart geometry. Reaction-path frames and higher-order",
+            "candidates become fixed-geometry Force labels at that geometry; saddle-labeled",
+            "frames get the corrected saddle search.",
         ]
     else:
         lines.append("None.")
+    fallbacks = [
+        row for row in rows if row["geometry_role_source"].endswith("filename_fallback")
+    ]
+    if fallbacks:
+        lines += [
+            "", "## Geometry roles inferred from file names", "",
+            "These rows carry no recorded geometry role and their seed record (if any)",
+            "does not show an IRC route, but their source name does. They are treated as",
+            "reaction-path frames; check the evidence before relaunching. Pass the",
+            "campaign's seeds file with `--seeds` to replace this fallback with the",
+            "archived route where it is available.", "",
+            "| Input | Label | Evidence |", "|---|---|---|",
+        ]
+        for row in fallbacks:
+            lines.append(
+                f"| `{row['input']}` | {row['config_type']} | `{row['geometry_role_evidence']}` |"
+            )
+    kept = [row for row in rows if row["geometry_role_source"].endswith("running_saddle_search")]
+    if kept:
+        lines += [
+            "", "## IRC-named rows kept as saddle searches", "",
+            "Their source name suggests an IRC, but the job already runs a saddle search",
+            "for its label (for example from the transition-state relaunch). They are left",
+            "alone; if they are in fact IRC frames, relabel them by hand.", "",
+            "| Input | Label | Evidence |", "|---|---|---|",
+        ]
+        for row in kept:
+            lines.append(
+                f"| `{row['input']}` | {row['config_type']} | {row['geometry_role_evidence']} |"
+            )
     if summary["unreadable"]:
         lines += ["", "## Not audited", "", "| Input | Reason |", "|---|---|"]
         for item in summary["unreadable"]:

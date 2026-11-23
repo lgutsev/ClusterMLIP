@@ -7,6 +7,16 @@ import re
 from pathlib import Path
 
 from .models import Atom, LabeledFrame, Record, geometry_signature
+from .routes import (
+    geometry_role_for_config_type,
+    irc_direction_from_name,
+    irc_name_evidence,
+    route_has_frequency,
+    route_has_irc,
+    route_keyword_options,
+    route_optimizes,
+    route_search_kind,
+)
 
 
 HARTREE_TO_EV = 27.211386245988
@@ -50,6 +60,31 @@ _MULLIKEN_ROW_RE = re.compile(
     r"(?:[EeDd][+-]?\d+)?\s+([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[EeDd][+-]?\d+)?)\s*$",
     re.M,
 )
+_NUMBER = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[EeDd][+-]?\d+)?"
+# Same rows as _MULLIKEN_ROW_RE, keeping the charge column as well.
+_MULLIKEN_CHARGE_SPIN_ROW_RE = re.compile(
+    rf"^\s*(\d+)\s+([A-Z][a-z]?)\s+({_NUMBER})\s+({_NUMBER})\s*$", re.M
+)
+# Older Gaussian revisions print spins in their own one-column table.
+_MULLIKEN_SPIN_ONLY_RE = re.compile(
+    r"Mulliken\s+atomic\s+spin\s+densities:(.*?)(?:Sum\s+of\s+Mulliken|\n\s*\n)", re.I | re.S
+)
+_MULLIKEN_VALUE_ROW_RE = re.compile(rf"^\s*(\d+)\s+([A-Z][a-z]?)\s+({_NUMBER})\s*$", re.M)
+# With IOP(5/13=1) an unconverged SCF prints a warning, then "SCF Done", and
+# the optimization carries on: the frame parses, but its label is not a
+# converged-density energy/force.
+_SCF_NOT_CONVERGED_RE = re.compile(
+    r">>>>>>>>>>\s*Convergence criterion not met"
+    r"|Convergence failure\s*--\s*run terminated"
+    r"|SCF has not converged"
+    r"|Convergence criteri(?:on|a) not (?:met|satisfied)",
+    re.I,
+)
+_SECTION_END_RE = re.compile(r"Normal termination of Gaussian|Error termination", re.I)
+# A population table printed after the force table (the final analysis of a
+# converged optimization) is attached only if every geometry printed in
+# between is this frame's geometry.
+_SPIN_GEOMETRY_TOLERANCE_ANG = 1e-4
 
 
 def _float(value: str) -> float:
@@ -95,9 +130,14 @@ def _orientation_tables(text: str) -> list[tuple[int, int, list[Atom], str]]:
 def _routes(text: str) -> list[tuple[int, str]]:
     results: list[tuple[int, str]] = []
     for match in re.finditer(r"^\s*#([^\n\r]*(?:[\n\r]+\s+[^\n\r#-][^\n\r]*){0,6})", text, re.M):
-        route = " ".join(part.strip() for part in match.group(0).splitlines())
+        # The echo is cut at a fixed width, mid-word, and every line carries a
+        # one-space prefix: drop the prefix and concatenate (as
+        # label_levels.route_echoes does). Joining with a space would turn
+        # "INT=UltraF" + "ine" into two tokens and hide the grid.
+        lines = [line for line in match.group(0).splitlines() if line.strip()]
+        route = "".join(line[1:] if line.startswith(" ") else line for line in lines)
         route = re.split(r"\s*-{10,}", route)[0].strip()
-        if route.lstrip().startswith("##"):
+        if route.lstrip().startswith("##") or _IRC_SUMMARY_LINE_RE.match(route):
             continue
         results.append((match.start(), route))
     return results
@@ -119,26 +159,207 @@ def _imaginary_count(text: str, start: int, end: int) -> int | None:
     return sum(value < -1.0 for value in values) if values else None
 
 
+_IRC_PATH_DONE_RE = re.compile(r"Calculation of (FORWARD|REVERSE) path complete", re.I)
+_IRC_ALL_DONE_RE = re.compile(r"Reaction path calculation complete", re.I)
+_IRC_PATH_BOUNDARY_RE = re.compile(
+    r"Calculation of (?:FORWARD|REVERSE) path complete|"
+    r"Beginning calculation of the (?:FORWARD|REVERSE) path|"
+    r"Reaction path calculation complete",
+    re.I,
+)
+_IRC_REVERSE_START_RE = re.compile(r"Beginning calculation of the REVERSE path", re.I)
+# Gaussian 09/16 print the Point/Path summary *after* a point has converged,
+# followed by these lines; a log carrying them numbers each geometry by the
+# marker that closes it. Without them (a condensed or hand-edited log) the
+# marker is taken to introduce the geometry that follows it.
+_IRC_MARKER_AFTER_RE = re.compile(
+    r"Calculating another point on the path|#\s*OF\s+POINTS\s+ALONG\s+THE\s+PATH|"
+    r"Optimized point\s*#",
+    re.I,
+)
+_IRC_SUMMARY_LINE_RE = re.compile(r"#\s*OF\s+(?:POINTS|STEPS)\b")
+
+
+def _calculation_type(route: str) -> str:
+    """What kind of Gaussian job produced a frame, from its route."""
+    if not route:
+        return ""
+    if route_has_irc(route):
+        return "irc"
+    if route_optimizes(route):
+        return "optimization"
+    if route_has_frequency(route):
+        return "frequency"
+    return "single_point"
+
+
 def _classify(source: str, route: str, imag: int | None, irc: tuple[int, int] | None) -> str:
+    return _classify_with_evidence(source, route, imag, irc)[0]
+
+
+def _classify_with_evidence(
+    source: str, route: str, imag: int | None, irc: tuple[int, int] | None
+) -> tuple[str, str, str]:
+    """``(config_type, geometry_role_source, evidence)`` for one frame.
+
+    Evidence is ranked. An IRC route or Gaussian's own Point/Path markers are
+    decisive, and they come before the frequency count on purpose: a
+    frequency analysis at an IRC point is taken away from a stationary point,
+    so "several imaginary modes" there says nothing about a higher-order
+    saddle. An explicit TS route comes next. A file or folder name containing
+    ``irc`` is only a *fallback* -- it is reported as such, and it never
+    overrides a calculation that itself established a minimum.
+    """
     if irc is not None:
-        return "irc_forward" if irc[1] == 1 else "irc_reverse"
-    route_l = route.lower()
+        return ("irc_forward" if irc[1] == 1 else "irc_reverse",
+                "irc_point_marker", f"Point Number {irc[0]} Path Number {irc[1]}")
     filename = Path(source).stem.lower()
-    explicit_ts = bool(
-        re.search(r"(?:opt\s*=\s*\([^)]*\bts\b|\bqst[23]\b|\bsaddle\b)", route_l)
-        or re.search(r"(?:^|[_\-.])ts(?:[_\-.]|$)", filename)
-    )
-    if explicit_ts:
-        return "transition_state"
+    if route_search_kind(route) == "saddle":
+        return "transition_state", "route", route
+    # A TS name is explicit evidence too, and resolve_geometry_role never lets
+    # an "irc" name overturn a transition_state label -- the two must agree.
+    if re.search(r"(?:^|[_\-.])ts(?:[_\-.]|$)", filename):
+        return "transition_state", "filename", Path(source).name
+    name = irc_name_evidence(source)
+    optimized_minimum = route_optimizes(route) and imag == 0
+    if name and not optimized_minimum:
+        direction = irc_direction_from_name(source)
+        config_type = {"forward": "irc_forward", "reverse": "irc_reverse"}.get(
+            direction, "irc_point"
+        )
+        return config_type, "filename_fallback", name
     if imag == 1:
-        return "first_order_saddle"
+        return "first_order_saddle", "frequency_analysis", "1 imaginary mode"
     if imag is not None and imag > 1:
-        return "higher_order_saddle"
+        return "higher_order_saddle", "frequency_analysis", f"{imag} imaginary modes"
     if imag == 0:
-        return "minimum"
-    if "opt" in route_l:
-        return "optimized_unverified"
-    return "unknown"
+        return "minimum", "frequency_analysis", "0 imaginary modes"
+    if route_optimizes(route):
+        return "optimized_unverified", "route", route
+    return "unknown", "", ""
+
+
+def _irc_directions(route: str) -> set[str]:
+    """Directions an IRC route asked for; both when it does not restrict them."""
+    requested: set[str] = {
+        name for name in ("forward", "reverse") if name in route_keyword_options(route, "irc")
+    }
+    return requested or {"forward", "reverse"}
+
+
+def _irc_frame(
+    position: int,
+    calc_start: int,
+    markers: list[tuple[int, int, int]],
+    frame_positions: list[int],
+    boundaries: list[int],
+    reverse_starts: list[int],
+    marker_after: bool,
+) -> tuple[tuple[int, int] | None, str]:
+    """``((point, path) or None, frame kind)`` for one energy of an IRC calculation.
+
+    ``markers`` and ``frame_positions`` belong to this calculation only. The
+    first frame is the geometry the path starts from (kind ``ts``). With
+    Gaussian's own layout (``marker_after``) a geometry belongs to the point
+    whose marker *follows* it: the frame right before a marker is that point's
+    ``converged_point`` and earlier frames are its ``optimization_step``s; a
+    frame after the last marker of a path is an ``unconverged_step`` of the
+    next point, which the job never finished. In the marker-first layout the
+    nearest preceding marker numbers the frame (``path_point``).
+    """
+    first = bool(frame_positions) and position == frame_positions[0]
+
+    def crosses(start: int, end: int) -> bool:
+        return any(start < boundary < end for boundary in boundaries)
+
+    if not marker_after:
+        before = [marker for marker in markers if marker[0] < position]
+        if before and position - before[-1][0] < 100_000:
+            return (before[-1][1], before[-1][2]), "path_point"
+        return None, "ts" if first else "unnumbered_step"
+    if first:
+        return None, "ts"
+    closing = next((marker for marker in markers if marker[0] > position), None)
+    if closing is not None and not crosses(position, closing[0]):
+        later = any(position < other < closing[0] for other in frame_positions)
+        return (closing[1], closing[2]), "optimization_step" if later else "converged_point"
+    previous = next((marker for marker in reversed(markers) if marker[0] < position), None)
+    if previous is not None and not crosses(previous[0], position):
+        return (previous[1] + 1, previous[2]), "unconverged_step"
+    path = 2 if any(calc_start < start < position for start in reverse_starts) else 1
+    return (1, path), "unconverged_step"
+
+
+def _irc_direction(route: str, path_number: int | None) -> str:
+    """Gaussian numbers the forward path 1 and the reverse path 2.
+
+    A one-directional IRC has a single path, which is the requested one
+    whatever number Gaussian printed for it.
+    """
+    requested = _irc_directions(route)
+    if len(requested) == 1:
+        return next(iter(requested))
+    if path_number is None:
+        return ""
+    return "forward" if path_number == 1 else "reverse"
+
+
+def _irc_metadata(
+    text: str,
+    route: str,
+    irc: tuple[int, int] | None,
+    irc_markers: list[tuple[int, int, int]],
+    parent_record_id: str,
+    source: str,
+    kind: str = "path_point",
+) -> dict[str, object]:
+    """Path provenance for one frame of an IRC calculation.
+
+    ``irc_path_position`` is ``ts`` for the geometry the path starts from,
+    ``endpoint`` for the last point of a path Gaussian reports as complete,
+    and ``intermediate`` otherwise -- including the last point of a path cut
+    short, which is not a path end.
+    """
+    if irc is None:
+        return {
+            "source_calculation_type": "irc",
+            "irc_direction": "",
+            "irc_path_position": "ts",
+            "irc_frame_kind": "ts",
+            "irc_parent_source": source,
+        }
+    point, path = irc
+    direction = _irc_direction(route, path)
+    last_point = max((p for _, p, n in irc_markers if n == path), default=point)
+    completed = {match.group(1).lower() for match in _IRC_PATH_DONE_RE.finditer(text)}
+    if _IRC_ALL_DONE_RE.search(text):
+        completed |= {"forward", "reverse"}
+    position = (
+        "endpoint"
+        if kind in ("converged_point", "path_point")
+        and point == last_point and direction in completed
+        else "intermediate"
+    )
+    return {
+        "source_calculation_type": "irc",
+        "irc_direction": direction,
+        "irc_path_number": path,
+        "irc_path_position": position,
+        "irc_frame_kind": kind,
+        "irc_parent_record_id": parent_record_id,
+        "irc_parent_source": source,
+    }
+
+
+def _geometry_role(config_type: str, metadata: dict[str, object]) -> str:
+    position = metadata.get("irc_path_position")
+    if position == "ts":
+        return "transition_state"
+    if position == "endpoint":
+        return "reaction_path_endpoint"
+    if position == "intermediate":
+        return "irc_point"
+    return geometry_role_for_config_type(config_type)
 
 
 def _geometry_hash(atoms: list[Atom]) -> str:
@@ -163,9 +384,21 @@ def extract_records(text: str, source: str) -> list[Record]:
         # Preserve the last geometry from each charge/multiplicity section even if
         # its energy summary was not retained in the legacy document.
         candidates = [(end, None) for _, end, _, _ in tables]
+    scf_positions = [p for p, _, kind in energies if kind == "SCF"]
+    boundaries = [m.start() for m in _IRC_PATH_BOUNDARY_RE.finditer(text)]
+    reverse_starts = [m.start() for m in _IRC_REVERSE_START_RE.finditer(text)]
+    marker_after = _IRC_MARKER_AFTER_RE.search(text) is not None
+    route_starts = [p for p, _ in routes]
 
     records: list[Record] = []
     seen: set[tuple] = set()
+    # The first frame of each IRC calculation is the geometry the path starts
+    # from; its record id is the parent every later path point refers to.
+    irc_origins: dict[int, str] = {}
+    # One record per printed geometry within an IRC: the archive summary's
+    # HF= energy re-describes the last geometry and must not become a phantom
+    # "next point".
+    irc_tables: set[int] = set()
     for position, energy in candidates:
         table = _last_before(tables, position + 1)
         if table is None:
@@ -178,13 +411,59 @@ def extract_records(text: str, source: str) -> list[Record]:
         charge, multiplicity = (cm[1], cm[2]) if cm else (0, 1)
         route_item = _last_before(routes, position + 1)
         route = route_item[1] if route_item else ""
-        irc_item = _last_before(ircs, position + 1)
+        route_key = route_item[0] if route_item else -1
+        # Markers and frames of *this* calculation: a marker left over from an
+        # IRC in an earlier Link1 step does not make a later calculation a
+        # path point.
+        calc_end = min((p for p in route_starts if p > route_key), default=len(text) + 1)
+        calc_markers = [m for m in ircs if route_key < m[0] < calc_end]
+        irc_calculation = route_has_irc(route) or bool(calc_markers)
         irc = None
-        if irc_item is not None and position - irc_item[0] < 100_000:
-            irc = (irc_item[1], irc_item[2])
+        frame_kind = ""
+        if irc_calculation:
+            if t_start in irc_tables:
+                continue
+            irc, frame_kind = _irc_frame(
+                position, route_key, calc_markers,
+                [p for p in scf_positions if route_key < p < calc_end] or [position],
+                boundaries, reverse_starts, marker_after,
+            )
         next_boundary = min((p for p, *_ in cms if p > t_end), default=position + 200_000)
         imag = _imaginary_count(text, t_end, min(next_boundary, position + 200_000))
-        config_type = _classify(source, route, imag, irc)
+        config_type, role_source, evidence = _classify_with_evidence(source, route, imag, irc)
+        irc_metadata: dict[str, object] = {}
+        if irc_calculation:
+            role_source = "irc_point_marker" if calc_markers else "irc_route"
+            if irc is None and frame_kind == "ts":
+                config_type = "transition_state"
+                evidence = route
+                irc_metadata = _irc_metadata(text, route, None, calc_markers, "", source)
+            elif irc is None:
+                # A path frame nothing numbers: the marker-first layout with
+                # no marker before it.
+                config_type = "irc_point"
+                evidence = route
+                irc_metadata = {
+                    "source_calculation_type": "irc", "irc_direction": "",
+                    "irc_path_position": "intermediate", "irc_frame_kind": frame_kind,
+                    "irc_parent_record_id": irc_origins.get(route_key, ""),
+                    "irc_parent_source": source,
+                }
+            else:
+                evidence = f"Point Number {irc[0]} Path Number {irc[1]}"
+                irc_metadata = _irc_metadata(
+                    text, route, irc, calc_markers, irc_origins.get(route_key, ""), source,
+                    frame_kind,
+                )
+                # The label follows the direction the route asked for, not
+                # just the path number Gaussian printed for a one-way IRC.
+                direction = irc_metadata.get("irc_direction")
+                config_type = f"irc_{direction}" if direction in ("forward", "reverse") else (
+                    "irc_forward" if irc[1] == 1 else "irc_reverse")
+            irc_metadata["irc_marker_layout"] = (
+                "marker_after_point" if marker_after else "marker_before_point"
+            )
+            irc_tables.add(t_start)
         state_item = _last_before(states, position + 1)
         state = state_item[1] if state_item and position - state_item[0] < 100_000 else ""
         geom_hash = _geometry_hash(atoms)
@@ -194,6 +473,25 @@ def extract_records(text: str, source: str) -> list[Record]:
         seen.add(key)
         seed = f"{source}|{geom_hash}|{charge}|{multiplicity}|{config_type}|{irc}"
         rec_id = hashlib.sha1(seed.encode()).hexdigest()[:20]
+        if irc_metadata.get("irc_path_position") == "ts":
+            irc_origins.setdefault(route_key, rec_id)
+        metadata: dict[str, object] = {"orientation": orientation}
+        metadata.update(irc_metadata)
+        metadata.setdefault("source_calculation_type", _calculation_type(route))
+        metadata.update({
+            "geometry_role": _geometry_role(config_type, metadata),
+            "geometry_role_source": role_source,
+            "geometry_role_evidence": evidence,
+            "original_charge": charge,
+            "original_multiplicity": multiplicity,
+        })
+        if role_source == "filename_fallback":
+            metadata["source_calculation_type"] = "irc"
+            metadata.setdefault("irc_direction", {
+                "irc_forward": "forward", "irc_reverse": "reverse",
+            }.get(config_type, ""))
+            metadata.setdefault("irc_path_position", "")
+            metadata.setdefault("irc_parent_source", source)
         records.append(Record(
             record_id=rec_id,
             source=source,
@@ -207,7 +505,7 @@ def extract_records(text: str, source: str) -> list[Record]:
             irc_point=irc[0] if irc else None,
             irc_path=irc[1] if irc else None,
             electronic_state=state,
-            metadata={"orientation": orientation},
+            metadata=metadata,
         ))
     return records
 
@@ -349,18 +647,38 @@ def extract_formatted_checkpoint(text: str, source: str) -> list[Record]:
     config_type = "checkpoint_geometry"
     irc_path = None
     irc_point = None
-    if re.search(r"(?:^|[_\-.])(?:ts|qst[23])(?:[_\-.]|$)|transition", filename):
-        config_type = "transition_state"
-    elif "irc" in filename:
-        if re.search(r"forward|fwd|(?:^|[_-])for(?:[_-]|$)", filename):
+    metadata: dict[str, object] = {
+        "format": "formatted_checkpoint",
+        "original_charge": charge,
+        "original_multiplicity": multiplicity,
+    }
+    # A checkpoint carries no route, so its name is the only IRC evidence.
+    # It is checked before the TS pattern: an IRC run's checkpoint holds the
+    # last point of the path, not the transition state it started from, even
+    # when the name mentions both.
+    irc_name = irc_name_evidence(Path(source).name)
+    if irc_name:
+        direction = irc_direction_from_name(filename)
+        if direction == "forward":
             config_type, irc_path = "irc_forward", 1
-        elif re.search(r"reverse|rev|backward|bwd", filename):
+        elif direction == "reverse":
             config_type, irc_path = "irc_reverse", 2
         else:
             config_type = "irc_checkpoint"
         point_match = re.search(r"(?:point|pt|step|p)[_-]?(\d+)", filename)
         if point_match:
             irc_point = int(point_match.group(1))
+        metadata.update({
+            "source_calculation_type": "irc",
+            "irc_direction": direction,
+            "irc_parent_source": source,
+            "geometry_role_source": "filename_fallback",
+            "geometry_role_evidence": irc_name,
+        })
+    elif re.search(r"(?:^|[_\-.])(?:ts|qst[23])(?:[_\-.]|$)|transition", filename):
+        config_type = "transition_state"
+        metadata["geometry_role_source"] = "filename"
+    metadata["geometry_role"] = geometry_role_for_config_type(config_type)
     geom_hash = _geometry_hash(atoms)
     seed = f"fchk|{source}|{geom_hash}|{charge}|{multiplicity}|{config_type}|{irc_point}"
     return [Record(
@@ -373,7 +691,7 @@ def extract_formatted_checkpoint(text: str, source: str) -> list[Record]:
         legacy_energy_hartree=_float(energy_raw.split()[0]) if energy_raw else None,
         irc_path=irc_path,
         irc_point=irc_point,
-        metadata={"format": "formatted_checkpoint"},
+        metadata=metadata,
     )]
 
 
@@ -394,9 +712,32 @@ def extract_gaussian_input(text: str, source: str) -> list[Record]:
         return []
     route_items = _routes(text)
     route = route_items[0][1] if route_items else ""
-    config_type = _classify(source, route, None, None)
-    if "irc" in route.lower():
-        config_type = "irc_input_seed"
+    config_type, role_source, evidence = _classify_with_evidence(source, route, None, None)
+    metadata: dict[str, object] = {
+        "format": "gaussian_input",
+        "source_calculation_type": _calculation_type(route),
+        "original_charge": charge,
+        "original_multiplicity": multiplicity,
+    }
+    if route_has_irc(route):
+        # The geometry an IRC is started from: its transition state.
+        config_type, role_source, evidence = "irc_input_seed", "irc_route", route
+        metadata.update({
+            "irc_direction": ",".join(sorted(_irc_directions(route))),
+            "irc_path_position": "ts",
+            "irc_parent_source": source,
+        })
+    elif role_source == "filename_fallback":
+        metadata.update({
+            "source_calculation_type": "irc",
+            "irc_direction": irc_direction_from_name(evidence),
+            "irc_parent_source": source,
+        })
+    metadata.update({
+        "geometry_role": _geometry_role(config_type, metadata),
+        "geometry_role_source": role_source,
+        "geometry_role_evidence": evidence,
+    })
     geom_hash = _geometry_hash(atoms)
     seed = f"gaussian_input|{source}|{geom_hash}|{charge}|{multiplicity}|{config_type}"
     return [Record(
@@ -407,7 +748,7 @@ def extract_gaussian_input(text: str, source: str) -> list[Record]:
         multiplicity=multiplicity,
         config_type=config_type,
         route=route,
-        metadata={"format": "gaussian_input"},
+        metadata=metadata,
     )]
 
 
@@ -450,6 +791,88 @@ def gaussian_job_complete(text: str, expected_stages: int = 1) -> bool:
             normal += 1
             finished = True
     return normal >= expected_stages and finished
+
+
+def _mulliken_blocks(
+    text: str, start: int, end: int
+) -> list[tuple[int, list[tuple[int, str, float | None, float]]]]:
+    """Mulliken spin tables in ``text[start:end]`` as (position, rows).
+
+    Each row is (atom index, symbol, charge, spin); charge is None for the
+    older spin-only table.
+    """
+    blocks = []
+    for match in _MULLIKEN_SPIN_RE.finditer(text, start, end):
+        rows = [
+            (int(row.group(1)), row.group(2), _float(row.group(3)), _float(row.group(4)))
+            for row in _MULLIKEN_CHARGE_SPIN_ROW_RE.finditer(match.group(1))
+        ]
+        if rows:
+            blocks.append((match.start(), rows))
+    for match in _MULLIKEN_SPIN_ONLY_RE.finditer(text, start, end):
+        rows = [
+            (int(row.group(1)), row.group(2), None, _float(row.group(3)))
+            for row in _MULLIKEN_VALUE_ROW_RE.finditer(match.group(1))
+        ]
+        if rows:
+            blocks.append((match.start(), rows))
+    return sorted(blocks, key=lambda item: item[0])
+
+
+def _same_geometry(left: list[Atom], right: list[Atom], tolerance: float) -> bool:
+    return len(left) == len(right) and all(
+        a.symbol == b.symbol
+        and max(abs(a.x - b.x), abs(a.y - b.y), abs(a.z - b.z)) <= tolerance
+        for a, b in zip(left, right)
+    )
+
+
+def _frame_local_spins(
+    text: str,
+    tables: list[tuple[int, int, list[Atom], str]],
+    atoms: list[Atom],
+    orientation: str,
+    energy_end: int,
+    header_start: int,
+    header_end: int,
+    window_end: int,
+) -> dict[str, object]:
+    """The Mulliken charges/spins computed from this frame's SCF density.
+
+    A table between the SCF and the force table belongs to the step. A
+    converged optimization prints its full population analysis after the last
+    force table instead; that one is accepted only while no other SCF has run
+    and only if every geometry printed in between is this frame's. A table is
+    never borrowed from another step.
+    """
+    before = _mulliken_blocks(text, energy_end, header_start)
+    after = []
+    for position, rows in _mulliken_blocks(text, header_end, window_end):
+        between = [table for table in tables
+                   if header_end <= table[0] < position and table[3] == orientation]
+        if all(_same_geometry(table[2], atoms, _SPIN_GEOMETRY_TOLERANCE_ANG) for table in between):
+            after.append(rows)
+    if before:
+        rows, association = before[-1][1], "scf_step"
+    elif after:
+        rows, association = after[-1], "final_population_analysis"
+    else:
+        return {}
+    symbols = [atom.symbol for atom in atoms]
+    if [row[0] for row in rows] != list(range(1, len(atoms) + 1)) or [row[1] for row in rows] != symbols:
+        return {"atomic_spin_association": "rejected_atom_mismatch"}
+    metadata: dict[str, object] = {
+        "atomic_spins": [[index, symbol, spin] for index, symbol, _, spin in rows],
+        "atomic_spin_method": "mulliken",
+        "atomic_spin_association": association,
+    }
+    if all(charge is not None for _, _, charge, _ in rows):
+        metadata["atomic_charges"] = [[index, symbol, charge] for index, symbol, charge, _ in rows]
+    if before and after:
+        metadata["atomic_spin_final_analysis_max_diff"] = max(
+            abs(a[3] - b[3]) for a, b in zip(before[-1][1], after[-1])
+        ) if len(after[-1]) == len(rows) else None
+    return metadata
 
 
 def parse_force_frames(text: str, source: Path, seed: Record | None = None) -> list[LabeledFrame]:
@@ -515,20 +938,28 @@ def parse_force_frames(text: str, source: Path, seed: Record | None = None) -> l
         record.multiplicity = multiplicity
         record.metadata.update({
             "force_frame_index": index, "orientation": orientation,
-            "scf_convergence_warning": "convergence failure" in
-                text[geometry_end:header.start()].lower(),
+            "scf_convergence_warning": _SCF_NOT_CONVERGED_RE.search(
+                text, geometry_end, header.start()
+            ) is not None,
         })
         electronic = text[energy.end():header.start()]
         s2 = list(_S2_RE.finditer(electronic))
         if s2:
             record.metadata["s2_before"] = _float(s2[-1].group(1))
             record.metadata["s2_after"] = _float(s2[-1].group(2))
-        spin_blocks = list(_MULLIKEN_SPIN_RE.finditer(electronic))
-        if spin_blocks:
-            record.metadata["atomic_spins"] = [
-                [int(match.group(1)), match.group(2), _float(match.group(3))]
-                for match in _MULLIKEN_ROW_RE.finditer(spin_blocks[-1].group(1))
-            ]
+        # This frame's SCF density lasts until the next SCF, the next Link1
+        # section (its charge/multiplicity line), or the end of this section.
+        window_end = min(
+            [match.start() for match in (
+                next((m for m in energies if m.start() > header.end()), None),
+                next((m for m in cms if m.start() > header.end()), None),
+                _SECTION_END_RE.search(text, header.end()),
+            ) if match is not None] or [len(text)]
+        )
+        record.metadata.update(_frame_local_spins(
+            text, tables, atoms, orientation,
+            energy.end(), header.start(), header.end(), window_end,
+        ))
         frames.append(LabeledFrame(record, energy_h * HARTREE_TO_EV, forces, source))
     return frames
 

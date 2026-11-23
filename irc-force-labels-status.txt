@@ -1,0 +1,19 @@
+ M README.md
+ M docs/gaussian-reference-workflow.md
+ M src/cluster_mlip/batch_progress.py
+ M src/cluster_mlip/cli.py
+ M src/cluster_mlip/gaussian.py
+ M src/cluster_mlip/io.py
+ M src/cluster_mlip/jobs.py
+ M src/cluster_mlip/physical_checks.py
+ M src/cluster_mlip/progress.py
+ M src/cluster_mlip/relaunch.py
+ M src/cluster_mlip/restart.py
+ M src/cluster_mlip/route_audit.py
+ M src/cluster_mlip/routes.py
+ M src/cluster_mlip/spin.py
+ M src/cluster_mlip/stratify.py
+ A tests/test_irc_force_labels.py
+ M tests/test_route_audit.py
+?? irc-force-labels-review.patch
+?? irc-force-labels-status.txt

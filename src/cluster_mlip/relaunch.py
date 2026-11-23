@@ -19,6 +19,16 @@ tool renamed out from under it and continue from the collapsed geometry, so
 instead the whole restart lineage is retired and the **root** ladder is rebuilt
 from its real coordinates, restoring the complete high-to-low pathway.
 
+Reaction-path frames and higher-order saddle candidates are repaired the other
+way round: not with a better search but with none. Their route becomes a
+fixed-geometry ``Force`` job at the original coordinates (``Opt`` replaced by
+``Force`` in place; ``Freq``, ``Stable`` and ``Guess=Always`` removed), and a
+ladder keeps its chain -- stage 0 reads the archived coordinates, every later
+stage ``%oldchk`` + ``Geom=Checkpoint`` + ``Guess=Read``, all of them ``Force``.
+``--path-point-policy`` and ``--higher-order-policy`` choose this; an
+``Opt=(Saddle=N)`` search for a higher-order candidate happens only when asked
+for with a known N.
+
 Everything happens in place, in the campaign's existing batch folders, so the
 saved Slurm batch map stays valid and the campaign is resubmitted with the same
 head launcher. Nothing is ever deleted. ``_preflight`` refuses any plan that
@@ -41,15 +51,24 @@ from typing import Any
 from .io import write_text_lf
 from .route_audit import audit_campaign_routes, find_manifest, read_manifest
 from .routes import (
+    FINDINGS,
+    GEOMETRY_COLUMNS,
+    MUST_RELAUNCH,
     corrected_cartesian_route,
     corrected_minimum_route,
     corrected_saddle_route,
+    force_only_route,
     geometry_source,
     input_is_zmatrix,
+    input_stage_routes,
     route_optimizes,
+    route_search_kind,
     route_uses_cartesian,
     stage_route,
 )
+
+PATH_POINT_POLICIES = ("force", "skip")
+HIGHER_ORDER_POLICIES = ("force", "saddle-search")
 
 _LINK1_SPLIT_RE = re.compile(r"(^\s*--\s*link1\s*--\s*$)", re.IGNORECASE | re.MULTILINE)
 _CHK_RE = re.compile(r"^(\s*%(?:old)?chk\s*=\s*)(\S+)\s*$", re.IGNORECASE | re.MULTILINE)
@@ -66,11 +85,14 @@ RELAUNCH_COLUMNS = [
 ]
 
 PLAN_COLUMNS = [
-    "attempt", "batch", "original_input", "new_input", "config_type", "findings",
+    "attempt", "batch", "original_input", "new_input", "config_type",
+    "geometry_role", "geometry_role_source", "route_policy", "repair",
+    "findings", "repair_reason",
     "previous_state", "geometry_source", "coordinate_system",
     "saddle_order", "saddle_order_source",
     "rebuilt_from", "retired_inputs",
-    "ladder_stages", "archived_output", "new_output", "route_before", "route_after",
+    "ladder_stages", "input_stages", "archived_output", "new_output",
+    "route_before", "route_after", "stage_routes_after",
     "checkpoints_renamed", "preserved_body_sha256",
 ]
 
@@ -130,6 +152,42 @@ def seed_saddle_orders(seeds: Path) -> dict[str, int]:
     return orders
 
 
+def _row_active(row: dict[str, str]) -> bool:
+    return (row.get("submission_active") or "").strip().lower() not in {"false", "0", "no"}
+
+
+def _attempt_rank(row: dict[str, str]) -> tuple[int, int]:
+    attempts = [
+        int(value) for key in ("restart_attempt", "relaunch_attempt")
+        if (value := (row.get(key) or "").strip()).isdigit()
+    ]
+    return (1 if _row_active(row) else 0, max(attempts, default=0))
+
+
+def _current_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    """One row per stage: the attempt at each stage that is listed to run now.
+
+    An input rerun in place (``prepare-spin-restarts --rerun-missing-
+    checkpoints``) keeps its archived attempt's rows under the same input
+    name. Rebuilding from all of them would describe a three-stage ladder as
+    six stages; the active attempt -- or, for an archived root, the latest
+    one -- is the ladder.
+    """
+    staged = [row for row in rows if (row.get("intended_multiplicity") or "").strip()]
+    if not staged:
+        active = [row for row in rows if _row_active(row)]
+        return active or rows[-1:]
+    best: dict[int, dict[str, str]] = {}
+    for row in staged:
+        try:
+            stage = int(row.get("stage_index") or 0)
+        except ValueError:
+            stage = 0
+        if stage not in best or _attempt_rank(row) >= _attempt_rank(best[stage]):
+            best[stage] = row
+    return [best[stage] for stage in sorted(best)]
+
+
 def _next_attempt(rows: list[dict[str, str]]) -> int:
     values: list[int] = []
     for row in rows:
@@ -174,6 +232,46 @@ def _rewrite_routes(
             before, after = route, corrected
         pieces[index] = _substitute_route(piece, route, corrected)
     return "".join(pieces), before, after
+
+
+def _rewrite_routes_force(text: str) -> tuple[str, str, str]:
+    """Turn every stage of an input into a fixed-geometry ``Force`` job.
+
+    Unlike ``_rewrite_routes`` this touches non-optimizing stages too: the
+    Link1 label stage of a flat job may carry ``Freq`` or ``Guess=Always``,
+    and a fixed-geometry label must carry neither. ``%chk``/``%oldchk``,
+    titles, charge/multiplicity lines and coordinates are left alone, so the
+    ladder's checkpoint chain is exactly the one it had.
+    """
+    pieces = _LINK1_SPLIT_RE.split(text)
+    before = after = ""
+    for index, piece in enumerate(pieces):
+        if _LINK1_SPLIT_RE.fullmatch(piece):
+            continue
+        route = stage_route(piece)
+        if not route:
+            continue
+        corrected = force_only_route(route)
+        if corrected == route:
+            continue
+        if not before:
+            before, after = route, corrected
+        pieces[index] = _substitute_route(piece, route, corrected)
+    return "".join(pieces), before, after
+
+
+def _repair_reason(findings: str, repair: str) -> str:
+    """One sentence per relaunch: the defect that forced it, and what replaces it."""
+    codes = [code for code in findings.split(";") if code]
+    primary = next((code for code in codes if code in MUST_RELAUNCH), codes[0] if codes else "")
+    explanation = FINDINGS[primary][2] if primary in FINDINGS else "route correction"
+    action = {
+        "fixed_geometry_force": "relaunched as a fixed-geometry Force label at the archived geometry",
+        "higher_order_saddle_search": "relaunched as an explicitly requested Opt=(Saddle=N) search",
+        "saddle_search": "relaunched with the corrected saddle search",
+        "minimum_search": "relaunched as a minimization",
+    }.get(repair, "relaunched with a corrected route")
+    return f"{primary}: {explanation}; {action}"
 
 
 def _substitute_route(section: str, route: str, corrected: str) -> str:
@@ -458,20 +556,52 @@ def prepare_route_relaunch(
     dry_run: bool = False,
     saddle_order: int | None = None,
     saddle_order_from: Path | None = None,
+    path_point_policy: str = "force",
+    higher_order_policy: str | None = None,
+    seeds: Path | None = None,
+    plan_output: Path | None = None,
 ) -> dict[str, Any]:
-    """Audit routes, then rebuild and activate corrected inputs in place."""
+    """Audit routes, then rebuild and activate corrected inputs in place.
+
+    ``higher_order_policy`` defaults to ``force`` -- a higher-order candidate
+    is labeled at its archived geometry -- unless ``saddle_order`` or
+    ``saddle_order_from`` is given, which is the explicit request for an
+    ``Opt=(Saddle=N)`` search that ``saddle-search`` names. ``seeds`` (or,
+    failing that, ``saddle_order_from``) lets the audit recognize IRC-derived
+    rows from their seed record's route rather than their file name.
+    ``plan_output`` additionally writes the plan CSV to that path; it is the
+    only thing a dry run writes, and only when asked.
+    """
+    if path_point_policy not in PATH_POINT_POLICIES:
+        raise ValueError(f"path-point policy must be one of {PATH_POINT_POLICIES}")
+    requested_search = saddle_order is not None or saddle_order_from is not None
+    # A policy given on this command line outranks one recorded on a row; the
+    # default does not, so a row whose earlier relaunch recorded an explicit
+    # requested_saddle_order keeps its search.
+    explicit_policy = higher_order_policy
+    if higher_order_policy is None:
+        higher_order_policy = "saddle-search" if requested_search else "force"
+    if higher_order_policy not in HIGHER_ORDER_POLICIES:
+        raise ValueError(f"higher-order policy must be one of {HIGHER_ORDER_POLICIES}")
+    if higher_order_policy == "force" and requested_search:
+        raise ValueError(
+            "--saddle-order/--saddle-order-from request an Opt=(Saddle=N) search, which "
+            "contradicts --higher-order-policy force"
+        )
     campaign = campaign.resolve()
     seed_orders = seed_saddle_orders(saddle_order_from) if saddle_order_from else {}
     manifest = find_manifest(campaign)
     # A dry run must leave the campaign byte-identical: publishing the audit
     # reports here would clobber the monitoring/ output an operator may still
     # be reading, while the CLI prints "nothing was written".
-    audit = audit_campaign_routes(campaign, write_reports=not dry_run)
+    audit = audit_campaign_routes(
+        campaign, write_reports=not dry_run, seeds=seeds or saddle_order_from
+    )
     candidates = audit["relaunch"]
     assert isinstance(candidates, list)
 
     original_fields, all_rows = read_manifest(manifest)
-    fields = list(dict.fromkeys(original_fields + RELAUNCH_COLUMNS))
+    fields = list(dict.fromkeys(original_fields + RELAUNCH_COLUMNS + GEOMETRY_COLUMNS))
     rows_by_input: dict[str, list[dict[str, str]]] = {}
     for row in all_rows:
         rows_by_input.setdefault((row.get("input") or "").strip(), []).append(row)
@@ -502,6 +632,7 @@ def prepare_route_relaunch(
         skipped.append({"input": row["input"], "batch": row["batch"], "reason": reason})
 
     for row in candidates:
+        notes: list[str] = []
         reference = row["input"]
         batch = batch_root / row["batch"] if row["batch"] else None
         if batch is not None:
@@ -511,26 +642,47 @@ def prepare_route_relaunch(
         elif final_batch:
             skip(row, "input is not listed in any batch inputs.txt")
             continue
-        manifest_group = rows_by_input.get(reference, [])
+        manifest_group = _current_rows(rows_by_input.get(reference, []))
+        # What replaces the job. A path frame, and a higher-order candidate by
+        # default, needs no search at all -- only its energy and forces at the
+        # archived geometry.
+        intent = row["intent"]
+        if intent == "fixed_geometry":
+            if path_point_policy == "skip":
+                skip(row, "reaction-path frame left as is (--path-point-policy skip)")
+                continue
+            repair = "fixed_geometry_force"
+        elif intent == "higher_order":
+            recorded_raw = (row.get("requested_saddle_order") or "").strip()
+            recorded = int(recorded_raw) if recorded_raw.isdigit() else None
+            if explicit_policy == "force":
+                repair = "fixed_geometry_force"
+                if recorded is not None:
+                    notes.append(
+                        f"--higher-order-policy force overrides the recorded "
+                        f"requested_saddle_order={recorded}"
+                    )
+            elif requested_search or recorded is not None or higher_order_policy == "saddle-search":
+                repair = "higher_order_saddle_search"
+            else:
+                repair = "fixed_geometry_force"
+        else:
+            repair = "saddle_search" if intent == "saddle" else "minimum_search"
         # A first-order search is right for transition_state and
         # first_order_saddle. higher_order_saddle only means "more than one
         # imaginary mode", so its order has to come from somewhere real.
         order, order_source = 1, "first_order"
-        if row["config_type"].removesuffix("_rattled") == "higher_order_saddle":
+        if repair == "fixed_geometry_force":
+            order, order_source = 0, "not_searched"
+        elif repair == "higher_order_saddle_search":
+            parent = (
+                (manifest_group[0].get("parent_record_id") or "").strip()
+                if manifest_group else ""
+            )
+            recovered = seed_orders.get(parent) if seed_orders else None
             if saddle_order is not None:
                 order, order_source = saddle_order, "explicit_saddle_order"
-            elif seed_orders:
-                parent = (
-                    (manifest_group[0].get("parent_record_id") or "").strip()
-                    if manifest_group else ""
-                )
-                recovered = seed_orders.get(parent)
-                if recovered is None:
-                    skip(row, (
-                        "higher_order_saddle whose seed record is not in the supplied "
-                        f"--saddle-order-from file (parent_record_id={parent or 'unknown'})"
-                    ))
-                    continue
+            elif recovered is not None:
                 if recovered < 2:
                     skip(row, (
                         f"labeled higher_order_saddle but its seed record reports "
@@ -539,6 +691,14 @@ def prepare_route_relaunch(
                     ))
                     continue
                 order, order_source = recovered, "seed_imaginary_frequencies"
+            elif recorded is not None:
+                order, order_source = recorded, "recorded_request"
+            elif seed_orders:
+                skip(row, (
+                    "higher_order_saddle whose seed record is not in the supplied "
+                    f"--saddle-order-from file (parent_record_id={parent or 'unknown'})"
+                ))
+                continue
             else:
                 skip(row, (
                     "higher_order_saddle: its imaginary-mode order is recorded in no "
@@ -599,7 +759,7 @@ def prepare_route_relaunch(
                 skip(row, f"root ladder input carries no coordinates either: {lineage_root}")
                 continue
             rebuild_from, rebuild_text = root_path, root_text
-            rebuild_rows = rows_by_input.get(lineage_root) or group
+            rebuild_rows = _current_rows(rows_by_input.get(lineage_root) or group)
         elif origin == "input_coordinates":
             rebuild_from, rebuild_text, rebuild_rows = source_input, active_text, group
         else:
@@ -623,7 +783,6 @@ def prepare_route_relaunch(
         new_input = rebuild_from.with_name(new_stem + rebuild_from.suffix)
 
         text = rebuild_text
-        intent = row["intent"]
         # A previous attempt that died in FormBX needs its coordinate system
         # changed as well as (or instead of) its search -- unless the input is
         # already a Z-matrix, which is itself a deliberate fix for a
@@ -633,10 +792,24 @@ def prepare_route_relaunch(
         # keep their internals and receive only the route correction.
         broke_coordinates = "internal_coordinate_failure" in row["findings"].split(";")
         zmatrix = input_is_zmatrix(rebuild_text)
-        cartesian = broke_coordinates and not zmatrix
-        rewritten, before, after = _rewrite_routes(text, intent, order, cartesian)
+        # A Force job takes no optimization step, so it never builds the
+        # internal coordinates that failed; there is nothing to move off.
+        cartesian = broke_coordinates and not zmatrix and repair != "fixed_geometry_force"
+        if repair == "fixed_geometry_force":
+            rewritten, before, after = _rewrite_routes_force(text)
+        else:
+            rewritten, before, after = _rewrite_routes(
+                text, "saddle" if repair.endswith("saddle_search") else "minimum",
+                order, cartesian,
+            )
         if not before:
-            if "internal_coordinate_failure_in_cartesian" in row["findings"]:
+            if repair == "fixed_geometry_force":
+                skip(row, (
+                    "input is already a fixed-geometry Force job, but its log came from an "
+                    f"optimizing route ({row['findings']}); archive that log by hand and "
+                    "rerun the input unchanged"
+                ))
+            elif "internal_coordinate_failure_in_cartesian" in row["findings"]:
                 skip(row, (
                     "coordinate system failed even in Cartesians; no route change can "
                     "fix this. Inspect the geometry -- a near-linear fragment usually "
@@ -716,6 +889,16 @@ def prepare_route_relaunch(
         checkpoint_renames = dict(
             entry.split("->", 1) for entry in renamed if "->" in entry
         )
+        stage_routes = input_stage_routes(rewritten)
+        geometry = {
+            "geometry_role": row["geometry_role"],
+            "geometry_role_source": row["geometry_role_source"],
+            "source_calculation_type": row.get("source_calculation_type", ""),
+            "route_policy": intent,
+            "requested_saddle_order": (
+                str(order) if repair == "higher_order_saddle_search" else ""
+            ),
+        }
 
         new_rows: list[dict[str, str]] = []
         for old_row in rebuild_rows:
@@ -741,8 +924,20 @@ def prepare_route_relaunch(
             })
             if old_row.get("job_id"):
                 new_row["job_id"] = f"{old_row['job_id']}-rf{attempt:02d}"
-            if "first_route" in new_row and new_row["first_route"]:
-                new_row["first_route"] = after
+            new_row.update(geometry)
+            # A spin row describes one Link1 stage, a flat row the whole job
+            # (first stage + Force label stage); either way the route columns
+            # name what the rebuilt input actually runs, stage by stage.
+            stage = int(old_row.get("stage_index") or 0) if old_row.get(
+                "intended_multiplicity") else 0
+            own_route = stage_routes[stage] if stage < len(stage_routes) else after
+            if new_row.get("first_route"):
+                new_row["first_route"] = own_route
+            if "route_search_kind" in new_row:
+                new_row["route_search_kind"] = route_search_kind(own_route)
+            if new_row.get("link1_route") and len(stage_routes) > 1 and not old_row.get(
+                    "intended_multiplicity"):
+                new_row["link1_route"] = stage_routes[1]
             new_rows.append(new_row)
 
         plan_row = {
@@ -751,7 +946,12 @@ def prepare_route_relaunch(
             "original_input": reference,
             "new_input": str(Path(lineage_root).with_name(new_input.name).as_posix()),
             "config_type": row["config_type"],
+            "geometry_role": row["geometry_role"],
+            "geometry_role_source": row["geometry_role_source"],
+            "route_policy": intent,
+            "repair": repair,
             "findings": row["findings"],
+            "repair_reason": "; ".join([_repair_reason(row["findings"], repair), *notes]),
             "previous_state": row["state"],
             "geometry_source": origin,
             "coordinate_system": (
@@ -759,17 +959,19 @@ def prepare_route_relaunch(
                 else "zmatrix_preserved" if zmatrix
                 else "unchanged"
             ),
-            "saddle_order": str(order),
+            "saddle_order": str(order) if order else "",
             "saddle_order_source": order_source,
             "rebuilt_from": lineage_root,
             "retired_inputs": ";".join(sorted(lineage_inputs)),
             "ladder_stages": str(len(new_rows)),
+            "input_stages": str(len(stage_routes)),
             "archived_output": (
                 str(archived_output.relative_to(campaign)) if archived_output else ""
             ),
             "new_output": f"{new_stem}.log",
             "route_before": before,
             "route_after": after,
+            "stage_routes_after": " || ".join(stage_routes),
             "checkpoints_renamed": ";".join(renamed),
             "preserved_body_sha256": _body_digest(rewritten),
         }
@@ -793,6 +995,13 @@ def prepare_route_relaunch(
     }
     problems = _preflight(campaign, actions, slurm_plan)
     result["launcher_problems"] = problems
+    result["policies"] = {
+        "path_point_policy": path_point_policy, "higher_order_policy": higher_order_policy,
+    }
+    if plan_output is not None:
+        plan_output.parent.mkdir(parents=True, exist_ok=True)
+        _write_csv(plan_output, PLAN_COLUMNS, [action.plan_row for action in actions])
+        result["plan_output"] = str(plan_output)
     if dry_run:
         return result
     # These report on the run, not on the mutation, so they are written even
@@ -856,6 +1065,7 @@ def prepare_route_relaunch(
         }
         active_input = action.audit_row["input"]
         for old_row in action.old_rows:
+            was_active = _row_active(old_row)
             old_row["submission_active"] = "false"
             old_row["route_invalidated"] = action.audit_row["findings"]
             old_row["superseded_by_job_id"] = replacement_by_job.get(
@@ -865,7 +1075,10 @@ def prepare_route_relaunch(
             # name. Earlier attempts in the lineage were already archived by
             # prepare-spin-restarts under their own names and still point at
             # the logs they actually produced.
-            if action.archived_output is not None and (
+            # An attempt archived in place under the same input name (a rerun)
+            # already points at its own archived log; only the rows that were
+            # active own the log this run archived.
+            if action.archived_output is not None and was_active and (
                     old_row.get("input") or "").strip() == active_input:
                 old_row["output"] = action.archived_output.name
         all_rows.extend(action.new_rows)

@@ -79,10 +79,23 @@ step in completed outputs, including optimization and IRC steps when their
 energy, geometry, and force tables are present. It does not infer forces from
 geometry-only archive records. `--frames converged` retains only the last force
 frame from a stage that both completed its optimization and terminated
-normally. Combine it with `--allow-partial` to recover those completed stages
-from an interrupted ladder; that combination rejects all force tables from the
-unfinished optimization. Retained frames record `source_job_complete`,
-`spin_stage_normal_termination`, and `spin_stage_optimized` in their metadata.
+normally. A fixed-geometry `Force` stage (an IRC frame or higher-order
+candidate, see below) has no optimization to complete: it is retained when it
+terminated normally with an `SCF Done` energy and a force table whose geometry
+matches the archived input coordinates (rotation- and translation-invariant,
+1e-3 A RMS); a Force stage whose atoms moved is rejected. Combine
+`--frames converged` with `--allow-partial` to recover completed stages from
+an interrupted *active* ladder; that combination rejects all force tables from
+the unfinished optimization. Completed stages of an *archived* attempt
+(inactive manifest rows left by `prepare-spin-restarts`, not invalidated) are
+recovered under `--frames converged` alone, and when an archived attempt and
+its rerun both finished the same stage only the active attempt's label is kept
+(the dropped duplicates are listed in `superseded_labels.tsv`). Outputs that
+`relaunch-routes` archived as `route_invalidated` are always rejected, even
+with `--allow-route-mismatch`. Retained frames record `source_job_complete`,
+`spin_stage_normal_termination`, `spin_stage_optimized`, `force_label_kind`
+(`optimization` or `fixed_geometry_force`) and, for Force stages,
+`fixed_geometry_check` in their metadata.
 
 Collection reads spin_jobs.csv, maps observed charge/multiplicity to an
 unambiguous stage, and retains checkpoint/plan/source provenance plus available
@@ -147,7 +160,13 @@ No regeneration of the campaign is required to use these commands.
 `--audit` additionally checks manifest hashes, CPU settings, contradictory
 Guess=(Read,Always), failed calculations, availability of final force labels,
 and whether each job's route searches for the stationary point its label
-claims. Audit errors produce exit code 2. SCF convergence warnings are
+claims. Audit errors produce exit code 2. Stage counts and input hashes are
+taken only from manifest rows whose `submission_active` is not false: an input
+rerun in place keeps its archived attempt's rows for provenance and label
+collection, and counting those as stages of the current input produced false
+"Number of Link1 stages differs from spin manifest" errors. A listed input
+whose rows are *all* inactive is reported as an error, since the batch would
+rerun an attempt the manifest no longer describes. SCF convergence warnings are
 reported without changing IOP settings or automatically rejecting labels.
 
 These are filesystem snapshots, not scheduler queries: `Active?` means a
@@ -188,8 +207,10 @@ back to the label encoded in the generated filename. Spin campaigns prepared
 before this change have no such column, so that fallback is the only label they
 have; the audit reports which source it used per row in `config_type_source`.
 Records whose curvature was never established (`warehouse_structure`,
-`optimized_unverified`, `checkpoint_geometry`, IRC points), and every rattled
-variant, are `unconstrained` and are never flagged.
+`optimized_unverified`, `checkpoint_geometry`), and every rattled variant, are
+`unconstrained` and are never flagged. IRC frames and higher-order saddle
+candidates are *not* unconstrained: see "IRC frames and higher-order saddle
+candidates" below.
 
 Preparation now refuses to create this state: `prepare` gives saddle-labeled
 seeds `Opt=(TS,CalcFC,NoEigenTest) Freq` and rejects a `--saddle-route` that is
@@ -261,9 +282,12 @@ do not pass it until `squeue` on QB3 confirms those jobs are gone.
 
 `transition_state` and `first_order_saddle` get `Opt=(TS,...)`. A
 `higher_order_saddle` label only says the archived log reported more than one
-imaginary mode, and `Opt=(Saddle=N)` needs the actual N, which no campaign
-manifest records. Rather than default them to a first-order search, they are
-skipped unless the order is supplied:
+imaginary mode -- often an artifact rather than a target: an IRC path point is
+not a stationary point at all, and a fragmenting structure has soft modes that
+register as imaginary. Such a record is a *higher-order candidate*, and by
+default it is relaunched as a fixed-geometry `Force` label at its archived
+geometry (next section). An `Opt=(Saddle=N)` search happens only on explicit
+request with a known N:
 
 ```bash
 cluster-mlip relaunch-routes "$W2" --saddle-order-from extracted/seeds.extxyz
@@ -272,19 +296,166 @@ cluster-mlip relaunch-routes "$W2" --saddle-order-from extracted/seeds.extxyz
 `extract` writes each record's `imaginary_frequencies` into the seeds extxyz,
 so this gives every record **its own** order, matched through the manifest's
 `parent_record_id`. `route_fix_plan.csv` records the `saddle_order` used and
-the `saddle_order_source` it came from. A record whose seed reports only one
-imaginary mode while the label says higher-order is skipped as a disagreement
-rather than silently resolved. `--saddle-order N` still forces one order for
-everything, which is only appropriate when they genuinely share it.
+the `saddle_order_source` it came from, and the rebuilt rows record it as
+`requested_saddle_order`, which is what later audits require before they
+accept a `Saddle=N` search on a higher-order candidate. A later
+`relaunch-routes` honours a recorded `requested_saddle_order` (plan
+`saddle_order_source=recorded_request`) unless `--higher-order-policy force` is
+given explicitly, in which case the override is stated in `repair_reason`. A record whose seed
+reports only one imaginary mode while the label says higher-order is skipped
+as a disagreement rather than silently resolved. `--saddle-order N` forces one
+order for everything, which is only appropriate when they genuinely share it.
+`--higher-order-policy force` together with either flag is refused as
+contradictory.
 
-Before running that, look at what these records are. A `higher_order_saddle`
-label is often an artifact rather than a target: an IRC path point is not a
-stationary point at all, and a dissociating or fragmenting structure has soft
-modes that register as imaginary. For those, an Nth-order saddle search is
-unlikely to be what anyone wants, and the useful alternative is to keep the
-geometry and take a single-point gradient instead -- which is what a rattled
-variant already does, and what makes a perfectly good MLIP training label.
-Filter them out of the relaunch and handle them deliberately.
+## IRC frames and higher-order saddle candidates
+
+An IRC frame is a fixed point along a reaction path, not a stationary point.
+Optimizing it -- `Opt`, `Opt=TS`, `Opt=(Saddle=N)` -- moves the atoms away from
+the archived geometry, so the resulting label no longer describes the frame;
+`Freq` there reports curvature that means nothing. What the MLIP needs is the
+DFT energy and forces at exactly the archived coordinates, which is a
+fixed-geometry `Force` job. A higher-order candidate is labeled the same way
+unless a saddle search is explicitly requested (above).
+
+**Geometry role.** Every record and manifest row now carries a
+`geometry_role` next to its `config_type`: `stationary_minimum`,
+`transition_state`, `irc_point`, `reaction_path_endpoint`,
+`higher_order_candidate` or `unconstrained_geometry`, with
+`geometry_role_source` saying where it came from. `extract` derives it from the
+IRC route and Gaussian's `Point Number/Path Number` markers *before* looking at
+any frequency count, so an IRC frame whose frequency analysis shows several
+imaginary modes is no longer classified `higher_order_saddle`. IRC frames also
+record `irc_direction`, the point index, `irc_path_position`
+(`ts`/`intermediate`/`endpoint`; the last point of a path is an endpoint only
+when Gaussian reports that path complete), `irc_parent_record_id` (the TS the
+path started from), `source_calculation_type=irc`, and the original charge and
+multiplicity.
+
+Gaussian 09 prints each `Point Number: N  Path Number: M` summary *after*
+point N has converged, followed by `# OF POINTS ALONG THE PATH` and
+`# OF STEPS` lines (the Warehouse 2 seeds carry those lines as the "route" of
+their IRC frames, which is how the old parser lost the IRC route). A geometry
+is therefore numbered by the marker that *closes* it: `irc_frame_kind` is
+`converged_point` for the geometry printed just before a marker,
+`optimization_step` for the constrained-optimization steps before it, `ts`
+for the first geometry of the calculation, and `unconverged_step` for steps of
+a point the job never finished. `# OF ...` lines are no longer read as
+routes. Logs without Gaussian's summary lines are read the other way round
+(marker introduces the geometry after it); `irc_marker_layout` records which
+layout a frame was read with. For legacy records the only surviving evidence is often the
+source file or folder name; `irc` in a name is used **only as an explicit
+fallback** (`geometry_role_source=filename_fallback`), never overrides a
+`transition_state` label or an established minimum, and is counted in the
+`extract`, `prepare`, `audit-routes` output and listed in `route_audit.md`.
+A `first_order_saddle` (or requested higher-order) row whose job already runs a
+saddle search -- for instance from the transition-state relaunch -- is kept as
+that search even when its source name mentions an IRC
+(`geometry_role_source=running_saddle_search`); those rows are counted and
+listed separately in `route_audit.md` so the decision stays visible.
+Pass the campaign's seeds file with `--seeds` to `audit-routes` or
+`relaunch-routes` to replace that fallback with the archived route where the
+seed record has one.
+
+**Routes.** A force-only root stage keeps the campaign protocol and replaces
+`Opt` with `Force` in place:
+
+```text
+#p UBPW91/6-311++G* SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc) NoSymm Force IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine Pop=Regular
+```
+
+and every later ladder stage reads the same geometry and its predecessor's
+orbitals from the checkpoint:
+
+```text
+#p UBPW91/6-311++G* SCF=(VShift=5,NoIncFock,MaxCyc=200,Tight,NoVarAcc) NoSymm Force IOP(5/13=1,5/36=1,8/11=1) Int=UltraFine Geom=Checkpoint Guess=Read Pop=Regular
+```
+
+Stage 0 reads the archived coordinates; stage k has `%oldchk` = stage k-1's
+`%chk`. `Freq`, `Stable`, `IRC` and `Guess=Always` are removed and never
+introduced (a fragment guess on a Force job is `Guess=(Fragment=N)` without
+`Always`). `prepare` and `prepare-spins` generate these routes automatically
+for IRC frames and, unless `--higher-order-policy saddle-search`, for
+higher-order candidates.
+
+**Audit rules** (`audit-routes`, `campaign-status --audit`, `collect`):
+
+| Geometry | Route | Verdict |
+|---|---|---|
+| IRC point / path endpoint | any `Opt` | `path_point_launched_as_optimization`: error, relaunch required |
+| IRC point / path endpoint | `Force` | valid |
+| IRC point / path endpoint | `Force` + `Freq`/`Stable`/`Guess=Always` | `path_point_route_has_extra_keywords`: warning, label usable |
+| higher-order candidate | ordinary `Opt` | `higher_order_launched_as_minimum_search`: error, relaunch required |
+| higher-order candidate | `Force` | valid MLIP label |
+| higher-order candidate | `Opt=(Saddle=N)` / `Opt=TS` | valid only with `requested_saddle_order` = N recorded; otherwise `higher_order_saddle_search_unrequested` |
+
+**Collection.** A Force label is accepted only if it can be checked against
+the archived input: coordinates must agree (1e-3 A RMS pair distance), or, for
+a Z-matrix input, the atom sequence. A checkpoint-seeded restart whose
+coordinate-bearing `restart_root_input` is missing is rejected rather than
+accepted unchecked.
+
+**Completion.** A normally terminated Force stage is complete: restarts
+(`prepare-spin-restarts`), `campaign-status`, the progress report and
+`validate-spins` no longer wait for an optimization-convergence marker that a
+Force job never prints. Optimization stages keep the converged-only rule.
+
+### Repairing an existing campaign (Warehouse 2)
+
+The audit of `gaussian_spin_qb3_g09_v3` found 13 active inputs labeled
+`higher_order_saddle` generated with ordinary `Opt`, six of them derived from
+IRC calculations. The repair runs in place with the same machinery as the TS
+relaunch above -- same batch folders, same `inputs.txt` slots, no new batch
+map:
+
+```bash
+W2=/ddnB/work/lgutsev/ClusterMLIP/campaigns/FenOm_Warehouse2/gaussian_spin_qb3_g09_v3
+SEEDS=/path/to/the/seeds.extxyz        # optional: archived routes instead of filename evidence
+
+# QB4 -- read-only picture first
+cluster-mlip audit-routes "$W2" --seeds "$SEEDS"
+cluster-mlip campaign-status "$W2" --audit --start 6 --end 130 --sbatch
+
+# QB3 -- nothing in 6-130 may still be running
+squeue -u "$USER"
+
+# QB4 -- plan (writes nothing but the plan CSV you point it at), then apply
+cluster-mlip relaunch-routes "$W2" --start 6 --end 130   --path-point-policy force --higher-order-policy force   --seeds "$SEEDS" --assume-stopped --dry-run   --plan-output "$HOME/w2_force_label_plan.csv"
+cluster-mlip relaunch-routes "$W2" --start 6 --end 130   --path-point-policy force --higher-order-policy force   --seeds "$SEEDS" --assume-stopped
+
+# QB4 -- re-audit; expect no route errors and no Link1-stage mismatches
+cluster-mlip campaign-status "$W2" --audit --start 6 --end 130 --sbatch
+
+# QB3 -- resubmit the same range with the existing head launcher
+bash "$W2/submit_gaussian_batches.sh" --start 6 --end 130
+```
+
+Omit `--seeds` if the seeds file is not at hand; the filename fallback then
+applies and every such row is flagged in the output. Read the dry run before
+applying: it relaunches **every** must-relaunch job in the range, not only
+these 13 -- including any IRC-typed input (`irc_forward`/`irc_reverse`) that
+was launched with `Opt`, which the old audit treated as unconstrained. The
+plan CSV (and `route_fix_plan.csv` after the real run) records per input the
+original and replacement input, `geometry_role` and its source, the `repair`,
+old and new route (`route_before`/`route_after`, plus every stage in
+`stage_routes_after`), the archived log, `ladder_stages`/`input_stages`, and a
+`repair_reason`.
+
+What the real run does, per input: archives a finished or partial log and its
+`.rc`/`.status`/`.started`/`.finished` markers in the same batch folder as
+`NAME__before-routefixNN.*`; keeps the old rows in the manifest as inactive
+provenance with `route_invalidated` set, so `collect` never ingests the
+ordinary-`Opt` results; rebuilds a checkpoint-seeded restart lineage from its
+coordinate-bearing root; renames every `%chk`/`%oldchk` consistently so the
+spin multiplicities and checkpoint chain are unchanged; and replaces the
+active entry in the existing `inputs.txt`. An input with an unmatched
+`.started` marker is refused unless `--assume-stopped` is given, and every
+override is reported. Completed valid jobs (minima, correct TS searches) are
+not touched. Afterwards, collect with:
+
+```bash
+cluster-mlip collect "$W2" -o "$(dirname "$W2")/dataset" --frames converged
+```
 
 ### Internal-coordinate failures (FormBX / Tors failed)
 
@@ -406,7 +577,8 @@ cluster-mlip audit-routes "$W2"
 
 First confirm on QB3 that the original allocations have stopped. The restart
 command works in place: it finds the first stage lacking both optimization
-completion and normal termination, archives that attempt's log and marker
+completion and normal termination (a fixed-geometry Force stage needs only the
+normal termination), archives that attempt's log and marker
 files in the same batch folder, copies its checkpoint there, and activates a
 new shortened input in that batch's existing `inputs.txt`.
 
@@ -424,7 +596,13 @@ cluster-mlip prepare-spin-restarts "$W2" \
 gone. The original input remains under `inputs/`; its interrupted log becomes
 `NAME__before-restartNN.log` beside the replacement run. Each seed copy is
 hashed in `spin_jobs.csv`; the new first stage uses `%oldchk` plus
-`Geom=Checkpoint Guess=Read` and writes a distinct `%chk`. Inspect
+`Geom=Checkpoint Guess=Read` and writes a distinct `%chk`. Its molecule
+specification is the charge/multiplicity line alone: when the interrupted
+stage is stage 0, the only stage with coordinates, those coordinates are
+removed, since Gaussian reads a `Geom=Checkpoint` stage's leftover atom lines
+as the next input section. The tool refuses to write any restart stage that
+reads `Geom=Checkpoint` and still carries coordinates, and
+`campaign-status --audit` reports an existing one as an error. Inspect
 `restart_plan.csv` for each original batch, first unfinished multiplicity,
 source checkpoint, and number of remaining stages. If the unfinished stage's
 checkpoint is absent, the tool can use the immediately preceding completed
@@ -445,7 +623,9 @@ cluster-mlip prepare-spin-restarts "$W2" \
 ```
 
 The archived log remains represented by inactive rows in `spin_jobs.csv`, so
-its converged stages remain available to `collect --frames converged`. The
+its converged stages remain available to `collect --frames converged` (without
+`--allow-partial`); once the rerun finishes the same stage, only the rerun's
+label is kept. The
 active cloned rows reuse the original input and output names; marker files are
 archived beside the old log before the rerun begins.
 
