@@ -222,6 +222,28 @@ def _rewrite_saddle_stage(section: str, *, oldchk: str, chk: str, stage: SaddleS
     return (section[:route_match.start()] + route + "\n".join(lines)).strip("\n")
 
 
+def _declared_checkpoints(input_text: str, rows: list[dict[str, str]]) -> list[str]:
+    """The checkpoint each stage of an input writes, by stage.
+
+    The input's own ``%chk`` lines are what Gaussian wrote to disk. The
+    manifest's ``checkpoint`` column can lag behind them: a route-fix relaunch
+    made before relaunch.py reseated its rows renamed ``%chk`` to
+    ``...-routefixNN.chk`` and left the manifest on the old names, where the
+    discarded pre-relaunch checkpoints still live. Reading the manifest name
+    then either finds nothing or finds the wrong run's file.
+
+    Falls back to the manifest names when the input cannot be matched to its
+    rows stage for stage.
+    """
+    declared = []
+    for section in _LINK1_RE.split(input_text):
+        match = _CHK_RE.search(section)
+        declared.append(match.group(0).split("=", 1)[1].strip() if match else "")
+    if len(declared) == len(rows) and all(declared):
+        return declared
+    return [row["checkpoint"] for row in rows]
+
+
 def _active(row: dict[str, str]) -> bool:
     return row.get("submission_active", "").strip().lower() not in {"false", "0", "no"}
 
@@ -364,8 +386,12 @@ def prepare_spin_restarts(
         if unfinished_index is None:
             skipped.append({"input": input_path, "batch": batch.name, "reason": "complete"})
             continue
-        current = batch / rows[unfinished_index]["checkpoint"]
-        predecessor_name = rows[unfinished_index].get("predecessor_checkpoint", "")
+        stage_checkpoints = _declared_checkpoints(input_text, rows)
+        current = batch / stage_checkpoints[unfinished_index]
+        predecessor_name = (
+            stage_checkpoints[unfinished_index - 1] if unfinished_index
+            else rows[unfinished_index].get("predecessor_checkpoint", "")
+        )
         candidates = [current] + ([batch / predecessor_name] if predecessor_name else [])
         source_checkpoint = next((
             candidate for candidate in candidates
@@ -476,9 +502,17 @@ def prepare_spin_restarts(
         new_input_name = restart_stem + source_input.suffix
         new_input = campaign / "inputs" / new_input_name
         archived_output = batch / f"{stem}__before-restart{attempt:02d}.log"
-        seed_name = f"{Path(rows[unfinished_index]['checkpoint']).stem}-seed-r{attempt:02d}.chk"
+        seed_name = f"{Path(stage_checkpoints[unfinished_index]).stem}-seed-r{attempt:02d}.chk"
         seed_checkpoint = batch / seed_name
-        for target in (new_input, archived_output, seed_checkpoint, batch / new_input_name):
+        # Named after the checkpoints this attempt wrote, so two attempts of
+        # one ladder never derive the same restart names.
+        new_checkpoints = [
+            f"{Path(name).stem}-r{attempt:02d}.chk" for name in stage_checkpoints[unfinished_index:]
+        ]
+        for target in (
+            new_input, archived_output, seed_checkpoint, batch / new_input_name,
+            *(batch / name for name in new_checkpoints),
+        ):
             if target.exists() or target.is_symlink():
                 raise FileExistsError(f"restart target already exists: {target}")
         seed_sha = _sha256(source_checkpoint)
@@ -490,7 +524,7 @@ def prepare_spin_restarts(
         lineage = ""
         for local_stage, (old_row, section) in enumerate(zip(remaining, sections[unfinished_index:])):
             multiplicity = int(old_row["intended_multiplicity"])
-            checkpoint = f"{Path(old_row['checkpoint']).stem}-r{attempt:02d}.chk"
+            checkpoint = new_checkpoints[local_stage]
             if local_stage == 0 and saddle_stage is not None:
                 new_sections.append(_rewrite_saddle_stage(
                     section, oldchk=prior_checkpoint, chk=checkpoint, stage=saddle_stage))
