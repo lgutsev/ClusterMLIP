@@ -551,6 +551,27 @@ class RelaunchTests(BrokenCampaign, unittest.TestCase):
                              'explicit_saddle_order')
             self.assertIn('Saddle=2', forced['plan'][0]['route_after'])
 
+    def test_an_implausible_seed_order_is_never_searched_for(self):
+        # 15 imaginary modes is a geometry far from any stationary point (an
+        # IRC frame the old extraction labeled by frequency count), not a
+        # 15th-order saddle.
+        with tempfile.TemporaryDirectory() as tmp:
+            root, _, _ = self.campaign(Path(tmp), config_type='higher_order_saddle')
+            record = _record('higher_order_saddle')
+            record.imaginary_frequencies = 15
+            seeds = Path(tmp) / 'seeds.extxyz'
+            write_extxyz([record], seeds)
+            plan = prepare_route_relaunch(root, dry_run=True, saddle_order_from=seeds)
+            self.assertEqual(plan['input_count'], 0)
+            self.assertIn('15 imaginary modes', plan['skipped'][0]['reason'])
+            self.assertIn('--higher-order-policy force', plan['skipped'][0]['reason'])
+            # Labeled at its archived geometry, it is handled like any other.
+            forced = prepare_route_relaunch(root, dry_run=True, higher_order_policy='force')
+            self.assertEqual(forced['input_count'], 1)
+            self.assertNotIn('Saddle=', forced['plan'][0]['route_after'])
+            with self.assertRaises(ValueError):
+                prepare_route_relaunch(root, dry_run=True, saddle_order=15)
+
     def test_seed_order_disagreeing_with_the_label_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
             root, _, _ = self.campaign(Path(tmp), config_type='higher_order_saddle')
