@@ -74,6 +74,12 @@ _LINK1_SPLIT_RE = re.compile(r"(^\s*--\s*link1\s*--\s*$)", re.IGNORECASE | re.MU
 _CHK_RE = re.compile(r"^(\s*%(?:old)?chk\s*=\s*)(\S+)\s*$", re.IGNORECASE | re.MULTILINE)
 _MARKER_SUFFIXES = (".status", ".rc", ".started", ".finished")
 
+# The highest saddle order an Opt=(Saddle=N) search is ever asked for. A seed
+# record can report many more imaginary modes (15 and 24 occur in Warehouse 2):
+# that is a frequency job on a geometry far from any stationary point, such as
+# an IRC point, and the count is not a search target.
+MAX_SADDLE_SEARCH_ORDER = 4
+
 RELAUNCH_COLUMNS = [
     "submission_active", "relaunch_attempt", "relaunch_reason", "relaunch_root_input",
     "relaunch_of_job_id", "relaunch_source_output", "relaunch_route_before",
@@ -584,6 +590,11 @@ def prepare_route_relaunch(
         higher_order_policy = "saddle-search" if requested_search else "force"
     if higher_order_policy not in HIGHER_ORDER_POLICIES:
         raise ValueError(f"higher-order policy must be one of {HIGHER_ORDER_POLICIES}")
+    if saddle_order is not None and not 2 <= saddle_order <= MAX_SADDLE_SEARCH_ORDER:
+        raise ValueError(
+            f"--saddle-order must be between 2 and {MAX_SADDLE_SEARCH_ORDER}; "
+            f"got {saddle_order}"
+        )
     if higher_order_policy == "force" and requested_search:
         raise ValueError(
             "--saddle-order/--saddle-order-from request an Opt=(Saddle=N) search, which "
@@ -709,6 +720,14 @@ def prepare_route_relaunch(
                     "campaign file. Pass --saddle-order-from SEEDS.extxyz to take each "
                     "record's own order from the archived log, or --saddle-order N to "
                     "force one"
+                ))
+                continue
+            if order > MAX_SADDLE_SEARCH_ORDER:
+                skip(row, (
+                    f"its recorded order is {order} imaginary modes ({order_source}): that "
+                    "is a geometry far from any stationary point, not a saddle to search "
+                    f"for (limit {MAX_SADDLE_SEARCH_ORDER}). Label it at its archived "
+                    "geometry instead (--higher-order-policy force)"
                 ))
                 continue
         source_input = campaign / reference
