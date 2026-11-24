@@ -59,6 +59,7 @@ from .route_audit import (
 )
 from .saddle_modes import export_campaign_saddle_modes
 from .saddle_triage import RECOMMENDATIONS, triage_campaign_saddles
+from .duplicates import find_duplicate_inputs
 from .hold import hold_inputs, read_input_list
 from .input_repair import repair_checkpoint_inputs
 from .routes import (
@@ -272,6 +273,26 @@ def command_audit(args: argparse.Namespace) -> int:
             f"{selected['unique_geometry_state']} unique geometry/state entries"
         )
     print(f"Private audit: {output}")
+    return 0
+
+
+def command_find_duplicate_inputs(args: argparse.Namespace) -> int:
+    summary = find_duplicate_inputs(
+        Path(args.campaign), Path(args.output), tolerance=args.tolerance,
+    )
+    print(f"Inputs audited: {summary['inputs_audited']}; not started: {summary['not_started']}")
+    print(f"Not-started duplicates: {summary['not_started_duplicates']} "
+          f"in {summary['groups']} group(s) (largest group: {summary['largest_group']}; "
+          f"tolerance {summary['tolerance_ang']} A)")
+    if summary["kept_by_state"]:
+        print("  the job kept instead is: " + ", ".join(
+            f"{state}={count}" for state, count in sorted(summary["kept_by_state"].items())))
+    for formula, count in list(summary["duplicates_by_formula"].items())[:12]:
+        print(f"  {count:5} {formula}")
+    skipped = sum(summary["not_comparable_by_state"].values())
+    if skipped:
+        print(f"Not compared (no Cartesian coordinates in the input or its root): {skipped}")
+    print(f"Wrote {Path(summary['destination']) / 'duplicate_inputs.tsv'}")
     return 0
 
 
@@ -2022,6 +2043,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     hold.add_argument("--dry-run", action="store_true")
     hold.set_defaults(func=command_hold_inputs)
+
+    duplicates = sub.add_parser(
+        "find-duplicate-inputs",
+        help="list not-started inputs that repeat another job (same atoms, charge/multiplicity "
+             "ladder, calculation kind and geometry); read-only, output feeds hold-inputs",
+    )
+    duplicates.add_argument("campaign", help="prepared Gaussian campaign")
+    duplicates.add_argument("-o", "--output", required=True, help="report directory")
+    duplicates.add_argument(
+        "--tolerance", type=float, default=0.02,
+        help="largest allowed difference between matching interatomic distances, in "
+             "Angstrom (default: 0.02)",
+    )
+    duplicates.set_defaults(func=command_find_duplicate_inputs)
 
     relaunch_routes = sub.add_parser(
         "relaunch-routes",
