@@ -58,6 +58,7 @@ from .route_audit import (
     row_is_active,
 )
 from .saddle_modes import export_campaign_saddle_modes
+from .saddle_restart import restart_saddles
 from .saddle_triage import RECOMMENDATIONS, triage_campaign_saddles
 from .duplicates import find_duplicate_inputs
 from .hold import hold_inputs, read_input_list
@@ -426,6 +427,47 @@ def command_triage_saddles(args: argparse.Namespace) -> int:
     return 0
 
 
+def _excluded(args: argparse.Namespace) -> set[str] | None:
+    listing = getattr(args, "exclude_inputs", None)
+    return set(read_input_list(Path(listing))) if listing else None
+
+
+def command_restart_saddles(args: argparse.Namespace) -> int:
+    result = restart_saddles(
+        Path(args.campaign), start=args.start, end=args.end,
+        max_step=args.max_step or None, assume_stopped=args.assume_stopped,
+        dry_run=args.dry_run, exclude_inputs=_excluded(args),
+    )
+    print("Started first-order saddles by triage: " + (", ".join(
+        f"{name}={count}" for name, count in
+        sorted(result["saddles_by_recommendation"].items(), key=lambda item: -item[1])
+    ) or "none"))
+    verb = "Would restart" if args.dry_run else "Restarted"
+    print(f"{verb} {result['input_count']} of {len(result['candidates'])} candidate(s) "
+          f"from their best frame, covering {result['stage_count']} stage(s)")
+    planned = {Path(row["archived_input"]).name: row for row in result["plan"]}
+    for item in result["candidates"]:
+        row = planned.get(item["input"])
+        if row is None:
+            continue
+        print(f"  {item['batch']} {item['input']}\n"
+              f"      frame {item['frame_index']} (max force {item['max_force_ev_ang']} eV/A, "
+              f"{item['index1_frames']} index-1 frame(s), ended: {item['termination']}), "
+              f"M={item['multiplicity']}"
+              + (", Cartesian" if row.get("saddle_cartesian") == "true" else "")
+              + f" -> {Path(row['new_input']).name}")
+    for item in result["not_chosen"]:
+        print(f"NOT CHOSEN {item['batch']} {item['input']}: {item['reason']}", file=sys.stderr)
+    for item in result["skipped"]:
+        print(f"SKIPPED {item['batch']} {Path(item['input']).name}: {item['reason']}",
+              file=sys.stderr)
+    if args.dry_run:
+        print("Dry run: nothing was written. Re-run without --dry-run to apply.")
+    elif result["backup"]:
+        print(f"Backup: {result['backup']}; plan appended to restart_plan.csv")
+    return 0
+
+
 def command_relaunch_routes(args: argparse.Namespace) -> int:
     result = prepare_route_relaunch(
         Path(args.campaign),
@@ -439,6 +481,7 @@ def command_relaunch_routes(args: argparse.Namespace) -> int:
         higher_order_policy=args.higher_order_policy,
         seeds=Path(args.seeds) if args.seeds else None,
         plan_output=Path(args.plan_output) if args.plan_output else None,
+        exclude_inputs=_excluded(args),
     )
     verb = "Would relaunch" if args.dry_run else "Relaunched"
     print(f"{verb} {result['input_count']} input(s), {result['job_row_count']} manifest row(s)")
@@ -1386,7 +1429,7 @@ def command_prepare_spin_restarts(args: argparse.Namespace) -> int:
         Path(args.campaign), start=args.start, end=args.end,
         assume_stopped=args.assume_stopped,
         rerun_missing_checkpoints=args.rerun_missing_checkpoints,
-        dry_run=args.dry_run,
+        dry_run=args.dry_run, exclude_inputs=_excluded(args),
     )
     print(
         f"Prepared {result['input_count']} recovery input(s) "
@@ -2108,7 +2151,36 @@ def build_parser() -> argparse.ArgumentParser:
              "file a --dry-run writes, and only when given",
     )
     relaunch_routes.add_argument("--dry-run", action="store_true")
+    relaunch_routes.add_argument(
+        "--exclude-inputs", metavar="FILE",
+        help="input names to leave alone, one per line (first column of a TSV/CSV)",
+    )
     relaunch_routes.set_defaults(func=command_relaunch_routes)
+
+    saddle_restarts = sub.add_parser(
+        "restart-saddles",
+        help="restart failed first-order saddle searches from the frame that came closest "
+             "to the saddle (one negative Hessian eigenvalue, smallest force)",
+    )
+    saddle_restarts.add_argument("campaign", help="prepared Gaussian spin campaign")
+    saddle_restarts.add_argument("--start", type=int, default=1, help="first batch (inclusive)")
+    saddle_restarts.add_argument("--end", type=int, help="last batch (inclusive)")
+    saddle_restarts.add_argument(
+        "--max-step", type=int, default=10,
+        help="Opt MaxStep for the restarted search, in 0.01 Bohr (default: 10; Gaussian's "
+             "own default is 30; 0 leaves it unset)",
+    )
+    saddle_restarts.add_argument(
+        "--assume-stopped", action="store_true",
+        help="proceed for inputs left with an unmatched .started marker; pass only after "
+             "squeue is clear on every cluster that sees the campaign",
+    )
+    saddle_restarts.add_argument(
+        "--exclude-inputs", metavar="FILE",
+        help="input names to leave alone, one per line (first column of a TSV/CSV)",
+    )
+    saddle_restarts.add_argument("--dry-run", action="store_true")
+    saddle_restarts.set_defaults(func=command_restart_saddles)
 
     prepare_spins = sub.add_parser(
         "prepare-spins",
@@ -2291,6 +2363,10 @@ def build_parser() -> argparse.ArgumentParser:
     restart_spins.add_argument(
         "--dry-run", action="store_true",
         help="report restart candidates without renaming or writing files",
+    )
+    restart_spins.add_argument(
+        "--exclude-inputs", metavar="FILE",
+        help="input names to leave alone, one per line (first column of a TSV/CSV)",
     )
     restart_spins.set_defaults(func=command_prepare_spin_restarts)
 

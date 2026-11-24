@@ -560,6 +560,7 @@ def prepare_route_relaunch(
     higher_order_policy: str | None = None,
     seeds: Path | None = None,
     plan_output: Path | None = None,
+    exclude_inputs: set[str] | None = None,
 ) -> dict[str, Any]:
     """Audit routes, then rebuild and activate corrected inputs in place.
 
@@ -634,6 +635,9 @@ def prepare_route_relaunch(
     for row in candidates:
         notes: list[str] = []
         reference = row["input"]
+        if exclude_inputs and Path(reference).name in exclude_inputs:
+            skipped.append({"input": reference, "batch": row["batch"], "reason": "excluded"})
+            continue
         batch = batch_root / row["batch"] if row["batch"] else None
         if batch is not None:
             number = int(batch.name[6:])
