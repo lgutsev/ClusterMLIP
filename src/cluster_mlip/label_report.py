@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import statistics
 from pathlib import Path
 from typing import Callable, TypedDict
@@ -82,6 +83,16 @@ def _stats_by_key(frames: list[LabeledFrame], key_fn: Callable[[LabeledFrame], s
     return rows
 
 
+def _mean_pair_distance(frame: LabeledFrame) -> float:
+    atoms = frame.record.atoms
+    total, pairs = 0.0, 0
+    for index, left in enumerate(atoms):
+        for right in atoms[index + 1:]:
+            total += math.dist((left.x, left.y, left.z), (right.x, right.y, right.z))
+            pairs += 1
+    return total / pairs if pairs else 0.0
+
+
 def _state_conflicts(
     frames: list[LabeledFrame],
     geometry_tolerance: float = 0.05,
@@ -107,14 +118,23 @@ def _state_conflicts(
     for (formula, charge, multiplicity), members in sorted(by_state.items()):
         if len(members) < 2:
             continue
+        # An optimization trajectory puts thousands of frames in one state, so
+        # comparing every frame with every cluster would be quadratic. The RMS
+        # distance difference between two geometries is never smaller than the
+        # difference of their mean interatomic distances, so only clusters
+        # whose mean distance lies within the tolerance can match.
         clusters: list[list[LabeledFrame]] = []
+        by_mean: dict[int, list[list[LabeledFrame]]] = {}
         for frame in members:
-            for cluster in clusters:
+            mean = _mean_pair_distance(frame)
+            slot = math.floor(mean / geometry_tolerance)
+            for cluster in (c for near in (slot - 1, slot, slot + 1) for c in by_mean.get(near, [])):
                 if geometry_distance(cluster[0].record, frame.record) <= geometry_tolerance:
                     cluster.append(frame)
                     break
             else:
                 clusters.append([frame])
+                by_mean.setdefault(slot, []).append(clusters[-1])
         for cluster in clusters:
             if len(cluster) < 2:
                 continue
