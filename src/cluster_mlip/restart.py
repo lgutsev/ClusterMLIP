@@ -15,8 +15,13 @@ from typing import TypedDict
 
 from .io import write_text_lf
 from .routes import (
+    _CHARGE_MULT_LINE_RE,
+    _opt_option_tokens,
+    _replace_opt_keyword,
     checkpoint_stages_with_coordinates,
     drop_molecule_coordinates,
+    route_has_frequency,
+    route_optimizes,
     stage_is_force_only,
 )
 from .spin import SPIN_MANIFEST_COLUMNS, SPIN_RESTART_COLUMNS, parse_spin_diagnostics
@@ -135,6 +140,88 @@ def _rewrite_stage(section: str, *, oldchk: str, chk: str) -> str:
     return section.strip("\n")
 
 
+@dataclass
+class SaddleStage:
+    """Where a failed saddle search restarts: a geometry it actually visited.
+
+    ``atoms`` is the frame that came closest to a first-order saddle (exactly
+    one negative Hessian eigenvalue, smallest force), in the frame of the
+    checkpoint whose orbitals the restart reads.
+    """
+
+    atoms: list[tuple[str, float, float, float]]
+    charge: int
+    multiplicity: int
+    frame_index: int
+    cartesian: bool = False
+    max_step: int | None = None
+
+
+# Opt options the restart sets itself; anything else in the route is kept.
+_REPLACED_OPT_OPTIONS = (
+    "ts", "saddle", "qst2", "qst3", "calcfc", "calcall", "readfc", "rcfc", "readfchk",
+    "readcartesianfc", "noeigentest", "noeigen", "maxstep", "cartesian",
+)
+
+
+def _rewrite_saddle_stage(section: str, *, oldchk: str, chk: str, stage: SaddleStage) -> str:
+    """The first stage of a best-frame saddle restart.
+
+    Explicit coordinates from the chosen frame, a fresh Hessian there
+    (``CalcFC``: the old one belongs to another geometry, so ``ReadFC``/``RCFC``
+    are dropped), ``NoEigenTest``, an optional smaller ``MaxStep`` and
+    ``Cartesian`` where the internal coordinates broke. Orbitals are read from
+    the failed attempt's checkpoint. Everything else in the route -- method,
+    basis, SCF and IOP settings -- is kept as it was.
+    """
+    if not _CHK_RE.search(section):
+        raise ValueError("generated stage has no %chk directive")
+    section = _CHK_RE.sub(f"%chk={chk}", section, count=1)
+    if _OLDCHK_RE.search(section):
+        section = _OLDCHK_RE.sub(f"%oldchk={oldchk}", section, count=1)
+    else:
+        section = f"%oldchk={oldchk}\n" + section.lstrip("\n")
+    route_match = _ROUTE_RE.search(section)
+    if route_match is None:
+        raise ValueError("generated stage has no Gaussian route")
+    route = route_match.group(1).strip()
+    if not route_optimizes(route):
+        raise ValueError("stage does not optimize; a saddle restart needs an Opt stage")
+    kept = [
+        token for token in _opt_option_tokens(route)
+        if not token.lower().split("=")[0].startswith(_REPLACED_OPT_OPTIONS)
+    ]
+    options = ["TS", "CalcFC", "NoEigenTest", *kept]
+    if stage.max_step:
+        options.append(f"MaxStep={stage.max_step}")
+    if stage.cartesian:
+        options.append("Cartesian")
+    route = _replace_opt_keyword(route, f"Opt=({','.join(options)})")
+    route = re.sub(r"\s*\bGeom\s*=\s*(?:\([^)]*\)|\S+)", "", route, flags=re.IGNORECASE)
+    guess = re.search(r"\bGuess\s*=\s*(\([^)]*\)|[^\s]+)", route, re.IGNORECASE)
+    if guess is not None:
+        route = route[:guess.start()] + "Guess=Read" + route[guess.end():]
+    else:
+        route = _append_keyword(route, "Guess=Read")
+    if not route_has_frequency(route):
+        route = _append_keyword(route, "Freq")
+    lines = drop_molecule_coordinates(section[route_match.end():]).split("\n")
+    for index, line in enumerate(lines):
+        if _CHARGE_MULT_LINE_RE.fullmatch(line):
+            if line.split() != [str(stage.charge), str(stage.multiplicity)]:
+                raise ValueError(
+                    f"stage is {' '.join(line.split())} but the chosen frame is "
+                    f"{stage.charge} {stage.multiplicity}"
+                )
+            lines[index + 1:index + 1] = [
+                f"{symbol:<2s} {x:16.8f} {y:16.8f} {z:16.8f}" for symbol, x, y, z in stage.atoms
+            ]
+            break
+    else:
+        raise ValueError("stage has no charge/multiplicity line")
+    return (section[:route_match.start()] + route + "\n".join(lines)).strip("\n")
+
+
 def _active(row: dict[str, str]) -> bool:
     return row.get("submission_active", "").strip().lower() not in {"false", "0", "no"}
 
@@ -190,8 +277,16 @@ def prepare_spin_restarts(
     assume_stopped: bool = False,
     rerun_missing_checkpoints: bool = False,
     dry_run: bool = False,
+    only_inputs: set[str] | None = None,
+    exclude_inputs: set[str] | None = None,
+    saddle_stages: dict[str, SaddleStage] | None = None,
 ) -> RestartResult:
     """Archive interrupted attempts and activate safe continuations in place.
+
+    ``only_inputs`` / ``exclude_inputs`` (input file names) narrow the pass.
+    For an input named in ``saddle_stages`` the restart's first stage does not
+    continue from the checkpoint geometry: it restarts the saddle search from
+    the given frame (see ``_rewrite_saddle_stage``); later stages are unchanged.
 
     Checkpoint-backed attempts become shortened ``Geom=Checkpoint`` restarts.
     With ``rerun_missing_checkpoints``, an interrupted attempt for which neither
@@ -229,6 +324,12 @@ def prepare_spin_restarts(
         batch_number = int(batch.name[6:])
         if not start <= batch_number <= end:
             continue
+        if only_inputs is not None and input_name not in only_inputs:
+            continue
+        if exclude_inputs and input_name in exclude_inputs:
+            skipped.append({"input": input_path, "batch": batch.name, "reason": "excluded"})
+            continue
+        saddle_stage = (saddle_stages or {}).get(input_name)
         source_input = campaign / input_path
         stem = Path(input_name).stem
         source_output = batch / f"{stem}.log"
@@ -270,6 +371,25 @@ def prepare_spin_restarts(
             candidate for candidate in candidates
             if candidate.is_file() and candidate.stat().st_size > 0
         ), None)
+        if saddle_stage is not None:
+            unfinished_row = rows[unfinished_index]
+            if (int(unfinished_row["intended_charge"]), int(unfinished_row["intended_multiplicity"])) != (
+                    saddle_stage.charge, saddle_stage.multiplicity):
+                skipped.append({
+                    "input": input_path, "batch": batch.name,
+                    "reason": (
+                        "saddle_frame_stage_mismatch: the first unfinished stage is "
+                        f"{unfinished_row['intended_charge']} {unfinished_row['intended_multiplicity']} but the "
+                        f"chosen frame is {saddle_stage.charge} {saddle_stage.multiplicity}"
+                    ),
+                })
+                continue
+            if source_checkpoint is None:
+                skipped.append({
+                    "input": input_path, "batch": batch.name,
+                    "reason": "saddle_restart_checkpoint_missing",
+                })
+                continue
         if source_checkpoint is None:
             if not rerun_missing_checkpoints:
                 skipped.append({
@@ -371,7 +491,12 @@ def prepare_spin_restarts(
         for local_stage, (old_row, section) in enumerate(zip(remaining, sections[unfinished_index:])):
             multiplicity = int(old_row["intended_multiplicity"])
             checkpoint = f"{Path(old_row['checkpoint']).stem}-r{attempt:02d}.chk"
-            new_sections.append(_rewrite_stage(section, oldchk=prior_checkpoint, chk=checkpoint))
+            if local_stage == 0 and saddle_stage is not None:
+                new_sections.append(_rewrite_saddle_stage(
+                    section, oldchk=prior_checkpoint, chk=checkpoint, stage=saddle_stage))
+            else:
+                new_sections.append(
+                    _rewrite_stage(section, oldchk=prior_checkpoint, chk=checkpoint))
             job_id = f"{old_row['job_id']}-r{attempt:02d}"
             lineage = (
                 f"restart:{seed_sha}:m{multiplicity}:{checkpoint}" if local_stage == 0
@@ -426,7 +551,11 @@ def prepare_spin_restarts(
         for row in new_rows:
             row["input_sha256"] = input_sha
         plan_row = {
-            "attempt": str(attempt), "mode": "checkpoint_restart",
+            "attempt": str(attempt),
+            "mode": "saddle_best_frame_restart" if saddle_stage else "checkpoint_restart",
+            "saddle_frame_index": str(saddle_stage.frame_index) if saddle_stage else "",
+            "saddle_cartesian": (
+                ("true" if saddle_stage.cartesian else "false") if saddle_stage else ""),
             "batch": batch.name, "original_input": root_input,
             "archived_input": input_path,
             "archived_output": str(archived_output.relative_to(campaign)),
