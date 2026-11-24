@@ -2,9 +2,20 @@
 
 A warehouse campaign is prepared one job per archived record, with no check
 that two records are the same structure. Two inputs are the same job when they
-have the same atoms, the same charge/multiplicity ladder, the same kind of
-calculation and the same geometry. Running both costs twice and adds nothing:
-``collect`` drops the second copy's frames as exact duplicates anyway.
+have the same atoms, the same charge/multiplicity ladder, the same geometry and
+the same *calculation that will run*. Running both costs twice and adds
+nothing: ``collect`` drops the second copy's frames as exact duplicates anyway.
+
+The calculation is what counts, not the label. A record labeled ``minimum``
+and one labeled ``unknown`` both run a plain ``Opt`` ladder, so at the same
+geometry they are one computation. Three kinds are kept apart, because holding
+one in favour of another would lose something:
+
+- ``opt``: a plain minimization (labels minimum, unknown, optimized_unverified,
+  warehouse_structure, ...);
+- ``saddle``: a transition-state search;
+- ``fixed_geometry`` / ``higher_order``: path points and higher-order
+  candidates, which the force-only policy labels where they are.
 
 Geometry is compared by the sorted interatomic distances per element pair,
 which does not change under rotation, translation or atom reordering (nor
@@ -12,10 +23,15 @@ under mirroring: enantiomers have the same energy). Two geometries match when
 no distance differs by more than the tolerance.
 
 Each group keeps one job: a finished one if there is one, else one that has
-started, else the first by batch. Only *not-started* duplicates are listed --
-those are the ones that can still be held (``hold-inputs --list
-duplicate_inputs.tsv``). A restart input, which reads its geometry from a
-checkpoint, is compared through the root input it was built from.
+started, else one with a specific label over an unspecific one, else the first
+by batch. Only *not-started* duplicates are listed -- those are the ones that
+can still be held (``hold-inputs --list duplicate_inputs.tsv``). A restart
+input, which reads its geometry from a checkpoint, is compared through the
+root input it was built from.
+
+The whole ladder is part of the identity: a ladder to M=5 and one to M=1 from
+the same geometry share their first stages but are different jobs. Such
+prefix-sharing inputs are counted in the summary, not listed.
 
 Read-only: nothing in the campaign is modified.
 """
@@ -33,11 +49,25 @@ from .routes import _CHARGE_MULT_LINE_RE, _LINK1_SPLIT_RE, input_coordinates
 
 DUPLICATE_COLUMNS = [
     "input", "batch", "group", "kept_input", "kept_batch", "kept_state",
-    "max_distance_difference_ang", "formula", "ladder", "intent", "geometry_role",
-    "search_kinds",
+    "max_distance_difference_ang", "formula", "ladder", "calculation",
+    "config_type", "kept_config_type", "intent", "geometry_role", "search_kinds",
 ]
 _STATE_RANK = {"complete": 0, "incomplete": 1, "activity_unconfirmed": 1, "failed": 2,
                "not_started": 3}
+# Labels that say nothing about what the geometry is; a specific label is the
+# better copy to keep, because collect carries it into the dataset.
+_UNSPECIFIC_LABELS = {"", "unknown", "warehouse_structure", "optimized_unverified",
+                      "checkpoint_geometry"}
+_OWN_CLASS_INTENTS = ("saddle", "fixed_geometry", "higher_order")
+
+
+def calculation_kind(intent: str, search_kinds: str) -> str:
+    """The kind of calculation a job runs, for deciding whether two are the same."""
+    if intent in _OWN_CLASS_INTENTS:
+        return intent
+    # search_kinds lists one kind per optimizing stage ("minimum,minimum,...").
+    kinds = sorted({kind for kind in search_kinds.split(",") if kind})
+    return "opt" if kinds in ([], ["minimum"]) else "opt:" + "+".join(kinds)
 
 
 def _ladder(text: str) -> str:
@@ -74,16 +104,27 @@ def _formula(atoms: list[tuple[str, float, float, float]]) -> str:
                    for symbol in sorted(counts))
 
 
+def _batch_number(name: str) -> int:
+    digits = name[6:] if name.startswith("batch_") else ""
+    return int(digits) if digits.isdigit() else 10 ** 9
+
+
 def find_duplicate_inputs(
     campaign: Path,
     destination: Path,
     *,
     tolerance: float = 0.02,
+    seeds: Path | None = None,
 ) -> dict[str, Any]:
-    """Write ``duplicate_inputs.tsv`` and ``duplicate_inputs.json``; see the module doc."""
+    """Write ``duplicate_inputs.tsv`` and ``duplicate_inputs.json``; see the module doc.
+
+    ``seeds`` is the extxyz the campaign was prepared from; with it the audit
+    classes path points and higher-order candidates from recorded evidence
+    instead of file names.
+    """
     campaign = campaign.resolve()
-    audit = audit_campaign_routes(campaign, write_reports=False)
-    buckets: dict[tuple[str, ...], list[dict[str, Any]]] = {}
+    audit = audit_campaign_routes(campaign, write_reports=False, seeds=seeds)
+    buckets: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
     not_comparable: Counter[str] = Counter()
     for row in audit["rows"]:
         source = campaign / row["input"]
@@ -97,21 +138,22 @@ def find_duplicate_inputs(
         if atoms is None:
             not_comparable[row["state"]] += 1
             continue
-        key = (_formula(atoms), _ladder(text), str(row.get("intent", "")),
-               str(row.get("geometry_role", "")), str(row.get("search_kinds", "")))
-        buckets.setdefault(key, []).append({"row": row, "fingerprint": _fingerprint(atoms)})
-
-    def batch_number(name: str) -> int:
-        digits = name[6:] if name.startswith("batch_") else ""
-        return int(digits) if digits.isdigit() else 10 ** 9
+        kind = calculation_kind(str(row.get("intent", "")), str(row.get("search_kinds", "")))
+        buckets.setdefault((_formula(atoms), kind, _ladder(text)), []).append(
+            {"row": row, "fingerprint": _fingerprint(atoms)})
 
     duplicates: list[dict[str, Any]] = []
     group_sizes: list[int] = []
+    label_pairs: Counter[str] = Counter()
     started_duplicates = 0
     group_id = 0
+    keepers: dict[tuple[str, str], list[tuple[str, dict[str, Any]]]] = {}
     for bucket, items in sorted(buckets.items()):
-        items.sort(key=lambda item: (_STATE_RANK.get(item["row"]["state"], 3),
-                                     batch_number(item["row"]["batch"]), item["row"]["input"]))
+        items.sort(key=lambda item: (
+            _STATE_RANK.get(item["row"]["state"], 3),
+            item["row"]["config_type"] in _UNSPECIFIC_LABELS,
+            _batch_number(item["row"]["batch"]), item["row"]["input"],
+        ))
         kept: list[dict[str, Any]] = []
         for item in items:
             match = None
@@ -134,15 +176,35 @@ def find_duplicate_inputs(
             if row["state"] != "not_started":
                 started_duplicates += 1
                 continue
+            label_pairs[f"{row['config_type']} -> {keeper['row']['config_type']}"] += 1
             duplicates.append({
                 "input": Path(row["input"]).name, "batch": row["batch"],
                 "group": keeper["group"], "kept_input": Path(keeper["row"]["input"]).name,
                 "kept_batch": keeper["row"]["batch"], "kept_state": keeper["row"]["state"],
                 "max_distance_difference_ang": f"{difference:.4f}",
-                "formula": bucket[0], "ladder": bucket[1], "intent": bucket[2],
-                "geometry_role": bucket[3], "search_kinds": bucket[4],
+                "formula": bucket[0], "ladder": bucket[2], "calculation": bucket[1],
+                "config_type": row["config_type"],
+                "kept_config_type": keeper["row"]["config_type"],
+                "intent": row.get("intent", ""), "geometry_role": row.get("geometry_role", ""),
+                "search_kinds": row.get("search_kinds", ""),
             })
         group_sizes += [item["members"] for item in kept if item["members"] > 1]
+        keepers.setdefault((bucket[0], bucket[1]), []).extend(
+            (bucket[2], item) for item in kept)
+
+    # Not-started jobs whose whole ladder is the beginning of another job's
+    # ladder at the same geometry: shared stages, but not the same job.
+    prefix_shared = 0
+    for members in keepers.values():
+        for ladder, item in members:
+            if item["row"]["state"] != "not_started":
+                continue
+            if any(
+                other_ladder.startswith(ladder + "|")
+                and _max_difference(other["fingerprint"], item["fingerprint"]) <= tolerance
+                for other_ladder, other in members
+            ):
+                prefix_shared += 1
 
     destination = destination.resolve()
     destination.mkdir(parents=True, exist_ok=True)
@@ -154,13 +216,16 @@ def find_duplicate_inputs(
     not_started = sum(1 for row in audit["rows"] if row["state"] == "not_started")
     summary = {
         "campaign": str(campaign), "tolerance_ang": tolerance,
+        "seeds": str(seeds) if seeds else "",
         "inputs_audited": len(audit["rows"]), "not_started": not_started,
         "not_started_duplicates": len(duplicates),
         "kept_by_state": dict(Counter(row["kept_state"] for row in duplicates)),
+        "duplicates_by_calculation": dict(Counter(row["calculation"] for row in duplicates)),
         "duplicates_by_formula": dict(Counter(row["formula"] for row in duplicates).most_common()),
-        "duplicates_by_intent": dict(Counter(row["intent"] for row in duplicates)),
+        "label_of_duplicate_and_kept": dict(label_pairs.most_common()),
         "groups": len(group_sizes), "largest_group": max(group_sizes, default=0),
         "started_duplicates_not_listed": started_duplicates,
+        "not_started_ladder_is_prefix_of_another_job": prefix_shared,
         "not_comparable_by_state": dict(not_comparable),
         "destination": str(destination),
     }

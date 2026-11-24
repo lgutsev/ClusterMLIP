@@ -280,6 +280,7 @@ def command_audit(args: argparse.Namespace) -> int:
 def command_find_duplicate_inputs(args: argparse.Namespace) -> int:
     summary = find_duplicate_inputs(
         Path(args.campaign), Path(args.output), tolerance=args.tolerance,
+        seeds=Path(args.seeds) if args.seeds else None,
     )
     print(f"Inputs audited: {summary['inputs_audited']}; not started: {summary['not_started']}")
     print(f"Not-started duplicates: {summary['not_started_duplicates']} "
@@ -290,6 +291,14 @@ def command_find_duplicate_inputs(args: argparse.Namespace) -> int:
             f"{state}={count}" for state, count in sorted(summary["kept_by_state"].items())))
     for formula, count in list(summary["duplicates_by_formula"].items())[:12]:
         print(f"  {count:5} {formula}")
+    if summary["duplicates_by_calculation"]:
+        print("  by calculation: " + ", ".join(
+            f"{kind}={count}" for kind, count in
+            sorted(summary["duplicates_by_calculation"].items())))
+    if summary["not_started_ladder_is_prefix_of_another_job"]:
+        print("Not listed: "
+              f"{summary['not_started_ladder_is_prefix_of_another_job']} not-started input(s) "
+              "whose ladder is the beginning of another job's ladder at the same geometry")
     skipped = sum(summary["not_comparable_by_state"].values())
     if skipped:
         print(f"Not compared (no Cartesian coordinates in the input or its root): {skipped}")
@@ -2098,6 +2107,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--tolerance", type=float, default=0.02,
         help="largest allowed difference between matching interatomic distances, in "
              "Angstrom (default: 0.02)",
+    )
+    duplicates.add_argument(
+        "--seeds", metavar="SEEDS.EXTXYZ",
+        help="the extxyz the campaign was prepared from, so path points and higher-order "
+             "candidates are recognized from recorded evidence, not file names",
     )
     duplicates.set_defaults(func=command_find_duplicate_inputs)
 

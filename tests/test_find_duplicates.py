@@ -30,6 +30,8 @@ class FindDuplicateTests(W2Campaign, unittest.TestCase):
             "turned": _job("turned", "batch_0002"),      # rotated, shifted, atoms reordered
             "stretched": _job("stretched", "batch_0002"),  # a different structure
             "saddle": _job("saddle", "batch_0002", config_type="transition_state"),
+            # Same geometry and ladder as "done", only the label differs.
+            "unlabeled": _job("unlabeled", "batch_0002", config_type="unknown"),
             "pair_a": _job("paira", "batch_0001"),
             "pair_b": _job("pairb", "batch_0002"),
         }
@@ -57,7 +59,12 @@ class FindDuplicateTests(W2Campaign, unittest.TestCase):
                 return jobs[key]["name"] + ".gjf"
 
             # Repeats of the finished job, found through rotation and reordering.
-            self.assertEqual(set(rows), {name("same"), name("turned"), name("pair_b")})
+            self.assertEqual(set(rows), {name("same"), name("turned"), name("pair_b"),
+                                         name("unlabeled")})
+            # A plain Opt is the same computation whatever the label says.
+            self.assertEqual(rows[name("unlabeled")]["calculation"], "opt")
+            self.assertEqual(rows[name("unlabeled")]["config_type"], "unknown")
+            self.assertEqual(rows[name("unlabeled")]["kept_config_type"], "minimum")
             self.assertEqual(rows[name("same")]["kept_input"], name("done"))
             self.assertEqual(rows[name("turned")]["kept_state"], "complete")
             # Two not-started copies: the earlier batch is kept.
@@ -66,8 +73,9 @@ class FindDuplicateTests(W2Campaign, unittest.TestCase):
             # A different geometry and a different kind of job are not duplicates.
             self.assertNotIn(name("stretched"), rows)
             self.assertNotIn(name("saddle"), rows)
-            self.assertEqual(summary["not_started_duplicates"], 3)
+            self.assertEqual(summary["not_started_duplicates"], 4)
             self.assertEqual(summary["groups"], 2)
+            self.assertEqual(summary["label_of_duplicate_and_kept"]["unknown -> minimum"], 1)
             self.assertEqual(json.loads((out / "duplicate_inputs.json").read_text())["groups"], 2)
             self.assertEqual(sorted(str(p) for p in campaign.rglob("*")), before)
 
@@ -79,8 +87,8 @@ class FindDuplicateTests(W2Campaign, unittest.TestCase):
             _rewrite(campaign, jobs["same"], nudged)
             loose = find_duplicate_inputs(campaign, Path(tmp) / "loose")
             tight = find_duplicate_inputs(campaign, Path(tmp) / "tight", tolerance=0.001)
-            self.assertEqual(loose["not_started_duplicates"], 3)
-            self.assertEqual(tight["not_started_duplicates"], 2)
+            self.assertEqual(loose["not_started_duplicates"], 4)
+            self.assertEqual(tight["not_started_duplicates"], 3)
 
     def test_the_list_feeds_hold_inputs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -88,9 +96,9 @@ class FindDuplicateTests(W2Campaign, unittest.TestCase):
             out = Path(tmp) / "report"
             find_duplicate_inputs(campaign, out)
             names = read_input_list(out / "duplicate_inputs.tsv")
-            self.assertEqual(len(names), 3)
+            self.assertEqual(len(names), 4)
             result = hold_inputs(campaign, names, reason="duplicate", dry_run=True)
-            self.assertEqual(result["input_count"], 3)
+            self.assertEqual(result["input_count"], 4)
             self.assertEqual(result["skipped"], [])
 
 
