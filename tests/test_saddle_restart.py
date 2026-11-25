@@ -185,6 +185,60 @@ class RestartSaddleTests(W2Campaign, unittest.TestCase):
             self.assertEqual(result['input_count'], 0)
             self.assertIn('orientation', result['not_chosen'][0]['reason'])
 
+    def _routefixed(self, campaign, batch):
+        """Like a W2 route-fix relaunch made before the manifest followed the
+        rename: the input writes ``-routefix01`` checkpoints, the manifest still
+        names the pre-relaunch files."""
+        for path in (campaign / 'inputs' / f'{self.NAME}.gjf', batch / f'{self.NAME}.gjf'):
+            text = re.sub(r'(?m)^(%(?:old)?chk=.*)\.chk$', r'\1-routefix01.chk', path.read_text())
+            path.write_text(text, newline='\n')
+        for stage, mult in enumerate(self.MULTS):
+            (batch / f'{self.NAME}-s{stage:02d}-m{mult}.chk').write_bytes(b'before the route fix')
+
+    def test_seed_is_the_checkpoint_the_input_wrote_not_the_manifest_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign, batch = self._campaign(Path(tmp), _finished_stage(11) + _failed_stage(9))
+            self._routefixed(campaign, batch)
+            (batch / f'{self.NAME}-s00-m11-routefix01.chk').write_bytes(b'ts m11')
+            (batch / f'{self.NAME}-s01-m9-routefix01.chk').write_bytes(b'ts m9')
+            result = restart_saddles(campaign)
+            self.assertEqual(result['input_count'], 1, result['skipped'])
+            text, active = self._new_input(campaign)
+            self.assertEqual(Path(active[0]['restart_source_checkpoint']).name,
+                             f'{self.NAME}-s01-m9-routefix01.chk')
+            seed = campaign / active[0]['restart_seed_checkpoint']
+            self.assertEqual(seed.read_bytes(), b'ts m9')
+            self.assertEqual(seed.name, f'{self.NAME}-s01-m9-routefix01-seed-r01.chk')
+            self.assertEqual([row['checkpoint'] for row in active],
+                             [f'{self.NAME}-s01-m9-routefix01-r01.chk',
+                              f'{self.NAME}-s02-m7-routefix01-r01.chk'])
+            self.assertIn(f'%oldchk={seed.name}\n%chk={active[0]["checkpoint"]}', text)
+
+    def test_predecessor_is_the_previous_stage_of_the_same_input(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign, batch = self._campaign(Path(tmp), _finished_stage(11) + _failed_stage(9))
+            self._routefixed(campaign, batch)
+            (batch / f'{self.NAME}-s00-m11-routefix01.chk').write_bytes(b'ts m11')
+            restart_saddles(campaign)
+            _, active = self._new_input(campaign)
+            self.assertEqual((campaign / active[0]['restart_seed_checkpoint']).read_bytes(),
+                             b'ts m11')
+
+    def test_pre_relaunch_checkpoints_are_never_the_seed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign, batch = self._campaign(Path(tmp), _finished_stage(11) + _failed_stage(9))
+            self._routefixed(campaign, batch)
+            result = restart_saddles(campaign, dry_run=True)
+            self.assertEqual(result['input_count'], 0)
+            self.assertEqual(result['skipped'][0]['reason'], 'saddle_restart_checkpoint_missing')
+
+    def test_restart_names_already_on_disk_are_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign, batch = self._campaign(Path(tmp), _failed_stage(11))
+            (batch / f'{self.NAME}-s01-m9-r01.chk').write_bytes(b'another attempt')
+            with self.assertRaises(FileExistsError):
+                restart_saddles(campaign, dry_run=True)
+
     def test_exclusion_and_the_plain_restart_pass(self):
         with tempfile.TemporaryDirectory() as tmp:
             campaign, _ = self._campaign(Path(tmp), _failed_stage(11))
