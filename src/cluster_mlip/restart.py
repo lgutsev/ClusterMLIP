@@ -24,7 +24,12 @@ from .routes import (
     route_optimizes,
     stage_is_force_only,
 )
-from .spin import SPIN_MANIFEST_COLUMNS, SPIN_RESTART_COLUMNS, parse_spin_diagnostics
+from .spin import (
+    SPIN_MANIFEST_COLUMNS,
+    SPIN_RESTART_COLUMNS,
+    SpinDiagnostics,
+    parse_spin_diagnostics,
+)
 
 
 _LINK1_RE = re.compile(r"^\s*--link1--\s*$", re.IGNORECASE | re.MULTILINE)
@@ -273,6 +278,28 @@ def _write_csv(path: Path, fields: list[str], rows: list[dict[str, str]]) -> Non
     temporary.replace(path)
 
 
+def first_unfinished_stage(
+    rows: list[dict[str, str]], input_text: str, diagnostics: list[SpinDiagnostics],
+) -> int | None:
+    """Index into ``rows`` of the first stage the log did not finish, or None.
+
+    An optimizing stage is finished when it terminated normally with a
+    converged geometry; a fixed-geometry Force stage when it terminated
+    normally.
+    """
+    return next((
+        index for index, row in enumerate(rows)
+        if not any(
+            item.charge == int(row["intended_charge"])
+            and item.multiplicity == int(row["intended_multiplicity"])
+            and item.normal_termination
+            and (item.optimized
+                 or stage_is_force_only(input_text, int(row["stage_index"])))
+            for item in diagnostics
+        )
+    ), None)
+
+
 class RestartResult(TypedDict):
     """What `prepare-spin-restarts` did, or would do under --dry-run.
 
@@ -372,17 +399,7 @@ def prepare_spin_restarts(
             source_input.read_text(encoding="utf-8", errors="replace")
             if source_input.is_file() else ""
         )
-        unfinished_index = next((
-            index for index, row in enumerate(rows)
-            if not any(
-                item.charge == int(row["intended_charge"])
-                and item.multiplicity == int(row["intended_multiplicity"])
-                and item.normal_termination
-                and (item.optimized
-                     or stage_is_force_only(input_text, int(row["stage_index"])))
-                for item in diagnostics
-            )
-        ), None)
+        unfinished_index = first_unfinished_stage(rows, input_text, diagnostics)
         if unfinished_index is None:
             skipped.append({"input": input_path, "batch": batch.name, "reason": "complete"})
             continue
