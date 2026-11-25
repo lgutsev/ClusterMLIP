@@ -721,12 +721,12 @@ function renderTree() {
 // ---------- campaign ----------
 if (!D.campaign) ["campaign", "nav-campaign"].forEach(id => { document.getElementById(id).hidden = true; });
 const CP = D.campaign || {jobs: [], spin_plan: {}};
-const ST = {complete: ["Complete", "var(--ok)"], incomplete: ["Incomplete", "var(--warn)"], failed: ["Failed", "var(--bad)"], not_started: ["Not started", "var(--idle)"]};
+const ST = {complete: ["Complete", "var(--ok)"], incomplete: ["Incomplete", "var(--warn)"], failed: ["Failed", "var(--bad)"], activity_unconfirmed: ["Running or unconfirmed", "var(--accent)"], not_started: ["Not started", "var(--idle)"], held: ["Held as duplicate", "var(--f3)"]};
 const jobs = CP.jobs.sort((a, b) => a.b - b.b || a.n.localeCompare(b.n));
 const sc = d3.rollup(jobs, v => v.length, d => d.s);
 const lastBatch = d3.max(jobs, j => j.b) || 0;
 if (D.campaign) {
-document.getElementById("camplede").innerHTML = `${fmt(jobs.length)} spin-ladder inputs in ${lastBatch} Slurm batches. Each input walks down a ladder from the inferred high-spin state to its target multiplicity (for example m53 → m47 for Fe₁₆). Batches 6–130 use the Sep 23 campaign-status check; the rest use the Sep 10 route audit.`;
+document.getElementById("camplede").innerHTML = `${fmt(jobs.length)} spin-ladder inputs in ${lastBatch} Slurm batches. Each input walks down a ladder from the inferred high-spin state to its target multiplicity (for example m53 → m47 for Fe₁₆). ${(s => !s ? "" : s.status_jobs + s.held >= jobs.length ? `States are from the ${s.status} campaign-status check.` : `Batches ${s.status_first}–${s.status_last} use the ${s.status} campaign-status check; the rest use the ${s.audit} route audit.`)(CP.snap)}${CP.snap && CP.snap.held ? ` ${fmt(CP.snap.held)} inputs are held because another input computes the same state.` : ""}`;
 const pipe = [
   ["files", fmt(d3.sum(Object.values(CP.w2files.status))), "Files inventoried", `${fmt(CP.w2files.status.parsed)} parsed, ${fmt(CP.w2files.status.unsupported)} unsupported`],
   ["records", fmt(CP.w2files.records), "Structure records", "Every geometry parsed, IRC points included"],
@@ -738,9 +738,9 @@ const pipe = [
 document.getElementById("pipeline").innerHTML = pipe.map(([u, n, l, s]) => `<div class="step"><span class="unit">${u}</span><span class="num">${n}</span><span class="lbl"><b style="color:var(--ink);font-weight:500">${l}</b><br>${s}</span></div>`).join("");
 const relaunch = jobs.filter(j => j.rl).length, link1 = jobs.filter(j => j.iss.some(i => i.startsWith("Number of Link1"))).length;
 document.getElementById("camptiles").innerHTML = [
-  ["ok", sc.get("complete") || 0, "jobs complete"], ["", sc.get("not_started") || 0, "not started at last check"],
-  ["bad", relaunch, "saddles launched as plain Opt (relaunch)"], ["warn", link1, "Link1 stage count differs from manifest"],
-  ["", CP.restart_plan, "restart attempts planned"], ["", CP.route_fix_plan, "route fixes written"],
+  ["ok", sc.get("complete") || 0, "jobs complete"], ["", sc.get("not_started") || 0, "not started at last check"], ...(sc.get("failed") ? [["bad", sc.get("failed"), "jobs failed"]] : []), ...(sc.get("held") ? [["", sc.get("held"), "held as duplicates"]] : []),
+  ["bad", relaunch, "inputs the route audit says must be relaunched"], ["warn", link1, "Link1 stage count differs from manifest"],
+  ["", CP.restart_plan, "restart attempts planned (September)"], ["", CP.route_fix_plan, "route fixes written (September)"],
   ["warn", CP.failed_outputs, "logs skipped by collect as incomplete"],
 ].map(([c, n, l]) => `<div class="tile ${c}"><span class="num">${fmt(n)}</span><span class="lbl">${l}</span></div>`).join("");
 document.getElementById("statelegend").innerHTML = Object.entries(ST).filter(([k]) => sc.get(k)).map(([k, [l, c]]) => `<span><i style="background:${c}"></i>${l} ${fmt(sc.get(k))}</span>`).join("") +

@@ -18,6 +18,9 @@ ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 ap.add_argument("--root", type=Path, default=Path(r"D:/MLIP_Work_Folder/Cluster_MLIP"), help="folder holding the warehouse mirrors")
 ap.add_argument("--out", type=Path, default=HERE / "out", help="where the root atlas_data.json and warehouse_atlas.html go")
 ap.add_argument("--scopes", type=Path, help="optional JSON file defining sub-atlases (kept outside the repo)")
+ap.add_argument("--status", type=Path, help="folder with campaign_status/, route_audit/ and optionally hold/held_inputs.csv "
+                "from a full campaign-status run; default is the campaign warehouse's monitoring/ folder")
+ap.add_argument("--root-only", action="store_true", help="with --scopes: write the root page only, leave the sub-atlas pages alone")
 args = ap.parse_args()
 ROOT = args.root
 args.out.mkdir(parents=True, exist_ok=True)
@@ -207,33 +210,68 @@ for key, (name, _) in WH.items():
 
 # ---- campaign (one cell per job) ----
 W2 = ROOT / WH[CAMPAIGN_WH][0]
-ra = pd.read_csv(W2 / "monitoring/route_audit.csv")
-jp = pd.read_csv(W2 / "monitoring/job_progress.csv")
+CS = args.status / "campaign_status" if args.status else W2 / "monitoring"
+RA = args.status / "route_audit" if args.status else W2 / "monitoring"
+HELD = args.status / "hold/held_inputs.csv" if args.status else None
+ra = pd.read_csv(RA / "route_audit.csv", low_memory=False)
+jp = pd.read_csv(CS / "job_progress.csv", low_memory=False)
+def snap_label(path):
+    """'Sep 23' from the generated_utc a status file records about itself."""
+    stamp = (report(path) or {}).get("generated_utc")
+    return pd.Timestamp(stamp).strftime("%b %d").replace(" 0", " ") if stamp else "date unknown"
+ra_snap, jp_snap = snap_label(RA / "route_audit.json"), snap_label(CS / "summary.json")
 def base(inp):
     s = Path(str(inp)).name
     return re.sub(r"__(routefix|restart)\d+.*?(?=\.gjf$)", "", s)
 jp["base"] = jp["input"].map(base)
-latest = jp.set_index("base")[["state", "observed_multiplicity", "last_energy_hartree", "completed_stages", "planned_stages"]].to_dict("index")
-issues = pd.read_csv(W2 / "monitoring/audit_issues.csv")
+latest = jp.drop_duplicates("base", keep="last").set_index("base")[["state", "observed_multiplicity", "last_energy_hartree", "completed_stages", "planned_stages"]].to_dict("index")
+issues = pd.read_csv(CS / "audit_issues.csv")
 issue_by = C.defaultdict(list)
 for _, r in issues.iterrows():
-    issue_by[base(r["input"])].append(r["detail"].split(" (")[0].split(":")[0])
+    if isinstance(r["input"], str):   # batch-level issues carry no input
+        issue_by[base(r["input"])].append(r["detail"].split(" (")[0].split(":")[0])
 jobs = []
 for _, r in ra.iterrows():
     b = base(r["input"])
     name = b.split("__")[0]
     parts = b.split("__")
-    st, snap = r["state"], "Sep 10"
+    st, snap = r["state"], ra_snap
     if b in latest:
-        st, snap = latest[b]["state"], "Sep 23"
+        st, snap = latest[b]["state"], jp_snap
     jobs.append({
         "b": int(r["batch"][-4:]), "n": name, "fx": parts[1] if len(parts) > 1 else "",
-        "ct": r["config_type"], "s": st, "snap": snap,
+        "ct": r["config_type"], "s": st, "snap": snap, "full": b,
         "lad": parts[-1].replace(".gjf", "").replace("auto-spin-", "") if len(parts) > 5 else "",
         "rl": bool(r["must_relaunch"]), "iss": issue_by.get(b, []),
     })
+# Held inputs are taken out of their batch's inputs.txt, so the status tables
+# no longer list them: their state comes from the hold file itself.
+held_count = 0
+if HELD is not None and HELD.exists():
+    held = pd.read_csv(HELD)
+    held_snap = pd.Timestamp(held["held_utc"].max()).strftime("%b %d").replace(" 0", " ") if len(held) else ""
+    by_base = {(j["b"], j["full"]): j for j in jobs}
+    for _, r in held.iterrows():
+        b = base(r["input"])
+        key = (int(str(r["batch"])[-4:]), b)
+        job = by_base.get(key) or next((j for j in jobs if j["full"] == b), None)
+        if job is None:
+            parts = b.split("__")
+            job = {"b": key[0], "n": parts[0], "full": b, "fx": parts[1] if len(parts) > 1 else "",
+                   "ct": parts[2].replace("-", "_") if len(parts) > 2 else "unknown", "s": "", "snap": "",
+                   "lad": parts[-1].replace(".gjf", "").replace("auto-spin-", "") if len(parts) > 5 else "",
+                   "rl": False, "iss": []}
+            jobs.append(job)
+        job["s"], job["snap"] = "held", held_snap
+        held_count += 1
+for job in jobs:
+    job.pop("full", None)
+status_batches = sorted(int(str(x)[-4:]) for x in jp["batch"].dropna().unique())
 campaign = {
     "jobs": jobs,
+    "snap": {"status": jp_snap, "audit": ra_snap, "status_jobs": len(latest), "held": held_count,
+             "status_first": status_batches[0] if status_batches else None,
+             "status_last": status_batches[-1] if status_batches else None},
     "restart_plan": len(pd.read_csv(W2 / "restart_plan.csv")),
     "route_fix_plan": len(pd.read_csv(W2 / "route_fix_plan.csv")),
     "spin_plan": pd.read_csv(W2 / "spin_plan.csv")["status"].value_counts().to_dict(),
@@ -287,7 +325,7 @@ blob = write_page({**root_data, "generated": stamp, "files": files, "campaign": 
                    "scope": root_scope}, root_page, "Warehouse Atlas")
 (args.out / "atlas_data.json").write_text(blob)
 
-for s in cfg_scopes:
+for s in ([] if args.root_only else cfg_scopes):
     agg = scoped[s["id"]]
     d = agg.export()
     sub_files = {k: {"records": None, "unique": None, "source_files": d["sources"][k]} for k in d["seeds"]}
