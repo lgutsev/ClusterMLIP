@@ -5,6 +5,7 @@ import collections
 import csv
 import json
 import re
+import shlex
 import shutil
 import sys
 from pathlib import Path
@@ -19,7 +20,15 @@ from .dataset import grouped_split, read_jobs_manifest, read_labeled_extxyz, wri
 from .doctor import MISSING_REQUIRED, format_report, run_checks
 from .evaluate import predict_with_mace, write_evaluation_report
 from .gaussian import extract_document_records, gaussian_job_complete, parse_force_frames, rms_force
-from .io import iter_documents, read_document, read_extxyz, source_tree, write_extxyz, write_manifest
+from .io import (
+    iter_documents,
+    read_document,
+    read_extxyz,
+    source_tree,
+    write_extxyz,
+    write_manifest,
+    write_text_lf,
+)
 from .jobs import (
     DEFAULT_LINK1_ROUTE,
     DEFAULT_RATTLE_ROUTE,
@@ -51,6 +60,7 @@ from .physical_checks import write_physical_checks_report
 from .progress import write_campaign_progress
 from .relaunch import prepare_route_relaunch
 from .restart import prepare_spin_restarts
+from .restart_sweep import restart_sweep, squeue_reader
 from .route_audit import (
     audit_campaign_routes,
     resolve_config_type,
@@ -1467,6 +1477,40 @@ def command_prepare_spin_restarts(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_restart_sweep(args: argparse.Namespace) -> int:
+    parked: set[str] = set()
+    if args.parked:
+        for line in Path(args.parked).read_text(encoding="utf-8").splitlines():
+            name = re.split(r"[,\t]", line.strip())[0].strip()
+            if name and name != "input":
+                parked.add(Path(name).name)
+    commands = [shlex.split(command) for command in args.queue_command] or None
+    report = restart_sweep(
+        Path(args.campaign), max_stages=args.max_stages, read_queue=squeue_reader(commands),
+        execute=args.execute, start=args.start, end=args.end, parked_inputs=parked,
+        clear_stop=args.clear_stop or "",
+    )
+    print(f"restart-sweep: {report['status']}"
+          + (f" ({report['stopped']})" if report.get("stopped") else ""))
+    for item in report["plan"]:
+        print(f"  {item['batch']}: {item['input']} -> m{item['multiplicity']} "
+              f"({item['stages']} stage(s)) from {Path(item['source_checkpoint']).name}")
+    reasons = collections.Counter(row["reason"].split(":")[0] for row in report["left_alone"])
+    if reasons:
+        print("Left alone: " + ", ".join(f"{name}={count}" for name, count in sorted(reasons.items())))
+    if report.get("queue_error"):
+        print(f"Queue could not be read: {report['queue_error']}", file=sys.stderr)
+    if report.get("lock"):
+        print(f"Lock: {report['lock']}", file=sys.stderr)
+    if report["pending_submit"]:
+        print("Batches to resubmit (RUN_POLICY=resume): " + " ".join(report["pending_submit"]))
+    if not args.execute:
+        print("Dry run only; no files changed. Pass --execute to write the restarts.")
+    if args.report:
+        write_text_lf(Path(args.report), json.dumps(report, indent=2, sort_keys=True) + "\n")
+    return int(report["exit_code"])
+
+
 def command_spin_extract(args: argparse.Namespace) -> int:
     count = write_spin_inventory(Path(args.source).resolve(), Path(args.output).resolve())
     print(f"Extracted {count} spin-state records")
@@ -2383,6 +2427,43 @@ def build_parser() -> argparse.ArgumentParser:
         help="input names to leave alone, one per line (first column of a TSV/CSV)",
     )
     restart_spins.set_defaults(func=command_prepare_spin_restarts)
+
+    sweep = sub.add_parser(
+        "restart-sweep",
+        help="one pass: checkpoint-restart minimum searches that ran out of optimizer steps",
+        description=(
+            "Restart, in their own batch folders, minimum searches that stopped at the optimizer "
+            "step limit (link 9999, 'Number of steps exceeded'): same route, same limits. Only "
+            "batches with no Slurm job are touched; each stage gets one attempt; a failed step "
+            "with more than half its SCFs unconverged is parked. Nothing is submitted: the "
+            "batches to resubmit are listed in restart_sweep/pending_submit.txt. Exit code 0 = "
+            "continue, 10 = stopped until someone looks (cap, refusal, repeat failures), 11 = "
+            "nothing done this time (lock held or queue unreadable)."
+        ),
+    )
+    sweep.add_argument("campaign", help="prepared spin campaign")
+    sweep.add_argument(
+        "--max-stages", type=int, required=True,
+        help="cumulative cap on restarted stages over every sweep of this campaign",
+    )
+    sweep.add_argument("--execute", action="store_true", help="write the restarts (default: dry run)")
+    sweep.add_argument("--start", type=int, default=1, help="first batch to inspect")
+    sweep.add_argument("--end", type=int, help="last batch to inspect (inclusive)")
+    sweep.add_argument(
+        "--parked", metavar="FILE",
+        help="input names never to restart, one per line (first column of a TSV/CSV)",
+    )
+    sweep.add_argument(
+        "--queue-command", action="append", default=[], metavar="COMMAND",
+        help=("command printing 'jobid|name|state|workdir' for every job of this user; repeat "
+              "for each scheduler that can run the campaign (default: squeue on this cluster)"),
+    )
+    sweep.add_argument(
+        "--clear-stop", metavar="NOTE",
+        help="resume after a stop; the note is recorded in the ledger",
+    )
+    sweep.add_argument("--report", metavar="FILE", help="also write the JSON report here")
+    sweep.set_defaults(func=command_restart_sweep)
 
     validate_spins = sub.add_parser(
         "validate-spins",
