@@ -235,6 +235,9 @@ class RestartSweepTests(unittest.TestCase):
         self.assertEqual((report["counts"]["complete"], report["counts"]["not_started"]), (1, 1))
         for name in ("scf", "cut", "ts"):
             self.assertTrue((self.campaign.batch(1) / f"{name}.log").is_file())
+        # A resubmit of batch 1 would rerun these three from scratch.
+        self.assertEqual({row["input"] for row in report["rerun_on_resubmit"]},
+                         {"scf.gjf", "cut.gjf", "ts.gjf"})
 
     def test_saddle_named_input_is_out_of_scope_even_with_a_plain_opt_route(self):
         name = "src__fe3n__transition-state__q0-m55__seed__abc"

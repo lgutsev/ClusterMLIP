@@ -321,7 +321,7 @@ def command_hold_inputs(args: argparse.Namespace) -> int:
     result = hold_inputs(
         Path(args.campaign), names, reason=args.reason, release=args.release,
         assume_stopped=args.assume_stopped, allow_empty_batches=args.allow_empty_batches,
-        dry_run=args.dry_run,
+        with_output=args.with_output, dry_run=args.dry_run,
     )
     done = "release" if args.release else "hold"
     verb = f"Would {done}" if args.dry_run else ("Released" if args.release else "Held")
@@ -1504,6 +1504,12 @@ def command_restart_sweep(args: argparse.Namespace) -> int:
         print(f"Lock: {report['lock']}", file=sys.stderr)
     if report["pending_submit"]:
         print("Batches to resubmit (RUN_POLICY=resume): " + " ".join(report["pending_submit"]))
+    if report["rerun_on_resubmit"]:
+        print(f"WARNING: {len(report['rerun_on_resubmit'])} failed input(s) left alone in those "
+              "batches would be rerun from scratch by a resubmit; hold them first "
+              "(hold-inputs --with-output):", file=sys.stderr)
+        for row in report["rerun_on_resubmit"]:
+            print(f"  {row['batch']}: {row['input']} ({row['reason'].split(':')[0]})", file=sys.stderr)
     if not args.execute:
         print("Dry run only; no files changed. Pass --execute to write the restarts.")
     if args.report:
@@ -2136,6 +2142,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--allow-empty-batches", action="store_true",
         help="allow holding every input of a batch; the launcher refuses a range that "
              "contains an empty batch, so such batches must be left out when submitting",
+    )
+    hold.add_argument(
+        "--with-output", action="store_true",
+        help="also hold inputs that already have a log: use it for failed inputs that must "
+             "not be rerun from scratch when their batch is resubmitted; the log stays in place",
     )
     hold.add_argument("--dry-run", action="store_true")
     hold.set_defaults(func=command_hold_inputs)

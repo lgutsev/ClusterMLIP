@@ -21,6 +21,9 @@ The pass is deliberately narrow:
 * a lock file, so two passes never write the manifest at once.
 
 It prepares restarts and lists the batches to resubmit; it never submits.
+Resubmitting a batch reruns every listed input that is not complete, so the
+report also names the failed inputs it left alone in those batches
+(``rerun_on_resubmit``): hold them first, or they start again from scratch.
 """
 from __future__ import annotations
 
@@ -226,6 +229,7 @@ def restart_sweep(
         "campaign": str(campaign), "started_utc": _now(), "execute": execute,
         "max_stages": max_stages, "status": "", "exit_code": EXIT_CONTINUE,
         "plan": [], "left_alone": [], "counts": {}, "pending_submit": [],
+        "rerun_on_resubmit": [],
     }
 
     def finish(status: str, code: int) -> dict[str, Any]:
@@ -454,6 +458,11 @@ def _sweep(
         pending |= {item["batch"] for item in chosen}
         write_text_lf(pending_path, "".join(f"{name}\n" for name in sorted(pending)))
         report["pending_submit"] = sorted(pending)
+        # A resubmitted batch reruns every listed input that is not complete,
+        # from scratch. Name the ones this pass left alone in those batches,
+        # so they can be held (hold-inputs --with-output) before the submit.
+        touched = {item["batch"] for item in chosen}
+        report["rerun_on_resubmit"] = [row for row in left if row["batch"] in touched]
     ledger["sweeps"].append({
         "utc": report["started_utc"], "restarted_inputs": len(chosen),
         "restarted_stages": sum(item["stages"] for item in chosen), "counts": dict(counts),
