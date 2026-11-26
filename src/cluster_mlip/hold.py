@@ -13,13 +13,19 @@ does exactly that and nothing more:
 - the input file, its manifest rows and everything else stay as they are, so
   a release puts the name back and the campaign is as it was.
 
-What is never held: an input that already produced output (holding it would
-hide a result or strand a partial run -- that is the restart pass's job), an
-input whose attempt is unconfirmed (a ``.started`` marker with no later
+What is never held: an input that already produced output, unless
+``with_output`` (by default holding it would hide a result or strand a partial
+run -- that is the restart pass's job), an input whose attempt is unconfirmed (a ``.started`` marker with no later
 ``.finished``) unless ``assume_stopped``, and the last listed input of a batch
 unless ``allow_empty_batches`` -- the launcher refuses a batch range that
 contains an empty ``inputs.txt``, so a fully held batch must be left out of
 every submitted range.
+
+``with_output`` exists for one case. Resubmitting a batch reruns every listed
+input that is not complete, from scratch, over its old log. A failed input
+that must not simply run again (parked for a decision, waiting for a different
+kind of relaunch) has to leave ``inputs.txt`` before its batch is resubmitted.
+Its log, checkpoints and manifest rows stay where they are.
 
 While an input is held it is absent from ``campaign-status`` (which follows the
 batch listings); ``audit-routes`` still reports it, with an empty batch.
@@ -110,6 +116,7 @@ def hold_inputs(
     release: bool = False,
     assume_stopped: bool = False,
     allow_empty_batches: bool = False,
+    with_output: bool = False,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Hold (or, with ``release``, put back) the named inputs; see the module doc."""
@@ -151,8 +158,9 @@ def hold_inputs(
         batch = found
         stem = Path(name).stem
         log = batch / f"{stem}.log"
-        if log.is_file() and log.stat().st_size > 0:
-            skip(name, batch, "already has output; holds are for inputs that have not run")
+        if log.is_file() and log.stat().st_size > 0 and not with_output:
+            skip(name, batch, "already has output; holds are for inputs that have not run "
+                              "(pass --with-output to keep a failed input from being rerun)")
             continue
         if _unconfirmed(batch, stem) and not assume_stopped:
             skip(name, batch, "activity_unconfirmed: pass --assume-stopped once every queue "

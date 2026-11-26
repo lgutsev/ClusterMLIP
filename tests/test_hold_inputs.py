@@ -87,6 +87,21 @@ class HoldTests(unittest.TestCase):
             self.assertIn("not listed", reasons["zzz.gjf"])
             self.assertEqual(hold_inputs(campaign, ["b.gjf"], assume_stopped=True)["input_count"], 1)
 
+    def test_a_failed_input_is_held_only_with_output_and_keeps_its_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign = _campaign(Path(tmp))
+            batch = campaign / "slurm_batches" / "batch_0001"
+            (batch / "a.log").write_text(" Error termination request processed by link 9999.\n")
+            (batch / "b.log").write_text(" SCF Done\n")
+            (batch / "b.started").write_text("started\n")
+            result = hold_inputs(campaign, ["a.gjf", "b.gjf"], reason="parked", with_output=True)
+            self.assertEqual([row["input"] for row in result["plan"]], ["a.gjf"])
+            self.assertIn("activity_unconfirmed", result["skipped"][0]["reason"])
+            self.assertEqual(_listing(campaign, "batch_0001"), ["b.gjf", "c.gjf"])
+            self.assertTrue((batch / "a.log").is_file())
+            hold_inputs(campaign, ["a.gjf"], release=True)
+            self.assertEqual(sorted(_listing(campaign, "batch_0001")), ["a.gjf", "b.gjf", "c.gjf"])
+
     def test_a_finished_marker_newer_than_started_is_confirmed(self):
         with tempfile.TemporaryDirectory() as tmp:
             campaign = _campaign(Path(tmp))

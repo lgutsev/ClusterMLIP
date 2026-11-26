@@ -11,7 +11,8 @@ The pass is deliberately narrow:
 * only batches with no Slurm job, in two queue snapshots, the second taken
   just before anything is written; if the queue cannot be read, nothing is
   written;
-* only minimum searches (saddles need a person to read the triage plan);
+* only minimum searches (saddles need a person to read the triage plan),
+  and never a point on a reaction path, which should not be optimized at all;
 * a stage that is itself the first stage of a restart is never restarted
   again: one attempt per stage;
 * a failed step with more than half of its SCFs unconverged is parked, not
@@ -20,6 +21,9 @@ The pass is deliberately narrow:
 * a lock file, so two passes never write the manifest at once.
 
 It prepares restarts and lists the batches to resubmit; it never submits.
+Resubmitting a batch reruns every listed input that is not complete, so the
+report also names the failed inputs it left alone in those batches
+(``rerun_on_resubmit``): hold them first, or they start again from scratch.
 """
 from __future__ import annotations
 
@@ -38,7 +42,13 @@ from typing import Any, Callable
 from .gaussian import _CM_RE, _SCF_NOT_CONVERGED_RE, _SCF_RE
 from .io import write_text_lf
 from .restart import _active, _batch_locations, _read_csv, first_unfinished_stage, prepare_spin_restarts
-from .routes import config_type_from_stem, input_stage_routes, intended_stationary_point, route_search_kind
+from .routes import (
+    config_type_from_stem,
+    geometry_role_for_config_type,
+    input_stage_routes,
+    intended_stationary_point,
+    route_search_kind,
+)
 from .spin import parse_spin_diagnostics
 
 EXIT_CONTINUE = 0
@@ -137,8 +147,10 @@ def _failing_section(text: str) -> str:
 def classify_log(text: str) -> dict[str, Any]:
     """How the last section of a log ended, and how its SCFs behaved."""
     section = _failing_section(text)
-    scf_total = len(_SCF_RE.findall(section))
     scf_unconverged = len(_SCF_NOT_CONVERGED_RE.findall(section))
+    # An SCF that gave up without printing "SCF Done" still ran: count it, so
+    # the unconverged ones are never more than the total.
+    scf_total = max(len(_SCF_RE.findall(section)), scf_unconverged)
     if not _ERROR_RE.search(section):
         ending = "no_error_termination"
     elif _LINK_9999_RE.search(section) and _STEPS_EXCEEDED_RE.search(section):
@@ -217,6 +229,7 @@ def restart_sweep(
         "campaign": str(campaign), "started_utc": _now(), "execute": execute,
         "max_stages": max_stages, "status": "", "exit_code": EXIT_CONTINUE,
         "plan": [], "left_alone": [], "counts": {}, "pending_submit": [],
+        "rerun_on_resubmit": [],
     }
 
     def finish(status: str, code: int) -> dict[str, Any]:
@@ -332,9 +345,14 @@ def _sweep(
         row = rows[unfinished]
         routes = input_stage_routes(input_text)
         route = routes[unfinished] if unfinished < len(routes) else ""
+        config_type = row.get("config_type") or config_type_from_stem(name)
+        if geometry_role_for_config_type(config_type) == "irc_point":
+            # A point on a reaction path is a fixed geometry. Optimizing it was
+            # the mistake; giving that optimization more steps would repeat it.
+            leave("path_point")
+            continue
         if (route_search_kind(route) != "minimum"
-                or intended_stationary_point(
-                    row.get("config_type") or config_type_from_stem(name)) == "saddle"):
+                or intended_stationary_point(config_type) == "saddle"):
             leave("not_a_minimum_search")
             continue
         if name in parked_inputs or name in parked:
@@ -440,6 +458,11 @@ def _sweep(
         pending |= {item["batch"] for item in chosen}
         write_text_lf(pending_path, "".join(f"{name}\n" for name in sorted(pending)))
         report["pending_submit"] = sorted(pending)
+        # A resubmitted batch reruns every listed input that is not complete,
+        # from scratch. Name the ones this pass left alone in those batches,
+        # so they can be held (hold-inputs --with-output) before the submit.
+        touched = {item["batch"] for item in chosen}
+        report["rerun_on_resubmit"] = [row for row in left if row["batch"] in touched]
     ledger["sweeps"].append({
         "utc": report["started_utc"], "restarted_inputs": len(chosen),
         "restarted_stages": sum(item["stages"] for item in chosen), "counts": dict(counts),

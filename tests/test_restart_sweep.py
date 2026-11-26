@@ -235,6 +235,9 @@ class RestartSweepTests(unittest.TestCase):
         self.assertEqual((report["counts"]["complete"], report["counts"]["not_started"]), (1, 1))
         for name in ("scf", "cut", "ts"):
             self.assertTrue((self.campaign.batch(1) / f"{name}.log").is_file())
+        # A resubmit of batch 1 would rerun these three from scratch.
+        self.assertEqual({row["input"] for row in report["rerun_on_resubmit"]},
+                         {"scf.gjf", "cut.gjf", "ts.gjf"})
 
     def test_saddle_named_input_is_out_of_scope_even_with_a_plain_opt_route(self):
         name = "src__fe3n__transition-state__q0-m55__seed__abc"
@@ -243,6 +246,22 @@ class RestartSweepTests(unittest.TestCase):
         report = self._sweep(root)
         self.assertEqual(report["plan"], [])
         self.assertEqual(report["left_alone"][0]["reason"], "not_a_minimum_search")
+
+    def test_reaction_path_point_is_never_restarted(self):
+        name = "src__fe2h2o4__irc-reverse__q0-m55__seed__abc"
+        self.campaign.ladder(name, 1, _done(55) + _step_limit(53))
+        root = self.campaign.write()
+        report = self._sweep(root, execute=True)
+        self.assertEqual(report["plan"], [])
+        self.assertEqual(report["left_alone"][0]["reason"], "path_point")
+        self.assertTrue((self.campaign.batch(1) / f"{name}.log").is_file())
+
+    def test_scf_that_never_printed_its_energy_still_counts(self):
+        text = (" Charge = 0 Multiplicity = 53\n SCF Done:  E(UBPW91) = -1.0\n"
+                " >>>>>>>>>> Convergence criterion not met.\n"
+                " Convergence failure -- run terminated.\n Error termination via Lnk1e in l502.exe\n")
+        verdict = classify_log(text)
+        self.assertEqual((verdict["scf_total"], verdict["scf_unconverged"]), (2, 2))
 
     def test_mostly_unconverged_step_is_parked_and_stays_parked(self):
         self.campaign.ladder("bad", 1, _done(55) + _step_limit(53, scfs=10, unconverged=6))
