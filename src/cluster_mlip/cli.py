@@ -316,6 +316,46 @@ def command_find_duplicate_inputs(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_release_manifest(args: argparse.Namespace) -> int:
+    from .release_manifest import ReleasePolicy, build_release
+
+    evidence: set[str] = set()
+    if args.ts_evidence:
+        for line in Path(args.ts_evidence).read_text(encoding="utf-8").splitlines():
+            key = line.split("	")[0].strip()
+            if key and not key.startswith("#"):
+                evidence.add(key)
+    families = tuple(
+        item.strip() for value in (args.require_family or []) for item in value.split(",")
+        if item.strip()
+    )
+    policy = ReleasePolicy(
+        level=args.level, max_force_ev_ang=args.max_force, max_s2_excess=args.max_s2_excess,
+        ts_evidence=evidence, require_families=families,
+        min_frames_per_family=args.min_frames_per_family,
+        min_release_frames=args.min_release_frames,
+    )
+    summary = build_release(
+        [Path(path) for path in args.collect_dirs], Path(args.output), policy,
+        campaign_root=Path(args.campaign_root) if args.campaign_root else None,
+    )
+    print(f"Frames: {summary['frames']}; " + ", ".join(
+        f"{key}={value}" for key, value in sorted(summary["decisions"].items())))
+    for reason, count in summary["reasons"].items():
+        print(f"  {count:6} {reason}")
+    print("Included by chemistry: " + (", ".join(
+        f"{key}={value}" for key, value in summary["included_by_chemistry"].items()) or "none"))
+    if summary["source_files_unavailable"]:
+        print(f"Source outputs not readable: {summary['source_files_unavailable']} "
+              f"of {summary['source_files']}")
+    print(f"Release sha256: {summary['release_sha256']}")
+    print(f"Gate: {summary['gate']}")
+    for gap in summary["gaps"]:
+        print(f"  gap: {gap}")
+    print(f"Wrote {Path(args.output) / 'release_manifest.tsv'}")
+    return 0 if summary["gate"] == "release" else 3
+
+
 def command_hold_inputs(args: argparse.Namespace) -> int:
     names = read_input_list(Path(args.list))
     result = hold_inputs(
@@ -2113,6 +2153,38 @@ def build_parser() -> argparse.ArgumentParser:
     )
     repair_inputs.add_argument("--dry-run", action="store_true")
     repair_inputs.set_defaults(func=command_repair_checkpoint_inputs)
+
+    release = sub.add_parser(
+        "release-manifest",
+        help="qualify collected labels for a training release: per-frame provenance, "
+             "state and convergence checks, include/hold/reject with reasons, counts by "
+             "chemistry and a release hash (read-only on the campaign)",
+    )
+    release.add_argument("collect_dirs", nargs="+", help="output directories of collect")
+    release.add_argument("-o", "--output", required=True, help="release directory")
+    release.add_argument(
+        "--level",
+        help="the release's label level key (as in label-levels); frames at any other "
+             "level are held as a separate set. Default: no level filter",
+    )
+    release.add_argument("--max-force", type=float, default=20.0,
+                         help="hold frames with a force component above this (eV/Angstrom)")
+    release.add_argument("--max-s2-excess", type=float,
+                         help="also hold frames whose <S^2> after annihilation exceeds "
+                              "S(S+1) by more than this")
+    release.add_argument(
+        "--ts-evidence", metavar="FILE",
+        help="frame keys, job ids or parent record ids (first column) whose saddle "
+             "endpoint has pathway evidence (IRC endpoints checked); others stay held",
+    )
+    release.add_argument("--campaign-root",
+                         help="resolve gaussian_output under this directory instead of the "
+                              "campaign path recorded by collect")
+    release.add_argument("--require-family", action="append",
+                         help="chemistry family that must be covered, e.g. Fe,FeO,FeNO")
+    release.add_argument("--min-frames-per-family", type=int, default=1)
+    release.add_argument("--min-release-frames", type=int, default=1)
+    release.set_defaults(func=command_release_manifest)
 
     hold = sub.add_parser(
         "hold-inputs",
